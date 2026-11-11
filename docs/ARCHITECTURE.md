@@ -4,7 +4,9 @@ Switchboard is a self-hosted program that gives artificial intelligence (AI) ass
 own accounts:
 mail, calendars, contacts, bank data, orders, notifications, inbound webhooks, and home devices. It replaces
 paid intermediaries (aggregators such as Plaid, automation services such as Zapier) with code you can read,
-running on a machine you control, using only the Python standard library. The Model Context Protocol (MCP)
+running on a machine you control. The fuller Python reference uses only its standard library; the separate
+C++20 native backend uses established transport, database, structured-data and cryptographic libraries.
+The Model Context Protocol (MCP)
 server communicates over standard input and output (stdio).
 
 ## Design principles
@@ -19,7 +21,19 @@ server communicates over standard input and output (stdio).
    command line take the same route: schema validation, policy decision, audit record, then execution.
 4. **Least privilege by default.** Read-only protocol modes, recipient allowlists, rate limits, a kill switch,
    and per-tool exposure lists. Secrets are references, never values in the configuration.
-5. **Small and auditable.** No runtime dependencies. Each connector is a separate package with its own tests.
+5. **Explicit implementation boundaries.** Python has no third-party runtime packages. Native C++ code uses
+   reviewed libraries, with C and Rust clients sharing the same native gate rather than duplicating it.
+   The native subset and independent state are documented; unsupported Python features are not hidden fallbacks.
+
+## Language implementations
+
+[The native backend](../native/README.md) is preferred for new local-first native development.
+Its C++ engine implements actual policy, private state and supported adapters. A stable C application binary
+interface and safe Rust ownership wrapper use that engine without launching Python.
+
+This is not complete feature parity: the account/social connectors and full automation-rule runner remain
+Python-only. Native configuration, state, approval identifiers and configuration hashes are separate.
+Read [the native coverage table](../native/README.md#coverage) before changing an assistant's server command.
 
 ## Components
 

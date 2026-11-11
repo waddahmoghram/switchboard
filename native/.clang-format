@@ -1,0 +1,14 @@
+BasedOnStyle: LLVM
+IndentWidth: 4
+ColumnLimit: 160
+BreakBeforeBraces: Allman
+PointerAlignment: Right
+ReferenceAlignment: Pointer
+NamespaceIndentation: None
+AllowShortFunctionsOnASingleLine: None
+AllowShortIfStatementsOnASingleLine: Never
+AllowShortLoopsOnASingleLine: false
+AllowShortBlocksOnASingleLine: Never
+AllowShortLambdasOnASingleLine: None
+SpacesBeforeTrailingComments: 2
+AccessModifierOffset: -4

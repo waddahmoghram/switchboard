@@ -1,0 +1,14 @@
+[package]
+name = "switchboard-native"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.63"
+description = "Safe Rust ownership and error bindings for the C++ Switchboard engine"
+publish = false
+
+[lib]
+path = "src/lib.rs"
+
+[[bin]]
+name = "switchboard-rust"
+path = "src/main.rs"

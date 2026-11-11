@@ -1,0 +1,11 @@
+{
+  "name": "switchboard-native",
+  "version-string": "0.1.0",
+  "description": "C++-first local hooks with a stable C interface and safe Rust clients",
+  "dependencies": [
+    "curl",
+    "sqlite3",
+    "nlohmann-json",
+    "openssl"
+  ]
+}

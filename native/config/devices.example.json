@@ -1,0 +1,58 @@
+{
+  "switchboard": {
+    "connectors": ["wled", "shelly"],
+    "data_dir": "~/.local/share/switchboard-native"
+  },
+  "connectors": {
+    "wled": {
+      "timeout_seconds": 5,
+      "max_response_bytes": 65536,
+      "devices": [
+        {
+          "name": "desk",
+          "base_url": "http://192.168.50.20",
+          "allow_http": true,
+          "allow_control": false,
+          "allow_global": false,
+          "max_brightness": 128,
+          "max_transition_deciseconds": 20,
+          "segments": [0],
+          "presets": []
+        }
+      ]
+    },
+    "shelly": {
+      "timeout_seconds": 5,
+      "devices": {
+        "desk_lamp": {
+          "base_url": "http://192.168.50.40",
+          "allow_http": true,
+          "expected_device_id": "shellyplusplugs-000000000001",
+          "expected_model": "SNPL-00112EU",
+          "expected_generation": 2,
+          "switch_ids": [0],
+          "password": "env:SWITCHBOARD_SHELLY_DESK_PASSWORD",
+          "allow_control": false,
+          "controls": {}
+        }
+      }
+    }
+  },
+  "policy": {
+    "approval_ttl_minutes": 60,
+    "tools": {
+      "wled_set_*": {
+        "decision": "ask"
+      },
+      "wled_apply_preset": {
+        "decision": "ask"
+      },
+      "shelly_switch_set": {
+        "decision": "ask"
+      }
+    }
+  },
+  "mcp": {
+    "expose": ["wled_*", "shelly_*"]
+  }
+}

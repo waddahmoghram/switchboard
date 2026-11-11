@@ -4,8 +4,13 @@ Self-hosted hooks that let your personal assistant work with **your own** mail, 
 orders, notifications, webhooks, home devices, local notes, tasks, and health checks — without paying an
 aggregator such as Plaid or an automation service such as Zapier, and without handing them your credentials.
 
-Switchboard is a single Python package with **no third-party Python runtime dependencies**. It uses standard
-mail, calendar, and contact protocols, bank export files, and direct service interfaces. It exposes tools
+Switchboard has a full Python reference implementation and a **C++20-first native backend** for selected
+local-first tools. C99 and Rust clients share the C++ engine through a versioned C interface; they are not
+three independent ports or Python launchers. See [native language coverage](./native/README.md#coverage).
+
+The Python package has **no third-party Python runtime dependencies**; the native backend uses established
+transport, database, structured-data and cryptographic libraries. Python uses standard mail, calendar, and contact
+protocols, bank export files, and direct service interfaces. Both backends expose tools
 through the Model Context Protocol (MCP) with a **policy gate**: read and draft tools normally run immediately,
 act tools normally ask for approval, and no payment or checkout tool is implemented.
 
@@ -132,6 +137,8 @@ the local user account.
 
 ## Documentation
 
+* [C++ native backend](./native/README.md) — C++ preference, coverage differences, dependencies and own-machine builds
+* [C and Rust bindings](./native/docs/bindings.md) — shared-engine design, ownership and errors
 * [Architecture](./docs/ARCHITECTURE.md) — components, the call path, trust boundaries
 * [Tradeoffs](./docs/TRADEOFFS.md) — what doing it yourself costs, connector by connector
 * [Deployment](./docs/DEPLOYMENT.md) — install, test, connect assistants, run as a service, revoke

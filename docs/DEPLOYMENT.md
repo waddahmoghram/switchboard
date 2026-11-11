@@ -21,6 +21,11 @@ merely because the test suite uses fakes.
 
 ## Install
 
+The commands below install the full Python reference. For the C++-first native engine and C/Rust clients,
+use [the separate native build and coverage guide](../native/README.md). Do not point native configuration,
+databases or approval commands at Python state, or assume all account connectors are available natively.
+No native program or test has been executed on the authoring host.
+
 Requirements: Python 3.11 or newer (for `tomllib`) on Linux or macOS. Windows is unsupported in this prototype:
 the audit log and runner lock depend on `fcntl`. Runtime and platform compatibility remain untested.
 

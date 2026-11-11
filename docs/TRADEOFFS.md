@@ -148,6 +148,18 @@ tests are authored, not live-provider verification.
 
 ## Architecture choices
 
+### Language choice
+
+C++20 is the preferred native implementation. C99 and Rust use one C++ engine through a stable interface;
+this avoids maintaining three subtly different policy and connector implementations. It also means the
+Rust/C clients need the native shared library and matching platform/interface version, not just their own
+language runtime. The [binding contract](../native/docs/bindings.md) defines ownership and error semantics.
+
+The existing Python package remains the fuller, standard-library reference. Native transport, database,
+Structured-data and cryptographic libraries add build/deployment dependencies. Native account/social hooks and full
+automation-rule parity are not claimed. Neither compiler checks nor shared interfaces prove runtime or
+hardware compatibility; see [native coverage and build limits](../native/README.md).
+
 | Choice                         | Benefit                                                            | Cost                                                                                                 |
 | ------------------------------ | ------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------- |
 | Standard library only          | No third-party Python runtime dependency tree                      | Hand-written parsers; still maintain Python, system libraries, and development dependencies          |
