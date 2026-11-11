@@ -3,9 +3,9 @@
 The contacts connector lets assistants look up people in your own address books: names,
 organizations, email addresses, and phone numbers. It reads two kinds of sources:
 
-* **`carddav`**: an address book server that speaks CardDAV (vCard Extensions to Web Distributed
-  Authoring and Versioning, or WebDAV), defined in Request for Comments (RFC) 6352, such as iCloud,
-  Fastmail, Nextcloud, or Radicale.
+* **`carddav`**: a server using Web Distributed Authoring and Versioning (WebDAV) with vCard Extensions
+  to WebDAV (CardDAV), defined in Request for Comments (RFC) 6352, such as iCloud, Fastmail, Nextcloud,
+  or Radicale.
 * **`vcf_file`**: a `.vcf` export on this machine, for example from your phone.
 
 Cards are downloaded on a schedule and cached locally, so searches are fast and do not touch the
@@ -57,7 +57,8 @@ source.
   names; the vdirsyncer project, which is regularly tested against iCloud, uses
   `https://contacts.icloud.com/`
   ([vdirsyncer iCloud notes](https://vdirsyncer.pimutils.org/en/stable/tutorials/icloud.html)).
-  Discovery then moves to a per-account host under `icloud.com`, which Switchboard accepts.
+  Discovery then moves to a recognized per-account host such as `p42-contacts.icloud.com`, which
+  Switchboard explicitly permits over the standard encrypted port.
 * **Fastmail**: CardDAV server `https://carddav.fastmail.com/` with an app password; your regular
   password does not work, and Basic plans do not include CardDAV. Without discovery, the personal
   address book is `https://carddav.fastmail.com/dav/addressbooks/user/<you@domain>/Default`
@@ -97,8 +98,9 @@ source.
 
 * Passwords are secret references resolved only when a refresh runs; error messages name the
   source, never the credentials.
-* Credentials go only to the configured origin or, over Hypertext Transfer Protocol Secure (HTTPS),
-  to a host under the same parent domain; other redirects are refused.
+* Credentials go only to the configured origin or recognized iCloud account hosts over Hypertext
+  Transfer Protocol Secure (HTTPS) on port 443. Other hosts and changed ports are refused, including
+  arbitrary siblings under the same parent domain. Every redirect is checked before credentials are sent.
 * Server replies that declare a `DOCTYPE` or entities are refused; the parser never fetches external
   entities.
 * Contact text is untrusted data, so results are flagged `untrusted_content`. Only minimal fields are

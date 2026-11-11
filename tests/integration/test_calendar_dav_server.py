@@ -218,6 +218,22 @@ def test_a_deleted_calendar_is_skipped_and_discovery_runs_again(
     assert (dav_server.seen[0].method, dav_server.seen[0].path) == ("PROPFIND", "/")
 
 
+def test_new_calendars_are_discovered_on_the_next_source_refresh(
+    dav_app: App, dav_server: FakeDavServer
+) -> None:
+    service = CalendarService(dav_app.ctx, load_settings(dav_app.ctx.connector_config("calendar")))
+    now = datetime.now(UTC)
+    assert service.refresh("work", now)["error"] is None
+    _add_deleted_team_calendar(dav_server)
+    dav_server.routes[("REPORT", TEAM)] = _xml("report_events.xml")
+    dav_server.seen.clear()
+
+    state = service.refresh("work", now + timedelta(hours=1))
+
+    assert state["error"] is None and state["skipped"] == []
+    assert [seen.path for seen in dav_server.seen if seen.method == "REPORT"] == [PERSONAL, TEAM]
+
+
 def test_every_calendar_gone_keeps_the_cached_events_and_reports_the_error(
     dav_app: App, dav_server: FakeDavServer
 ) -> None:

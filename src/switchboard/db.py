@@ -7,11 +7,14 @@ Versions apply in order inside one transaction each, so a failed migration leave
 
 from __future__ import annotations
 
+import os
 import sqlite3
+import stat
 from collections.abc import Iterator, Sequence
 from contextlib import closing, contextmanager
 from pathlib import Path
 
+from switchboard.errors import ConfigError
 from switchboard.util import now_iso
 
 Migration = tuple[int, Sequence[str]]
@@ -84,6 +87,16 @@ class Database:
         self._migrations: dict[str, list[Migration]] = {}
 
     def connect(self) -> sqlite3.Connection:
+        try:
+            fd = os.open(self.path, os.O_RDWR | os.O_CREAT | getattr(os, "O_NOFOLLOW", 0), 0o600)
+        except OSError as exc:
+            raise ConfigError(f"cannot open the database: {exc.strerror}") from exc
+        try:
+            if not stat.S_ISREG(os.fstat(fd).st_mode):
+                raise ConfigError("the database must be a regular file")
+            os.fchmod(fd, 0o600)
+        finally:
+            os.close(fd)
         conn = sqlite3.connect(self.path, timeout=30.0, isolation_level=None)
         conn.row_factory = sqlite3.Row
         conn.execute("PRAGMA foreign_keys = ON")

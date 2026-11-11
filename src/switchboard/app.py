@@ -29,6 +29,9 @@ KNOWN_CONNECTORS: dict[str, str] = {
     "notify": "switchboard.connectors.notify",
     "webhooks": "switchboard.connectors.webhooks",
     "home": "switchboard.connectors.home",
+    "telegram": "switchboard.connectors.telegram",
+    "linkedin": "switchboard.connectors.linkedin",
+    "whatsapp": "switchboard.connectors.whatsapp",
 }
 
 
@@ -132,6 +135,7 @@ def _register_core_tools(app: App) -> None:
         ]
 
     def approval_status(args: dict[str, Any]) -> dict[str, Any]:
+        app.approvals.expire()
         request = app.approvals.get(args["id"])
         if request is None:
             return {"id": args["id"], "status": "unknown"}

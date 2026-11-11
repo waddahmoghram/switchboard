@@ -1,0 +1,15 @@
+# Add "telegram" to [switchboard] connectors only after filling both identifier lists.
+[connectors.telegram]
+bot_token = "file:~/.config/switchboard/telegram-bot-token"
+allowed_user_ids = []
+allowed_chat_ids = []
+allow_groups = false
+poll_interval_seconds = 30
+long_poll_seconds = 10
+retention_days = 14
+
+# Replies are act tier and ask by default. No extra allow rule is required.
+# [policy.tools.telegram_reply]
+# decision = "ask"
+# allow_recipients = ["telegram:111111111"]
+# max_per_hour = 10

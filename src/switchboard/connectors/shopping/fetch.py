@@ -24,9 +24,13 @@ _REDIRECTS = frozenset({301, 302, 303, 307, 308})
 def vet_watch_url(raw: str, settings: Settings) -> str:
     """Normalize a watch URL or raise ToolError with a short reason."""
     try:
+        if any(character.isspace() or not character.isprintable() for character in raw):
+            raise ToolError("URLs with whitespace or control characters are refused")
         parts = urlsplit(raw.strip())
         host = (parts.hostname or "").rstrip(".")
         has_credentials = parts.username is not None or parts.password is not None
+        if parts.port == 0:
+            raise ToolError("URL ports must be between 1 and 65535")
     except ValueError as exc:
         raise ToolError("the URL could not be parsed") from exc
     if parts.scheme.lower() != "https" or not host:
@@ -54,6 +58,10 @@ def get_vetted(
     only the host that redirected, because product URLs can carry session or affiliate tokens.
     """
     for _ in range(MAX_REDIRECTS + 1):
+        try:
+            url = vet_watch_url(url, settings)
+        except ToolError as exc:
+            raise HttpError(f"refused a product URL: {exc}") from exc
         response = http.request(
             "GET", url, headers=headers, max_bytes=max_bytes, follow_redirects=False, public_only=True
         )

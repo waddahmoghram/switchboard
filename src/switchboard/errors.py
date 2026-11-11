@@ -9,6 +9,10 @@ class ConfigError(SwitchboardError):
     """The configuration file is missing, malformed, or inconsistent."""
 
 
+class AuditError(SwitchboardError):
+    """The audit log contains an unreadable or malformed record."""
+
+
 class SecretError(SwitchboardError):
     """A secret reference could not be resolved safely."""
 

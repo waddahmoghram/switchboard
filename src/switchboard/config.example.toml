@@ -7,7 +7,8 @@
 
 [switchboard]
 # Connectors to load. Start with one, check it with `switchboard doctor`, then add more.
-# Available: mail, calendar, contacts, finance, shopping, notify, webhooks, home
+# Available: mail, calendar, contacts, finance, shopping, notify, webhooks, home,
+# telegram, linkedin, whatsapp
 connectors = []
 # data_dir = "~/.local/share/switchboard"   # database, audit log, inboxes (created with mode 700)
 event_retention_days = 14
@@ -20,6 +21,7 @@ approval_ttl_minutes = 60
 # [policy.tools.mail_send]
 # decision = "ask"
 # allow_recipients = ["*@example.com", "you@example.org"]
+# Counts successful and in-flight calls, including approved calls, over a rolling hour.
 # max_per_hour = 5
 #
 # [policy.tools."home_*"]
@@ -513,3 +515,43 @@ max_per_hour = 20
 # Reading exposed states needs no approval.
 # [policy.tools.home_states]
 # decision = "allow"
+
+# ==================== telegram ====================
+# Fill BOTH allowlists before adding "telegram" to [switchboard] connectors.
+# One receiver per bot; this inbox does not start an assistant/model.
+[connectors.telegram]
+bot_token = "file:~/.config/switchboard/telegram-bot-token"
+allowed_user_ids = []
+allowed_chat_ids = []
+allow_groups = false
+poll_interval_seconds = 30
+long_poll_seconds = 10
+retention_days = 14
+
+# [policy.tools.telegram_reply]
+# decision = "ask"
+# allow_recipients = ["telegram:REPLACE_WITH_OWN_CHAT_ID"]
+# max_per_hour = 10
+
+# ==================== linkedin ====================
+# Imports and drafts are local. Publishing additionally needs your own authorized app/token.
+[connectors.linkedin]
+import_dir = "~/.local/share/switchboard/imports/linkedin"
+publishing_enabled = false
+access_token = "env:LINKEDIN_ACCESS_TOKEN"
+# Empty means local-only drafts. Configure before drafting a post that you intend to publish.
+author_urn = ""
+api_version = "202610"
+
+# [policy.tools.linkedin_publish_post]
+# decision = "ask"
+# allow_recipients = ["urn:li:person:REPLACE_WITH_OWN_ID"]
+# max_per_hour = 1
+
+# ==================== whatsapp ====================
+# Offline chat exports only; no live messaging, session cookies, or business platform.
+[connectors.whatsapp]
+import_dir = "~/.local/share/switchboard/whatsapp-imports"
+# Required before enabling: choose MDY, DMY, or YMD for the actual export; never auto-detected.
+date_order = ""
+timezone = "America/Los_Angeles" # Optional context only; no offset inference.

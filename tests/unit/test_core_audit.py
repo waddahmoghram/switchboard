@@ -5,6 +5,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
+
 from switchboard.audit import GENESIS, AuditLog, redact
 
 
@@ -82,3 +84,23 @@ def test_log_file_is_private(tmp_path: Path) -> None:
     log = AuditLog(tmp_path / "audit.jsonl")
     log.append("event")
     assert log.path.stat().st_mode & 0o777 == 0o600
+
+
+@pytest.mark.parametrize("body", [b'{"broken":', b"[]\n", b"\xff\n"])
+def test_malformed_logs_report_a_broken_chain_without_a_traceback(tmp_path: Path, body: bytes) -> None:
+    log = AuditLog(tmp_path / "audit.jsonl")
+    log.path.write_bytes(body)
+    result = log.verify()
+    assert not result.ok
+    assert result.problem
+
+
+def test_tail_deletion_requires_an_independent_head_hash_to_detect(tmp_path: Path) -> None:
+    log = AuditLog(tmp_path / "audit.jsonl")
+    first = log.append("one")
+    anchored = log.append("two")["hash"]
+    log.path.write_text(log.path.read_text().splitlines()[0] + "\n", encoding="utf-8")
+    result = log.verify()
+    assert result.ok
+    assert result.head == first["hash"]
+    assert result.head != anchored

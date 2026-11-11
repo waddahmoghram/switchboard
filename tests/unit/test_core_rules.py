@@ -108,3 +108,83 @@ def test_rule_engine_calls_tools_through_the_policy_gate(make_app: AppFactory) -
     assert pending[0].origin == "rule"
     fired = [record for record in app.ctx.audit.records() if record["kind"] == "rule.fired"]
     assert [record["status"] for record in fired] == ["ok", "pending"]
+
+
+@pytest.mark.parametrize(
+    "condition",
+    [
+        {},
+        {"gte": 0, "grater_than": 100},
+        {"exists": "false"},
+        {"in": "paid"},
+        {"contains": 5},
+        {"regex": "["},
+        {"regex": False},
+        {"gte": True},
+        {"gte": "5"},
+        {"lte": float("inf")},
+        {"gte": float("nan")},
+    ],
+)
+def test_invalid_conditions_fail_before_events_are_processed(condition: Any) -> None:
+    rule = {"on": "demo.*", "match": {"payload.level": condition}, "do": [{"tool": "demo_note"}]}
+    with pytest.raises(ConfigError):
+        load_rules([rule])
+
+
+@pytest.mark.parametrize(
+    "rule",
+    [
+        {"enabled": False, "on": "demo.*", "do": [{"tool": "demo_note"}]},
+        {"name": "", "on": "demo.*", "do": [{"tool": "demo_note"}]},
+        {"on": "demo.*", "match": {"payload..level": 1}, "do": [{"tool": "demo_note"}]},
+        {"on": "demo.*", "do": [{"tool": ""}]},
+        {"on": "demo.*", "do": [{"tool": "demo_note", "stop_on_eror": True}]},
+        {"on": "demo.*", "do": [{"tool": "demo_note", "stop_on_error": "false"}]},
+    ],
+)
+def test_unknown_rule_controls_are_not_silently_ignored(rule: dict[str, Any]) -> None:
+    with pytest.raises(ConfigError):
+        load_rules([rule])
+
+
+def test_rule_equality_does_not_confuse_boolean_flags_with_amounts() -> None:
+    assert not condition_holds(True, 1)
+    assert not condition_holds(True, {"equals": 1})
+    assert not condition_holds(True, {"in": [1]})
+    assert condition_holds(True, {"in": [True]})
+    assert condition_holds({"amount": 1.0}, {"equals": {"amount": 1}})
+
+
+@pytest.mark.parametrize("value", [float("inf"), float("-inf"), float("nan"), 10**400])
+def test_out_of_range_event_numbers_do_not_match_numeric_conditions(value: Any) -> None:
+    assert not condition_holds(value, {"gte": 0})
+
+
+def test_valid_combined_conditions_and_action_flags_are_preserved() -> None:
+    rule = {
+        "on": "demo.*",
+        "match": {"payload.level": {"gte": 5, "lte": 10}},
+        "do": [{"tool": "demo_note", "args": {}, "stop_on_error": False}],
+    }
+    [loaded] = load_rules([rule])
+    assert loaded.actions[0]["stop_on_error"] is False
+
+
+def test_pending_actions_do_not_create_automatic_workflow_dependencies(make_app: AppFactory) -> None:
+    app = make_app({"rules": [{"on": "demo.request", "do": [{"tool": "demo_act"}, {"tool": "demo_note"}]}]})
+    effects: list[str] = []
+    notes: list[str] = []
+    empty = {"type": "object", "additionalProperties": False}
+    app.registry.add(Tool("demo_act", "Act.", Tier.ACT, empty, lambda _args: effects.append("acted")))
+    app.registry.add(Tool("demo_note", "Note.", Tier.DRAFT, empty, lambda _args: notes.append("queued")))
+    app.ctx.events.emit("test", "demo.request", {})
+
+    app.process_events()
+
+    assert effects == []
+    assert notes == ["queued"]
+    [request] = app.approvals.list("pending")
+    assert app.dispatcher.approve(request.id).status == "ok"
+    assert effects == ["acted"]
+    assert notes == ["queued"]

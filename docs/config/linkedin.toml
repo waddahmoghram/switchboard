@@ -1,0 +1,13 @@
+# Append "linkedin" to your existing [switchboard] connectors list; do not replace other connectors.
+[connectors.linkedin]
+import_dir = "~/.local/share/switchboard/imports/linkedin"
+publishing_enabled = false
+access_token = "env:LINKEDIN_ACCESS_TOKEN"
+# Empty means local-only drafts. Set your actual app-authorized person identifier before drafting to publish.
+author_urn = ""
+api_version = "202610"
+
+[policy.tools.linkedin_publish_post]
+decision = "ask"
+allow_recipients = ["urn:li:person:REPLACE_WITH_OWN_ID"]
+max_per_hour = 1

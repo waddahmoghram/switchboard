@@ -9,6 +9,7 @@ import pytest
 
 from switchboard.app import App
 from switchboard.connectors.shopping import store
+from switchboard.connectors.shopping.fetch import get_vetted
 from switchboard.connectors.shopping.prices import is_price_drop, run_price_checks
 from switchboard.connectors.shopping.settings import Settings, parse_settings
 from switchboard.errors import HttpError
@@ -255,3 +256,13 @@ def test_endless_redirects_stop_after_five_hops(make_app: AppFactory, fake_http:
 
     assert result.outcome == "fetch_failed"
     assert [request.url for request in fake_http.requests].count(PRODUCT) == 6
+
+
+@pytest.mark.parametrize(
+    "url",
+    ["https://10.0.0.1/", "https://shop.example.com:99999/", "https://shop.example.com/\nprivate"],
+)
+def test_initial_urls_are_vetted_before_fetching(fake_http: FakeHttp, url: str) -> None:
+    with pytest.raises(HttpError):
+        get_vetted(fake_http, url, SETTINGS, headers={}, max_bytes=1024)
+    assert fake_http.requests == []

@@ -148,8 +148,9 @@ and [lifecycle notifications](https://learn.microsoft.com/en-us/graph/change-not
 * Graph counts a notification as delivered when it gets a 2XX response within 3 seconds and
   recommends `202 Accepted` after queuing. Otherwise it retries for up to 4 hours, and notifications
   from an endpoint that keeps responding slowly can be dropped for good.
-* The notification address must be public and use HTTPS. A retry with the same body is recorded as a
-  duplicate.
+* The notification address must be public and use HTTPS. Retries are deduplicated only when every item
+  carries a notification identifier, using that identifier and its subscription. Items without identifiers,
+  including lifecycle notifications, are not deduplicated by body: identical bodies can be separate events.
 
 This connector does not create or renew subscriptions. For
 [notifications with resource data](https://learn.microsoft.com/en-us/graph/change-notifications-with-resource-data),

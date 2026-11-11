@@ -2,14 +2,15 @@
 
 Connectors *emit* events (``mail.received``, ``webhook.received``, ``finance.transaction`` …).
 Connector subscribers process them first (for example, finance turns bank-alert emails into ledger
-entries and emits derived events), then the rule engine runs your automations. Events persist, so
-nothing is lost if the runner restarts between polling and processing.
+entries and emits derived events), then the rule engine runs your automations. Queued events survive
+restarts, but subscriber effects and event completion are not a single transaction.
 """
 
 from __future__ import annotations
 
 import json
 import logging
+import sqlite3
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
@@ -44,15 +45,28 @@ class EventBus:
         payload: dict[str, Any],
         *,
         dedupe_key: str | None = None,
+        connection: sqlite3.Connection | None = None,
     ) -> int | None:
-        """Queue an event; return its id, or None when ``dedupe_key`` was already seen."""
+        """Queue an event, optionally in the caller's transaction; None means an existing dedupe key."""
+        if connection is not None:
+            return self._insert(connection, source, event_type, payload, dedupe_key)
         with self.db.session() as conn:
-            cursor = conn.execute(
-                "INSERT OR IGNORE INTO events (source, type, payload_json, dedupe_key, created_at) "
-                "VALUES (?, ?, ?, ?, ?)",
-                (source, event_type, canonical_json(payload), dedupe_key, now_iso()),
-            )
-            return cursor.lastrowid if cursor.rowcount == 1 else None
+            return self._insert(conn, source, event_type, payload, dedupe_key)
+
+    @staticmethod
+    def _insert(
+        conn: sqlite3.Connection,
+        source: str,
+        event_type: str,
+        payload: dict[str, Any],
+        dedupe_key: str | None,
+    ) -> int | None:
+        cursor = conn.execute(
+            "INSERT OR IGNORE INTO events (source, type, payload_json, dedupe_key, created_at) "
+            "VALUES (?, ?, ?, ?, ?)",
+            (source, event_type, canonical_json(payload), dedupe_key, now_iso()),
+        )
+        return cursor.lastrowid if cursor.rowcount == 1 else None
 
     def subscribe(self, pattern: str, name: str, handler: Subscriber) -> None:
         """Run ``handler`` for every event whose type matches the glob ``pattern``."""
@@ -100,6 +114,16 @@ class EventBus:
                 "UPDATE events SET processed_at = ?, error = ? WHERE id = ?",
                 (now_iso(), error, event_id),
             )
+
+    def failures(self, limit: int = 20) -> list[dict[str, Any]]:
+        """Failure metadata without payloads; processing failures are not automatically retried."""
+        with self.db.session() as conn:
+            rows = conn.execute(
+                "SELECT id, source, type, created_at, processed_at, error FROM events "
+                "WHERE error IS NOT NULL ORDER BY id DESC LIMIT ?",
+                (limit,),
+            ).fetchall()
+        return [dict(row) for row in rows]
 
     def process(self, after: Subscriber | None = None, *, limit: int = 100, max_rounds: int = 5) -> int:
         """Deliver pending events to subscribers, then to ``after`` (the rule engine).

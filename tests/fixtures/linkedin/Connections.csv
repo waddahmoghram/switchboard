@@ -1,0 +1,6 @@
+Notes:
+"When exporting your connection data, some addresses are missing. Only ""allowed"" addresses appear."
+
+First Name,Last Name,URL,Email Address,Company,Position,Connected On
+Sample,One,https://www.linkedin.com/in/synthetic-one,sample.one@example.com,"Example, Inc.","Engineer ""I""",01 Nov 2026
+Sample,Two,https://www.linkedin.com/in/synthetic-two,,Example Workshop,Designer,02 Nov 2026

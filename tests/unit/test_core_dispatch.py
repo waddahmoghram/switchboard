@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+import threading
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
 import pytest
@@ -12,7 +14,7 @@ from switchboard.policy import Origin, Tier
 from switchboard.tools import Tool
 from tests.conftest import AppFactory
 
-SEND_SCHEMA = {
+SEND_SCHEMA: dict[str, Any] = {
     "type": "object",
     "properties": {
         "to": {"type": "string", "maxLength": 100},
@@ -177,3 +179,84 @@ def test_approval_summaries_cannot_carry_terminal_escape_sequences(make_app: App
     assert stored is not None
     assert "\x1b" not in stored.summary and "\u202e" not in stored.summary
     assert "\\x1b[8m" in stored.summary
+
+
+def test_approvals_revalidate_arguments_after_a_schema_change(
+    app_and_outbox: tuple[App, list[dict[str, Any]]], make_app: AppFactory
+) -> None:
+    app, outbox = app_and_outbox
+    request = app.call("demo_send", {"to": "pat@example.com", "text": "old text"}, Origin.ASSISTANT)
+    assert request.approval_id is not None
+    updated = make_app()
+    schema = {
+        **SEND_SCHEMA,
+        "properties": {**SEND_SCHEMA["properties"], "text": {"type": "string", "maxLength": 1}},
+    }
+    updated.registry.add(Tool("demo_send", "Send.", Tier.ACT, schema, lambda args: outbox.append(args)))
+
+    outcome = updated.dispatcher.approve(request.approval_id)
+
+    assert outcome.status == "invalid"
+    assert "current tool" in outcome.message
+    assert outbox == []
+    stored = updated.approvals.get(request.approval_id)
+    assert stored is not None and stored.status == "failed"
+
+
+def test_pending_actions_cannot_bypass_the_execution_budget(make_app: AppFactory) -> None:
+    app = make_app({"policy": {"tools": {"demo_act": {"max_per_hour": 1}}}})
+    calls: list[int] = []
+    app.registry.add(Tool("demo_act", "Act.", Tier.ACT, EMPTY, lambda _args: calls.append(1)))
+    first = app.call("demo_act", {}, Origin.ASSISTANT)
+    second = app.call("demo_act", {}, Origin.ASSISTANT)
+    assert first.approval_id is not None and second.approval_id is not None
+
+    assert app.dispatcher.approve(first.approval_id).status == "ok"
+    assert app.dispatcher.approve(second.approval_id).status == "denied"
+    assert calls == [1]
+
+
+def test_concurrent_dispatchers_reserve_the_last_hourly_slot_atomically(
+    make_app: AppFactory, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    apps = [
+        make_app({"policy": {"tools": {"demo_act": {"decision": "allow", "max_per_hour": 1}}}})
+        for _ in range(2)
+    ]
+    barrier = threading.Barrier(2)
+    calls: list[int] = []
+
+    def stale_count(_tool: str, _seconds: int) -> int:
+        barrier.wait(timeout=5)
+        return 0
+
+    for app in apps:
+        app.registry.add(Tool("demo_act", "Act.", Tier.ACT, EMPTY, lambda _args: calls.append(1)))
+        monkeypatch.setattr(app.policy, "_recent_calls", stale_count)
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        results = list(pool.map(lambda app: app.call("demo_act", {}, Origin.ASSISTANT).status, apps))
+
+    assert sorted(results) == ["denied", "ok"]
+    assert calls == [1]
+
+
+def test_failed_calls_release_the_reserved_slot(app_and_outbox: tuple[App, list[dict[str, Any]]]) -> None:
+    app, _ = app_and_outbox
+    app.policy._rules["demo_boom"] = {"max_per_hour": 1}
+    assert app.call("demo_boom", {}, Origin.ASSISTANT).status == "error"
+    assert app.call("demo_boom", {}, Origin.ASSISTANT).status == "error"
+
+
+def test_status_expires_an_approval_without_needing_a_runner(
+    app_and_outbox: tuple[App, list[dict[str, Any]]],
+) -> None:
+    app, _ = app_and_outbox
+    pending = app.call("demo_send", {"to": "pat@example.com", "text": "late"}, Origin.ASSISTANT)
+    assert pending.approval_id is not None
+    with app.ctx.db.session() as conn:
+        conn.execute(
+            "UPDATE approvals SET expires_at = '2000-01-01T00:00:00+00:00' WHERE id = ?",
+            (pending.approval_id,),
+        )
+    outcome = app.call("approvals_status", {"id": pending.approval_id}, Origin.ASSISTANT)
+    assert outcome.data["status"] == "expired"

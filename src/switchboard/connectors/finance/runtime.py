@@ -199,7 +199,6 @@ class FinanceRuntime:
         except Exception as exc:
             # Only the type is logged at error level: a message could quote an account number from the file.
             log.error("finance import of %s failed with %s; it stays in the inbox", name, type(exc).__name__)
-            log.debug("finance import of %s failed", name, exc_info=True)
             return FileResult(name, "error", error=f"unexpected {type(exc).__name__}; it will be retried")
         move_to(path, subdirectory(inbox, PROCESSED))
         return result

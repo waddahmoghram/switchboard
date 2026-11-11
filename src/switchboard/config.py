@@ -16,6 +16,12 @@ from typing import Any
 
 from switchboard.errors import ConfigError
 
+_CORE_KEYS = {
+    "switchboard": frozenset({"connectors", "data_dir", "event_retention_days"}),
+    "policy": frozenset({"tools", "approval_ttl_minutes"}),
+    "mcp": frozenset({"expose", "instructions"}),
+}
+
 
 def _xdg(var: str, fallback: str) -> Path:
     value = os.environ.get(var)
@@ -41,14 +47,45 @@ class Config:
     data_dir: Path
     path: Path | None = None
 
+    def __post_init__(self) -> None:
+        unknown = set(self.data) - (_CORE_KEYS.keys() | {"connectors", "rules"})
+        if unknown:
+            raise ConfigError(f"unknown configuration section(s): {', '.join(sorted(unknown))}")
+        self.section("connectors")
+        for section, allowed in _CORE_KEYS.items():
+            unknown = set(self.section(section)) - allowed
+            if unknown:
+                raise ConfigError(f"[{section}]: unknown setting(s): {', '.join(sorted(unknown))}")
+        self.mcp_exposure()
+        for section, key in (
+            ("switchboard", "event_retention_days"),
+            ("policy", "approval_ttl_minutes"),
+        ):
+            settings = self.section(section)
+            if key in settings:
+                value = settings[key]
+                if isinstance(value, bool) or not isinstance(value, int) or value < 1:
+                    raise ConfigError(f"[{section}] {key} must be a positive whole number")
+
     def section(self, *keys: str) -> dict[str, Any]:
-        """Return a nested table, or an empty dict when any level is missing."""
+        """Return a nested table; missing tables are empty, malformed tables are errors."""
         node: Any = self.data
+        location: list[str] = []
         for key in keys:
-            if not isinstance(node, dict):
-                return {}
+            location.append(key)
             node = node.get(key, {})
-        return node if isinstance(node, dict) else {}
+            if not isinstance(node, dict):
+                raise ConfigError(f"[{'.'.join(location)}] must be a table")
+        return node
+
+    def mcp_exposure(self) -> list[str] | None:
+        """An absent exposure list means all tools; an explicitly empty one means none."""
+        value = self.section("mcp").get("expose")
+        if value is not None and (
+            not isinstance(value, list) or not all(isinstance(item, str) for item in value)
+        ):
+            raise ConfigError("[mcp] expose must be a list of tool-name patterns")
+        return value
 
     def enabled_connectors(self) -> list[str]:
         value = self.section("switchboard").get("connectors", [])
@@ -72,9 +109,16 @@ def load_config(path: Path | None = None) -> Config:
     try:
         with target.open("rb") as handle:
             data = tomllib.load(handle)
+    except UnicodeDecodeError as exc:
+        raise ConfigError(f"{target}: configuration must be UTF-8 text") from exc
     except tomllib.TOMLDecodeError as exc:
         raise ConfigError(f"{target}: invalid TOML: {exc}") from exc
-    raw_dir = data.get("switchboard", {}).get("data_dir")
+    except OSError as exc:
+        raise ConfigError(f"cannot read configuration {target}: {exc.strerror}") from exc
+    initial = Config(data=data, data_dir=default_data_dir(), path=target)
+    raw_dir = initial.section("switchboard").get("data_dir")
+    if raw_dir is not None and not isinstance(raw_dir, str):
+        raise ConfigError("[switchboard] data_dir must be a path string")
     data_dir = Path(os.path.expanduser(raw_dir)) if isinstance(raw_dir, str) else default_data_dir()
     return Config(data=data, data_dir=data_dir, path=target)
 
@@ -87,4 +131,18 @@ def ensure_private_dir(path: Path) -> Path:
         raise ConfigError(f"{path} must be a real directory, not a link or file")
     if info.st_mode & 0o077:
         os.chmod(path, 0o700)
+    return path
+
+
+def ensure_config_dir(path: Path) -> Path:
+    """Create a private config folder without changing an existing parent folder's permissions."""
+    try:
+        path.mkdir(mode=0o700, parents=True, exist_ok=True)
+        info = path.lstat()
+    except OSError as exc:
+        raise ConfigError(f"cannot prepare configuration directory {path}: {exc.strerror}") from exc
+    if not stat.S_ISDIR(info.st_mode):
+        raise ConfigError(f"{path} must be a real directory, not a link or file")
+    if info.st_mode & 0o022:
+        raise ConfigError(f"{path} must not be writable by other users")
     return path

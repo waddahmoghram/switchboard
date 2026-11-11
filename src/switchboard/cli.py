@@ -7,6 +7,7 @@ import json
 import logging
 import os
 import sys
+import tempfile
 import time
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -16,10 +17,10 @@ from types import ModuleType
 
 from switchboard import __version__, mcp_server
 from switchboard.app import App, build_app, load_connectors
-from switchboard.config import default_config_path, ensure_private_dir, load_config
-from switchboard.errors import SwitchboardError
+from switchboard.config import default_config_path, ensure_config_dir, ensure_private_dir, load_config
+from switchboard.errors import ConfigError, SwitchboardError
 from switchboard.policy import Origin
-from switchboard.util import printable
+from switchboard.util import json_loads, printable
 
 try:
     import fcntl
@@ -123,6 +124,7 @@ def build_parser(connector_modules: list[ModuleType] | None = None) -> argparse.
 
     events = sub.add_parser("events", help="show recent events")
     events.add_argument("-n", type=int, default=20)
+    events.add_argument("--failed", action="store_true", help="show processing errors without event bodies")
     events.set_defaults(app_handler=cmd_events)
 
     sub.add_parser("serve-mcp", help="run the MCP server on standard input and output").set_defaults(
@@ -139,14 +141,34 @@ def build_parser(connector_modules: list[ModuleType] | None = None) -> argparse.
 
 def cmd_init(args: argparse.Namespace) -> int:
     path = (args.config or default_config_path()).expanduser()
+    if path.is_symlink():
+        raise ConfigError(f"configuration {path} must not be a symbolic link")
     if path.exists() and not args.force:
         print(f"{path} already exists; use --force to overwrite", file=sys.stderr)
         return 1
-    ensure_private_dir(path.parent)
+    ensure_config_dir(path.parent)
     starter = resources.files("switchboard").joinpath("config.example.toml").read_text(encoding="utf-8")
-    flags = os.O_WRONLY | os.O_CREAT | os.O_TRUNC | getattr(os, "O_NOFOLLOW", 0)
-    with os.fdopen(os.open(path, flags, 0o600), "w", encoding="utf-8") as handle:
-        handle.write(starter)
+    temporary: Path | None = None
+    try:
+        fd, name = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.", suffix=".tmp")
+        temporary = Path(name)
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            os.fchmod(handle.fileno(), 0o600)
+            handle.write(starter)
+            handle.flush()
+            os.fsync(handle.fileno())
+        if args.force:
+            os.replace(temporary, path)
+        else:
+            os.link(temporary, path)  # Atomic no-overwrite publication, including a concurrent init.
+    except FileExistsError:
+        print(f"{path} already exists; use --force to overwrite", file=sys.stderr)
+        return 1
+    except OSError as exc:
+        raise ConfigError(f"cannot write configuration {path}: {exc.strerror}") from exc
+    finally:
+        if temporary is not None:
+            temporary.unlink(missing_ok=True)
     config = load_config(path)
     ensure_private_dir(config.data_dir)
     print(f"wrote {path} (mode 600)")
@@ -185,8 +207,8 @@ def cmd_tools(args: argparse.Namespace, app: App) -> int:
 
 def cmd_call(args: argparse.Namespace, app: App) -> int:
     try:
-        payload = json.loads(args.args)
-    except json.JSONDecodeError as exc:
+        payload = json_loads(args.args)
+    except ValueError as exc:
         print(f"--args is not valid JSON: {exc}", file=sys.stderr)
         return 2
     if not isinstance(payload, dict):
@@ -274,6 +296,10 @@ def cmd_kill_switch(args: argparse.Namespace, app: App) -> int:
 
 
 def cmd_events(args: argparse.Namespace, app: App) -> int:
+    if args.failed:
+        for failure in app.ctx.events.failures(args.n):
+            print(json.dumps(failure, ensure_ascii=True))
+        return 0
     for event in app.ctx.events.recent(args.n):
         keys = ", ".join(printable(key) for key in sorted(event.payload)[:8])
         kind = printable(event.type)
@@ -313,7 +339,10 @@ def _run(args: argparse.Namespace, app: App) -> int:
         scheduler.run_all()
         handled = app.process_events()
         print(f"ran {len(scheduler.jobs())} job(s); processed {handled} event(s)")
-        return 0
+        failed = [job.name for job in scheduler.jobs() if job.last_error is not None]
+        if failed:
+            print("failed jobs: " + ", ".join(failed), file=sys.stderr)
+        return 1 if failed else 0
     print(f"running {len(scheduler.jobs())} job(s); press Ctrl+C to stop", file=sys.stderr)
     while True:
         app.tick()

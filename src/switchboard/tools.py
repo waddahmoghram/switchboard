@@ -17,9 +17,9 @@ from typing import Any, Literal
 
 from switchboard.approvals import ApprovalStore
 from switchboard.audit import AuditLog, redact
-from switchboard.db import Database
+from switchboard.db import Database, transaction
 from switchboard.errors import ToolError
-from switchboard.jsonschema import validate
+from switchboard.jsonschema import check_schema, validate
 from switchboard.policy import Decision, Origin, Policy, Tier
 from switchboard.util import canonical_json, glob_any, iso_before, now_iso, printable, truncate
 
@@ -49,8 +49,9 @@ class Tool:
     connector: str = "core"
 
     def __post_init__(self) -> None:
-        if not _NAME.match(self.name):
+        if not _NAME.fullmatch(self.name):
             raise ValueError(f"tool name {self.name!r} must be lowercase letters, digits, and underscores")
+        check_schema(self.input_schema)
         if self.input_schema.get("type") != "object":
             raise ValueError(f"tool {self.name}: input_schema must describe an object")
 
@@ -115,7 +116,8 @@ class CallOutcome:
 def count_recent_calls(db: Database, tool: str, seconds: int) -> int:
     with db.session() as conn:
         row = conn.execute(
-            "SELECT COUNT(*) AS n FROM tool_calls WHERE tool = ? AND outcome = 'ok' AND created_at >= ?",
+            "SELECT COUNT(*) AS n FROM tool_calls "
+            "WHERE tool = ? AND outcome IN ('ok', 'running') AND created_at >= ?",
             (tool, iso_before(seconds)),
         ).fetchone()
     return int(row["n"])
@@ -194,6 +196,12 @@ class Dispatcher:
         if tool is None:
             self.approvals.finish(approval_id, ok=False, result=None, error="tool is no longer registered")
             return CallOutcome("error", request.tool, message="tool is no longer registered")
+        problems = validate(request.args, tool.input_schema)
+        if problems:
+            message = "stored arguments no longer match the current tool: " + "; ".join(problems)
+            self.approvals.finish(approval_id, ok=False, result=None, error=message)
+            self.audit.append("approval.invalid", approval=approval_id, tool=request.tool, problems=problems)
+            return CallOutcome("invalid", request.tool, message=message)
         verdict = self.policy.evaluate(tool, request.args, Origin.APPROVAL)
         if verdict.decision is not Decision.ALLOW:
             self.approvals.finish(approval_id, ok=False, result=None, error=verdict.reason)
@@ -216,29 +224,61 @@ class Dispatcher:
         return denied
 
     def _execute(self, tool: Tool, args: dict[str, Any], origin: Origin, decision: Decision) -> CallOutcome:
+        call_id = self._reserve(tool, origin, decision)
+        if call_id is None:
+            reason = "hourly rate limit reached before execution"
+            self.audit.append("tool.denied", tool=tool.name, origin=origin.value, reason=reason)
+            self._record(tool.name, origin, Decision.DENY, "denied")
+            return CallOutcome("denied", tool.name, message=reason)
         try:
             data = tool.handler(dict(args))
         except ToolError as exc:
             self.audit.append("tool.error", tool=tool.name, origin=origin.value, error=str(exc))
-            self._record(tool.name, origin, decision, "error")
+            self._record(tool.name, origin, decision, "error", call_id)
             return CallOutcome("error", tool.name, message=str(exc))
         except Exception as exc:
             log.exception("tool %s failed", tool.name)
             self.audit.append("tool.error", tool=tool.name, origin=origin.value, error=type(exc).__name__)
-            self._record(tool.name, origin, decision, "error")
+            self._record(tool.name, origin, decision, "error", call_id)
             return CallOutcome(
                 "error", tool.name, message=f"internal error ({type(exc).__name__}); see the log"
             )
         self.audit.append("tool.done", tool=tool.name, origin=origin.value)
-        self._record(tool.name, origin, decision, "ok")
+        self._record(tool.name, origin, decision, "ok", call_id)
         return CallOutcome("ok", tool.name, data=data)
 
-    def _record(self, name: str, origin: Origin, decision: Decision, outcome: str) -> None:
-        with self.db.session() as conn:
-            conn.execute(
-                "INSERT INTO tool_calls (tool, origin, decision, outcome, created_at) VALUES (?, ?, ?, ?, ?)",
-                (name, origin.value, decision.value, outcome, now_iso()),
+    def _reserve(self, tool: Tool, origin: Origin, decision: Decision) -> int | None:
+        with self.db.session() as conn, transaction(conn):
+            limit = self.policy.rule_for(tool.name).get("max_per_hour")
+            if limit is not None:
+                row = conn.execute(
+                    "SELECT COUNT(*) AS n FROM tool_calls "
+                    "WHERE tool = ? AND outcome IN ('ok', 'running') AND created_at >= ?",
+                    (tool.name, iso_before(3600)),
+                ).fetchone()
+                if int(row["n"]) >= limit:
+                    return None
+            cursor = conn.execute(
+                "INSERT INTO tool_calls (tool, origin, decision, outcome, created_at) "
+                "VALUES (?, ?, ?, 'running', ?)",
+                (tool.name, origin.value, decision.value, now_iso()),
             )
+            if cursor.lastrowid is None:
+                raise RuntimeError("could not reserve tool execution")
+            return cursor.lastrowid
+
+    def _record(
+        self, name: str, origin: Origin, decision: Decision, outcome: str, call_id: int | None = None
+    ) -> None:
+        with self.db.session() as conn:
+            if call_id is not None:
+                conn.execute("UPDATE tool_calls SET outcome = ? WHERE id = ?", (outcome, call_id))
+            else:
+                conn.execute(
+                    "INSERT INTO tool_calls (tool, origin, decision, outcome, created_at) "
+                    "VALUES (?, ?, ?, ?, ?)",
+                    (name, origin.value, decision.value, outcome, now_iso()),
+                )
 
 
 def _default_summary(tool: Tool, args: Mapping[str, Any]) -> str:

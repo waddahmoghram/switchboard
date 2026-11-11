@@ -1,31 +1,40 @@
 # Switchboard
 
-Self-hosted hooks that let your AI assistant work with **your own** mail, calendars, contacts, bank data,
+Self-hosted hooks that let your personal assistant work with **your own** mail, calendars, contacts, bank data,
 orders, notifications, webhooks, and home devices — without paying an aggregator such as Plaid or an
 automation service such as Zapier, and without handing them your credentials.
 
-Switchboard is a single Python package with **no runtime dependencies**. It speaks open protocols directly
-(IMAP, SMTP, CalDAV, CardDAV, iCalendar, Open Financial Exchange files, HTTPS APIs you own), exposes the
-results to assistants through the Model Context Protocol (MCP), and puts a **policy gate** in front of
-everything: assistants can read and draft freely, must ask before acting, and can never move money.
+Switchboard is a single Python package with **no third-party Python runtime dependencies**. It uses standard
+mail, calendar, and contact protocols, bank export files, and direct service interfaces. It exposes tools
+through the Model Context Protocol (MCP) with a **policy gate**: read and draft tools normally run immediately,
+act tools normally ask for approval, and no payment or checkout tool is implemented.
 
-> Status: v0.1, written but **not yet run**. The test suite (549 test functions) and static checks were
-> authored and passed linting and type checking, but no test or connector was executed on the authoring
-> machine. Run the tests on your own computer first; see [Deployment](./docs/DEPLOYMENT.md).
+> Status: v0.1 prototype, written but **not yet run**. Tests are authored, not executed. Source and test files
+> pass static formatting, lint, and type checks; those checks do not prove runtime behavior or provider
+> compatibility. No application, test, or connector was executed on the authoring machine. Run the tests
+> on your own computer first; see [Deployment](./docs/DEPLOYMENT.md).
+
+**This is a prototype, not a sandbox or a verified bank integration.** An assistant with shell access as your
+user can run approval commands, read your secrets, or edit the data directly. Self-hosting also does not keep
+mail or financial results away from your assistant's model provider; use a local model and client if those
+results must stay on your machine. See [the operating boundary](./docs/DEPLOYMENT.md#the-operating-boundary).
 
 ## What it connects
 
-| Connector  | Talks to                                                                     | Tools (tier)                                                                                                                                                 |
-| ---------- | ---------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `mail`     | Any IMAP/SMTP provider; app passwords or OAuth                               | `mail_accounts`, `mail_mailboxes`, `mail_search`, `mail_read` (read); `mail_draft` (draft); `mail_send` (act)                                                |
-| `calendar` | Secret iCalendar feeds, CalDAV, `.ics` files, email invites                  | `calendar_sources`, `calendar_agenda`, `calendar_free_slots` (read); `calendar_propose_event` (draft); `calendar_create_event`, `calendar_send_invite` (act) |
-| `contacts` | CardDAV and vCard files                                                      | `contacts_sources`, `contacts_search` (read)                                                                                                                 |
-| `finance`  | Bank OFX/QFX/CSV exports and bank alert emails                               | `finance_accounts`, `finance_transactions`, `finance_summary`, `finance_recurring` (read); `finance_import_inbox` (draft)                                    |
-| `shopping` | Order and shipping emails; product pages you choose                          | `shopping_orders`, `shopping_shipments`, `shopping_watch_list`, `shopping_check_prices` (read); `shopping_watch_add`, `shopping_watch_remove` (draft)        |
-| `notify`   | ntfy, Telegram, and email to yourself                                        | `notify_self` (draft: it can only reach channels you configured)                                                                                             |
-| `webhooks` | Signed inbound webhooks (GitHub, Microsoft Graph, Google Calendar, your own) | `webhooks_recent` (read)                                                                                                                                     |
-| `home`     | Home Assistant's REST API                                                    | `home_states` (read); `home_call_service` (act)                                                                                                              |
-| core       | Switchboard itself                                                           | `switchboard_status`, `approvals_pending`, `approvals_status` (read)                                                                                         |
+| Connector  | Talks to                                                                       | Tools (tier)                                                                                                                                                 |
+| ---------- | ------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `mail`     | Standard mail servers; app passwords or the OAuth authorization framework      | `mail_accounts`, `mail_mailboxes`, `mail_search`, `mail_read` (read); `mail_draft` (draft); `mail_send` (act)                                                |
+| `calendar` | Secret iCalendar feeds, calendar servers, `.ics` files, email invites          | `calendar_sources`, `calendar_agenda`, `calendar_free_slots` (read); `calendar_propose_event` (draft); `calendar_create_event`, `calendar_send_invite` (act) |
+| `contacts` | Contact synchronization servers and vCard files                                | `contacts_sources`, `contacts_search` (read)                                                                                                                 |
+| `finance`  | Bank `.ofx`, `.qfx`, and `.csv` exports and bank alert emails                  | `finance_accounts`, `finance_transactions`, `finance_summary`, `finance_recurring` (read); `finance_import_inbox` (draft)                                    |
+| `shopping` | Order and shipping emails; product pages you choose                            | `shopping_orders`, `shopping_shipments`, `shopping_watch_list`, `shopping_check_prices` (read); `shopping_watch_add`, `shopping_watch_remove` (draft)        |
+| `notify`   | ntfy, Telegram, and email to yourself                                          | `notify_self` (draft: it can only reach channels you configured)                                                                                             |
+| `webhooks` | Verified inbound webhooks (GitHub, Microsoft Graph, Google Calendar, your own) | `webhooks_recent` (read)                                                                                                                                     |
+| `home`     | Home Assistant's service interface                                             | `home_states` (read); `home_call_service` (act)                                                                                                              |
+| `telegram` | Allowlisted incoming bot messages and replies                                  | `telegram_status`, `telegram_messages`, `telegram_read` (read); `telegram_mark_read` (draft); `telegram_reply` (act)                                         |
+| `linkedin` | Your downloaded exports and explicitly enabled own-profile publishing          | `linkedin_search`, `linkedin_read`, `linkedin_drafts` (read); `linkedin_import_export`, `linkedin_draft_post` (draft); `linkedin_publish_post` (act)         |
+| `whatsapp` | Your manually exported personal chat snapshots                                 | `whatsapp_import_export` (draft); `whatsapp_search`, `whatsapp_read` (read); no live messaging                                                               |
+| core       | Switchboard itself                                                             | `switchboard_status`, `approvals_pending`, `approvals_status` (read)                                                                                         |
 
 There is no "buy" or "pay" tool. Price watches tell you when an item hits your target, and you buy it
 yourself. The reasons are in [Tradeoffs](./docs/TRADEOFFS.md#money-movement-and-checkout).
@@ -33,39 +42,74 @@ yourself. The reasons are in [Tradeoffs](./docs/TRADEOFFS.md#money-movement-and-
 ## How it fits together
 
 * **Assistants** call tools over MCP on standard input and output; no network port is opened.
-* **The runner** (`switchboard run`) polls mailboxes, calendars, and price watches, turns what it finds into
-  events, and runs your automation rules — a local "if this, then that".
+* **The runner** (`switchboard run`) polls mailboxes, calendars, enabled Telegram inboxes, and price watches,
+  turns what it finds into events, and runs your automation rules — a local "if this, then that".
 * **You** approve pending actions from the terminal, flip the kill switch, and verify the audit log.
 
-Every call, from any of those three, goes through the same dispatcher: argument validation, the policy
-decision, an audit record, then execution. See [Architecture](./docs/ARCHITECTURE.md).
+Every tool call goes through the same dispatcher: argument validation, policy, audit, then execution.
+Polling and connector-to-connector service calls are trusted application code, not additional dispatcher calls.
+See [Architecture](./docs/ARCHITECTURE.md).
 
-## Quick start
+The Telegram connector is an assistant-pulled inbox/reply bridge, not a model runner: receiving a message does
+not start an assistant turn. Your assistant must check the inbox through its tools or an operator-configured
+loop. LinkedIn and WhatsApp imports are historical snapshots, not live personal-account access. LinkedIn
+publishing is off until explicitly configured; live WhatsApp messaging is not implemented.
+
+## Start here: no accounts
+
+Run this on your own machine from a fresh checkout. Start with the tests before enabling a connector or
+entering credentials. Existing configuration is not overwritten by `init`; do not add `--force` merely to
+get past that warning.
 
 ```bash
 uv sync
+uv run pytest -m "not integration"
+uv run pytest -m integration
 uv run switchboard init          # starter config at ~/.config/switchboard/config.toml (mode 600)
 uv run switchboard doctor
-uv run switchboard tools
-uv run pytest                    # run the tests on your machine first
+uv run switchboard call switchboard_status
 ```
 
-Then enable one connector in the configuration, store its credential in your password manager, reference it
+With an unchanged starter configuration and a fresh data directory, the last command should report
+`status: "ok"` and data containing
+`connectors: []`, `tools: 3`, and `kill_switch: false`. Its audit hash changes between calls; do not compare it
+with a fixed example. This checks local assembly and the dispatcher, not mail delivery or provider sign-in.
+These are expected results from source inspection, not commands executed on the authoring host.
+
+Stop here until that local path works. Then enable **one** connector, store its credential in your password manager,
+and reference it
 (`password = "cmd:pass show switchboard/mail"`), and connect an assistant (examples for Claude Desktop,
 OpenClaw, and Hermes Agent are in [Deployment](./docs/DEPLOYMENT.md#connect-an-assistant)).
 
+### Read one call before extending it
+
+Follow `cmd_call` in [the command-line entry](./src/switchboard/cli.py), then `Dispatcher.call` in
+[the tool dispatcher](./src/switchboard/tools.py). It validates arguments, asks `Policy.evaluate` in
+[the policy module](./src/switchboard/policy.py), records the request, and only then invokes the handler.
+The `switchboard_status` handler is registered by `_register_core_tools` in
+[application assembly](./src/switchboard/app.py). This is a small, account-free route through the actual code.
+
+Next, read [the worked pending-action case](./docs/ARCHITECTURE.md#worked-case-a-pending-action-is-not-a-completed-workflow)
+before chaining actions. For your first custom hook, use
+[the schema and rule examples](./docs/CONNECTOR_GUIDE.md#writing-automation-rules); the connector guide explains
+which mistakes are rejected at startup and which guarantees the automation engine does not provide.
+
 ## Safety model in one table
 
-| Tier    | Default | Meaning                                         |
-| ------- | ------- | ----------------------------------------------- |
-| `read`  | allow   | Look at data; no outside effect                 |
-| `draft` | allow   | Prepare something you finish yourself           |
-| `act`   | ask     | Send, create, or change something outside       |
-| `spend` | deny    | Move money (no such tool exists)                |
+| Tier    | Default | Meaning                                           |
+| ------- | ------- | ------------------------------------------------- |
+| `read`  | allow   | Retrieve data; may contact services and cache it  |
+| `draft` | allow   | Save prepared content or notify your own channels |
+| `act`   | ask     | Send, create, or change something outside         |
+| `spend` | deny    | Move money (no such tool exists)                  |
 
 Plus: recipient allowlists, per-tool rate limits, amount caps, an exposure list for assistants, approvals that
 bind the exact arguments, a kill switch, secret references instead of secrets, owner-only file permissions,
 and a hash-chained audit log.
+
+Approvals recheck the current argument schema and policy. Hourly limits include approved and in-flight calls;
+concurrent processes reserve capacity atomically. These controls do not identify a human independently of
+the local user account.
 
 ## Documentation
 
@@ -76,7 +120,9 @@ and a hash-chained audit log.
 * Connector pages: [mail](./docs/connectors/mail.md), [calendar](./docs/connectors/calendar.md),
   [contacts](./docs/connectors/contacts.md), [finance](./docs/connectors/finance.md),
   [shopping](./docs/connectors/shopping.md), [notify](./docs/connectors/notify.md),
-  [webhooks](./docs/connectors/webhooks.md), [home](./docs/connectors/home.md)
+  [webhooks](./docs/connectors/webhooks.md), [home](./docs/connectors/home.md),
+  [Telegram](./docs/connectors/telegram.md), [LinkedIn](./docs/connectors/linkedin.md), and
+  [WhatsApp exports](./docs/connectors/whatsapp.md)
 
 ## License
 

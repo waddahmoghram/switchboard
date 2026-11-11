@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import socket
+import ssl
 import urllib.request
 from collections.abc import Callable
 from email.message import Message
@@ -15,6 +16,7 @@ from switchboard.httpclient import (
     HttpClient,
     HttpResponse,
     _NoRedirectHandler,
+    _PublicHTTPSConnection,
     _SafeRedirectHandler,
     basic_auth,
     check_url,
@@ -89,6 +91,13 @@ def test_unknown_charset_names_fall_back_to_utf8() -> None:
     assert response.text() == "ok"
 
 
+@pytest.mark.parametrize("literal", ["NaN", "Infinity", "-Infinity", "1e9999"])
+def test_response_json_rejects_non_finite_numbers(literal: str) -> None:
+    response = HttpResponse(200, "https://example.com/", body=f'{{"value":{literal}}}'.encode())
+    with pytest.raises(ValueError, match="finite JSON number"):
+        response.json()
+
+
 def resolves_to(*addresses: str) -> Callable[..., list[tuple[Any, ...]]]:
     """A stand-in for socket.getaddrinfo: no DNS query leaves the machine."""
 
@@ -139,6 +148,8 @@ def test_public_addresses_pass(monkeypatch: pytest.MonkeyPatch, addresses: tuple
         ("::1",),
         ("fe80::1%eth0",),
         ("::ffff:127.0.0.1",),
+        ("224.0.0.1",),
+        ("ff02::1",),
         ("93.184.215.14", "10.0.0.5"),  # one private answer is enough
     ],
 )
@@ -172,8 +183,96 @@ def test_public_only_never_follows_redirects(monkeypatch: pytest.MonkeyPatch) ->
     monkeypatch.setattr(socket, "getaddrinfo", resolves_to("93.184.215.14"))
     client = HttpClient()
     monkeypatch.setattr(client._opener, "open", never)
-    monkeypatch.setattr(client._no_redirect_opener, "open", lambda *_args, **_kwargs: _Reply())
+    monkeypatch.setattr(client._no_redirect_opener, "open", never)
+    monkeypatch.setattr(client._public_opener, "open", lambda *_args, **_kwargs: _Reply())
 
     response = client.request("GET", "https://shop.example.com/", public_only=True)
 
     assert (response.status, response.body) == (200, b"ok")
+
+
+class _Socket:
+    def __init__(self) -> None:
+        self.address: object = None
+        self.closed = False
+
+    def settimeout(self, _timeout: float | None) -> None:
+        pass
+
+    def connect(self, address: object) -> None:
+        self.address = address
+
+    def close(self) -> None:
+        self.closed = True
+
+
+def test_public_connections_pin_the_checked_address_and_keep_certificate_hostname(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    lookups: list[str] = []
+    names: list[str] = []
+    raw = _Socket()
+    connection = _PublicHTTPSConnection("shop.example.com", timeout=1)
+
+    def lookup(host: str, *_args: object, **_kwargs: object) -> list[tuple[Any, ...]]:
+        lookups.append(host)
+        assert len(lookups) == 1, "the validated hostname must not be resolved again"
+        return resolves_to("93.184.215.14")()
+
+    def wrap(_context: ssl.SSLContext, _socket: object, *, server_hostname: str) -> Any:
+        names.append(server_hostname)
+        return raw
+
+    monkeypatch.setattr(socket, "getaddrinfo", lookup)
+    monkeypatch.setattr(socket, "socket", lambda *_args: raw)
+    monkeypatch.setattr(ssl.SSLContext, "wrap_socket", wrap)
+
+    connection.connect()
+
+    assert lookups == ["shop.example.com"]
+    assert raw.address == ("93.184.215.14", 443)
+    assert names == ["shop.example.com"]
+    assert not raw.closed
+
+
+def test_public_connections_close_the_socket_when_certificate_checks_fail(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    raw = _Socket()
+    connection = _PublicHTTPSConnection("shop.example.com", timeout=1)
+
+    def fail(*_args: object, **_kwargs: object) -> Any:
+        raise ssl.SSLCertVerificationError("certificate mismatch")
+
+    monkeypatch.setattr(socket, "getaddrinfo", resolves_to("93.184.215.14"))
+    monkeypatch.setattr(socket, "socket", lambda *_args: raw)
+    monkeypatch.setattr(ssl.SSLContext, "wrap_socket", fail)
+    with pytest.raises(ssl.SSLCertVerificationError):
+        connection.connect()
+    assert raw.closed
+
+
+def test_public_connections_cannot_tunnel_through_a_proxy() -> None:
+    connection = _PublicHTTPSConnection("proxy.example.com")
+    connection.set_tunnel("shop.example.com")
+    with pytest.raises(HttpError, match="proxy tunnel"):
+        connection.connect()
+
+
+def test_public_requests_do_not_use_environment_proxies(monkeypatch: pytest.MonkeyPatch) -> None:
+    choices: list[dict[str, str] | None] = []
+
+    class ProxyHandler(urllib.request.ProxyHandler):
+        def __init__(self, proxies: dict[str, str] | None = None) -> None:
+            choices.append(proxies)
+            super().__init__(proxies)
+
+    monkeypatch.setattr(urllib.request, "getproxies", lambda: {"https": "http://127.0.0.1:8080"})
+    monkeypatch.setattr(urllib.request, "ProxyHandler", ProxyHandler)
+    HttpClient()
+    assert choices[-1] == {}
+
+
+def test_public_only_requires_https() -> None:
+    with pytest.raises(HttpError, match="require HTTPS"):
+        HttpClient().request("GET", "http://127.0.0.1/", public_only=True)

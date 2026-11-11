@@ -25,14 +25,13 @@ from __future__ import annotations
 
 import hashlib
 import hmac
-import json
 import re
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from typing import Any
 
 from switchboard.connectors.webhooks.hooks import Hook
-from switchboard.util import sha256_hex, truncate
+from switchboard.util import json_loads, sha256_hex, truncate
 
 SIGNATURE_HEADER = "x-switchboard-signature"
 GITHUB_SIGNATURE_HEADER = "x-hub-signature-256"
@@ -240,7 +239,7 @@ def parse_json(body: bytes) -> tuple[bool, Any]:
     if not body.strip():
         return False, None
     try:
-        return True, json.loads(body)
+        return True, json_loads(body)
     except (ValueError, RecursionError):
         return False, None
 

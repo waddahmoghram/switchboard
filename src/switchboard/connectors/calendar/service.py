@@ -137,9 +137,11 @@ class CalendarService:
             allow_http=source.allow_http,
         )
 
-    def calendars(self, source: Source, client: DavClient) -> list[caldav.CalendarCollection]:
-        """Discovered collections, remembered until one is deleted, moved, or no longer shared."""
-        if source.name not in self._calendars:
+    def calendars(
+        self, source: Source, client: DavClient, *, refresh: bool = False
+    ) -> list[caldav.CalendarCollection]:
+        """Rediscover on source refreshes so newly added calendars become visible."""
+        if refresh or source.name not in self._calendars:
             self._calendars[source.name] = caldav.find_calendars(client)
         return self._calendars[source.name]
 
@@ -151,7 +153,7 @@ class CalendarService:
         if source.type == "ics_url":
             return self._download(source, state)
         client = self.client(source)
-        calendars = self.calendars(source, client)
+        calendars = self.calendars(source, client, refresh=True)
         texts: list[str] = []
         skipped: list[str] = []
         first_gone: DavError | None = None

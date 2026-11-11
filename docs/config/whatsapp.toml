@@ -1,0 +1,12 @@
+# Merge these entries with existing tables and connector/tool lists.
+[switchboard]
+connectors = ["whatsapp"]
+
+[connectors.whatsapp]
+import_dir = "~/.local/share/switchboard/whatsapp-imports"
+date_order = "MDY" # Required: month/day/year; alternatives are DMY and YMD.
+# Optional context only; never used to infer an offset or convert a timestamp.
+timezone = "America/Los_Angeles"
+
+[mcp]
+expose = ["whatsapp_import_export", "whatsapp_search", "whatsapp_read"]

@@ -257,7 +257,10 @@ def test_inbox_import_tools_events_alert_and_rule(make_app: Callable[..., App], 
 
 
 def test_an_unexpected_failure_leaves_the_file_and_imports_the_rest(
-    make_app: Callable[..., App], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    make_app: Callable[..., App],
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
     inbox = tmp_path / "inbox"
     inbox.mkdir(mode=0o700)
@@ -265,10 +268,11 @@ def test_an_unexpected_failure_leaves_the_file_and_imports_the_rest(
     shutil.copy(FIXTURES / "example_cu_checking.ofx", inbox / "b_checking.ofx")
     app = make_app(finance_config(inbox))
     original = FinanceRuntime.import_bytes
+    caplog.set_level("DEBUG", logger="switchboard.connectors.finance.runtime")
 
     def locked_once(self: FinanceRuntime, name: str, raw: bytes, **kwargs: Any) -> Any:
         if name == "a_locked.qfx":
-            raise sqlite3.OperationalError("database is locked")
+            raise sqlite3.OperationalError(f"sensitive account {FULL_NUMBERS[0]}")
         return original(self, name, raw, **kwargs)
 
     monkeypatch.setattr(FinanceRuntime, "import_bytes", locked_once)
@@ -281,3 +285,4 @@ def test_an_unexpected_failure_leaves_the_file_and_imports_the_rest(
     assert imported["events_emitted"] == imported["new_transactions"] == 4
     assert (inbox / "a_locked.qfx").exists()
     assert [path.name for path in (inbox / "processed").iterdir()] == ["b_checking.ofx"]
+    assert FULL_NUMBERS[0] not in caplog.text

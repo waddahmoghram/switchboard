@@ -2,7 +2,13 @@
 
 from __future__ import annotations
 
-from switchboard.jsonschema import validate
+from typing import Any
+
+import pytest
+
+from switchboard.jsonschema import check_schema, validate
+from switchboard.policy import Tier
+from switchboard.tools import Tool
 
 SCHEMA = {
     "type": "object",
@@ -58,3 +64,61 @@ def test_object_size_and_property_names() -> None:
     assert validate({"a": 1, "b": 2}, schema) == []
     assert validate({"a": 1, "b": 2, "c": 3}, schema) == ["$: allows at most 2 properties"]
     assert validate({"Bad-Key": 1}, schema) == ["$.Bad-Key (name): does not match pattern '^[a-z_]+$'"]
+
+
+@pytest.mark.parametrize("value", [float("nan"), float("inf"), float("-inf")])
+def test_non_finite_numbers_cannot_bypass_bounds(value: float) -> None:
+    assert validate(value, {"type": "number", "minimum": 0, "maximum": 100}) == [
+        "$: must be a finite JSON number"
+    ]
+
+
+@pytest.mark.parametrize(
+    "schema",
+    [
+        {"type": "object", "anyOf": [{"required": ["name"]}]},
+        {"type": "object", "properties": {"name": {"type": "string", "maxLenght": 10}}},
+        {"type": "object", "additionalProperties": {"type": "string"}},
+        {"type": "object", "properties": {"name": True}},
+        {"type": "object", "properties": []},
+        {"type": "object", "required": "name"},
+        {"type": "object", "description": 7},
+        {"type": "object", "items": []},
+        {"type": "object", "propertyNames": False},
+        {"type": "object", "pattern": "["},
+        {"type": "object", "minProperties": True},
+        {"type": "object", "maximum": float("inf")},
+        {"type": "object", "enum": []},
+        {"type": "object", "$schema": []},
+        {"type": "object", "$schema": "http://json-schema.org/draft-07/schema#"},
+        {"type": "object", "properties": {"count": {"type": []}}},
+    ],
+)
+def test_invalid_or_unsupported_tool_schemas_are_refused_at_registration(schema: dict[str, Any]) -> None:
+    with pytest.raises(ValueError):
+        Tool("demo_tool", "Demo.", Tier.READ, schema, lambda _args: None)
+
+
+def test_annotations_are_allowed_but_do_not_become_assertions() -> None:
+    schema = {"type": "string", "format": "email", "description": "A contact.", "x-owner": "demo"}
+    check_schema(schema)
+    assert validate("not-an-email-address", schema) == []
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [(True, 1), (False, 0), ({"flag": True}, {"flag": 1}), ([False], [0])],
+)
+def test_enum_and_const_keep_booleans_distinct_from_numbers(value: Any, expected: Any) -> None:
+    assert validate(value, {"enum": [expected]})
+    assert validate(value, {"const": expected})
+
+
+def test_numeric_equivalence_is_preserved_in_enum_values() -> None:
+    assert validate(1, {"enum": [1.0]}) == []
+    assert validate({"count": 1.0}, {"const": {"count": 1}}) == []
+
+
+def test_tool_names_cannot_end_with_a_newline() -> None:
+    with pytest.raises(ValueError, match="tool name"):
+        Tool("demo_tool\n", "Demo.", Tier.READ, {"type": "object"}, lambda _args: None)

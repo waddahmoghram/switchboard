@@ -208,17 +208,14 @@ def _default_port(parts: urllib.parse.SplitResult) -> int | None:
 
 
 def trusted_host(configured: str, candidate: str) -> bool:
-    """True for the configured host or a sibling under its parent domain.
-
-    iCloud answers on ``caldav.icloud.com`` but lists collections on per-account hosts such as
-    ``p42-caldav.icloud.com``. Hosts with fewer than three labels, and IP addresses, have no siblings.
-    """
+    """Only iCloud's known account hosts may receive credentials across hostnames."""
     if candidate == configured:
         return True
-    labels = configured.split(".")
-    if len(labels) < 3 or configured.replace(".", "").isdigit():
-        return False
-    return candidate.endswith("." + ".".join(labels[1:]))
+    for service in ("caldav", "contacts"):
+        pattern = rf"(?:p[0-9]+-)?{service}\.icloud\.com"
+        if re.fullmatch(pattern, configured) and re.fullmatch(pattern, candidate):
+            return True
+    return False
 
 
 @dataclass(frozen=True)
@@ -227,7 +224,7 @@ class DavClient:
 
     ``label`` names the account in error messages, which never include URLs or credentials.
     Redirects are followed here because urllib refuses to redirect PROPFIND and REPORT; credentials
-    are only sent to the configured origin or, over HTTPS, to a :func:`trusted_host`.
+    are only sent to the configured origin or known iCloud account hosts over HTTPS.
     """
 
     http: HttpTransport
@@ -247,7 +244,11 @@ class DavClient:
         )
         if same_origin:
             return
-        if target.scheme == "https" and trusted_host(base.hostname or "", target.hostname or ""):
+        if (
+            base.scheme == target.scheme == "https"
+            and _default_port(base) == _default_port(target) == 443
+            and trusted_host(base.hostname or "", target.hostname or "")
+        ):
             return
         raise DavError(
             f"{self.label}: refusing to send credentials to {target.hostname!r}; "
@@ -278,6 +279,7 @@ class DavClient:
                     body=body,
                     max_bytes=MAX_REPLY_BYTES,
                     allow_http=self.allow_http,
+                    follow_redirects=False,
                 )
             except HttpError as exc:
                 raise DavError(f"{self.label}: {exc}") from exc

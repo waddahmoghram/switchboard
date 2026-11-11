@@ -1,12 +1,11 @@
 """Append-only, hash-chained audit log.
 
 Every record stores the hash of the previous record (``prev``) and its own hash over its canonical
-JSON (``hash``). ``verify`` recomputes the chain, so an edited, deleted, or reordered line is
-detected. This is tamper-*evident*, not tamper-proof: someone who can rewrite the whole file can
-also recompute the chain. Anchor the latest hash somewhere else (the daily digest includes it).
+JSON (``hash``). ``verify`` detects edits, interior deletions, and reordering. Tail truncation needs an
+independently stored head hash to detect. Someone who can rewrite the whole file can recompute its chain.
 
 Records are redacted before writing: keys that look like credentials are replaced, and long strings
-are cut to a prefix plus their length and a short hash, so message bodies are not copied in full.
+are abbreviated with a prefix, length, and short hash. Short message bodies and prefixes remain personal data.
 """
 
 from __future__ import annotations
@@ -19,6 +18,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import IO, Any
 
+from switchboard.errors import AuditError
 from switchboard.util import canonical_json, now_iso, sha256_hex
 
 try:
@@ -66,8 +66,9 @@ class AuditLog:
         record: dict[str, Any] = {"ts": now_iso(), "kind": kind}
         record.update(redact(fields))
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        fd = os.open(self.path, os.O_RDWR | os.O_CREAT | os.O_APPEND, 0o600)
+        fd = os.open(self.path, os.O_RDWR | os.O_CREAT | os.O_APPEND | getattr(os, "O_NOFOLLOW", 0), 0o600)
         with os.fdopen(fd, "r+b") as handle:
+            os.fchmod(handle.fileno(), 0o600)
             if fcntl is not None:
                 fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
             try:
@@ -86,9 +87,19 @@ class AuditLog:
         if not self.path.exists():
             return
         with self.path.open("r", encoding="utf-8") as handle:
-            for line in handle:
-                if line.strip():
-                    yield json.loads(line)
+            try:
+                for number, line in enumerate(handle, start=1):
+                    if not line.strip():
+                        continue
+                    try:
+                        record = json.loads(line)
+                    except ValueError as exc:
+                        raise AuditError(f"record {number}: invalid JSON") from exc
+                    if not isinstance(record, dict):
+                        raise AuditError(f"record {number}: expected a JSON object")
+                    yield record
+            except UnicodeError as exc:
+                raise AuditError("audit log is not valid UTF-8") from exc
 
     def tail(self, count: int) -> list[dict[str, Any]]:
         if count < 1:
@@ -110,18 +121,21 @@ class AuditLog:
     def verify(self) -> VerifyResult:
         expected_prev = GENESIS
         count = 0
-        for count, record in enumerate(self.records(), start=1):
-            if record.get("prev") != expected_prev:
-                return VerifyResult(
-                    False, count, expected_prev, f"record {count}: chain broken (prev mismatch)"
-                )
-            claimed = record.get("hash")
-            body = {key: value for key, value in record.items() if key != "hash"}
-            if sha256_hex(canonical_json(body)) != claimed:
-                return VerifyResult(
-                    False, count, expected_prev, f"record {count}: content does not match its hash"
-                )
-            expected_prev = str(claimed)
+        try:
+            for count, record in enumerate(self.records(), start=1):
+                if record.get("prev") != expected_prev:
+                    return VerifyResult(
+                        False, count, expected_prev, f"record {count}: chain broken (prev mismatch)"
+                    )
+                claimed = record.get("hash")
+                body = {key: value for key, value in record.items() if key != "hash"}
+                if sha256_hex(canonical_json(body)) != claimed:
+                    return VerifyResult(
+                        False, count, expected_prev, f"record {count}: content does not match its hash"
+                    )
+                expected_prev = str(claimed)
+        except AuditError as exc:
+            return VerifyResult(False, count, expected_prev, str(exc))
         return VerifyResult(True, count, expected_prev)
 
 

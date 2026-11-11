@@ -6,6 +6,8 @@ import io
 import json
 from typing import Any
 
+import pytest
+
 from switchboard.mcp_server import SUPPORTED_VERSIONS, McpServer, serve_stdio
 from switchboard.policy import Origin, Tier
 from switchboard.tools import CallOutcome, Tool
@@ -114,12 +116,12 @@ def test_malformed_messages() -> None:
     assert server.handle({"jsonrpc": "2.0", "id": 9, "result": {}}) is None
 
 
-def test_stdio_framing_handles_bad_lines_and_batches() -> None:
+def test_stdio_framing_handles_bad_lines() -> None:
     lines = [
         json.dumps(_request("server/discover", MODERN)).encode(),
         b"not json",
         b"",
-        json.dumps([_request("tools/list", MODERN, msg_id=2)]).encode(),
+        json.dumps(_request("tools/list", MODERN, msg_id=2)).encode(),
     ]
     output = io.BytesIO()
     serve_stdio(_server(), [line + b"\n" for line in lines], output)
@@ -127,8 +129,7 @@ def test_stdio_framing_handles_bad_lines_and_batches() -> None:
     assert len(replies) == 3
     assert replies[0]["result"]["resultType"] == "complete"
     assert replies[1]["error"]["code"] == -32700
-    assert isinstance(replies[2], list)
-    assert replies[2][0]["id"] == 2
+    assert replies[2]["id"] == 2
 
 
 def test_a_lone_surrogate_cannot_break_the_output_stream() -> None:
@@ -144,3 +145,71 @@ def test_a_lone_surrogate_cannot_break_the_output_stream() -> None:
     assert reply["error"]["code"] == -32602
     assert reply["error"]["message"] == "Unknown tool: \ud800"
     output.getvalue().decode("ascii")  # the wire format stays ASCII-only
+
+
+@pytest.mark.parametrize("arguments", [None, [], "", False, 0])
+def test_falsey_non_object_arguments_do_not_become_empty_arguments(arguments: Any) -> None:
+    calls: list[tuple[str, dict[str, Any], Origin]] = []
+    params = {**MODERN, "name": "demo_echo", "arguments": arguments}
+    error = _reply(_server(calls), _request("tools/call", params))["error"]
+    assert error["code"] == -32602
+    assert calls == []
+
+
+@pytest.mark.parametrize("params", [None, [], "", False, 0])
+def test_falsey_non_object_parameters_are_invalid(params: Any) -> None:
+    error = _reply(_server(), {"jsonrpc": "2.0", "id": 1, "method": "server/discover", "params": params})[
+        "error"
+    ]
+    assert error["code"] == -32600
+
+
+@pytest.mark.parametrize("msg_id", [None, True, [], {}, 1.5])
+def test_request_identifiers_follow_the_protocol(msg_id: Any) -> None:
+    reply = _reply(_server(), {"jsonrpc": "2.0", "id": msg_id, "method": "server/discover", "params": MODERN})
+    assert reply["id"] is None
+    assert reply["error"]["code"] == -32600
+
+
+@pytest.mark.parametrize("literal", ["NaN", "Infinity", "-Infinity", "1e9999"])
+def test_non_finite_json_is_a_parse_error(literal: str) -> None:
+    output = io.BytesIO()
+    serve_stdio(_server(), [f'{{"value":{literal}}}\n'.encode()], output)
+    assert json.loads(output.getvalue())["error"]["code"] == -32700
+
+
+def test_an_empty_batch_is_an_invalid_request() -> None:
+    output = io.BytesIO()
+    serve_stdio(_server(), [b"[]\n"], output)
+    assert json.loads(output.getvalue())["error"]["code"] == -32600
+
+
+def test_batches_are_supported_for_initialized_2025_03_26_clients() -> None:
+    output = io.BytesIO()
+    lines = [
+        _request("initialize", {"protocolVersion": "2025-03-26"}),
+        [_request("tools/list", msg_id=2), _request("ping", msg_id=3)],
+    ]
+    serve_stdio(_server(), [json.dumps(line).encode() + b"\n" for line in lines], output)
+    replies = [json.loads(line) for line in output.getvalue().splitlines()]
+    assert [reply["id"] for reply in replies[1]] == [2, 3]
+
+
+@pytest.mark.parametrize("version", ["2025-06-18", "2025-11-25", "2026-07-28"])
+def test_newer_protocols_cannot_execute_batched_tool_calls(version: str) -> None:
+    output = io.BytesIO()
+    calls: list[tuple[str, dict[str, Any], Origin]] = []
+    initialization = _request("initialize", {"protocolVersion": version})
+    batch = [_request("tools/call", {**MODERN, "name": "demo_echo", "arguments": {}})]
+    serve_stdio(_server(calls), [json.dumps(value).encode() for value in (initialization, batch)], output)
+    replies = [json.loads(line) for line in output.getvalue().splitlines()]
+    assert replies[-1]["error"]["code"] == -32600
+    assert calls == []
+
+
+def test_tool_calls_without_identifiers_are_not_executed() -> None:
+    calls: list[tuple[str, dict[str, Any], Origin]] = []
+    result = _server(calls).handle(
+        {"jsonrpc": "2.0", "method": "tools/call", "params": {**MODERN, "name": "demo_echo"}}
+    )
+    assert result is None and calls == []

@@ -70,6 +70,12 @@ def test_exact_rule_beats_glob(tmp_path: Path) -> None:
     assert policy.evaluate(_tool(name="demo_other"), {}, Origin.ASSISTANT).decision is Decision.DENY
 
 
+@pytest.mark.parametrize("pattern", ["demo_too[lp]", "demo_[!x]ool"])
+def test_character_class_policy_patterns_are_not_ignored(tmp_path: Path, pattern: str) -> None:
+    policy = _policy(tmp_path, {"tools": {pattern: {"decision": "deny"}}})
+    assert policy.evaluate(_tool(), {}, Origin.ASSISTANT).decision is Decision.DENY
+
+
 def test_recipient_allowlist(tmp_path: Path) -> None:
     tool = _tool(recipients=lambda args: list(args["to"]))
     policy = _policy(tmp_path, {"tools": {"demo_tool": {"allow_recipients": ["*@example.com"]}}})
@@ -97,6 +103,16 @@ def test_rate_limit(tmp_path: Path) -> None:
     verdict = policy.evaluate(_tool(), {}, Origin.ASSISTANT)
     assert verdict.decision is Decision.DENY
     assert "rate limit" in verdict.reason
+
+
+def test_approval_does_not_override_an_hourly_limit(tmp_path: Path) -> None:
+    policy = _policy(tmp_path, {"tools": {"demo_tool": {"max_per_hour": 1}}}, recent=1)
+    assert policy.evaluate(_tool(), {}, Origin.APPROVAL).decision is Decision.DENY
+
+
+def test_a_cap_without_an_amount_extractor_cannot_enable_unattended_spending(tmp_path: Path) -> None:
+    policy = _policy(tmp_path, {"tools": {"demo_tool": {"decision": "allow", "max_amount": 25}}})
+    assert policy.evaluate(_tool(tier=Tier.SPEND), {}, Origin.ASSISTANT).decision is Decision.ASK
 
 
 def test_approved_requests_still_respect_deny_rules_and_the_kill_switch(tmp_path: Path) -> None:
@@ -130,6 +146,9 @@ def test_nominal_decision_ignores_arguments(tmp_path: Path) -> None:
         {"max_per_hour": -1},
         {"max_per_hour": True},
         {"max_amount": "lots"},
+        {"max_amount": "NaN"},
+        {"max_amount": "Infinity"},
+        {"max_amount": -1},
     ],
 )
 def test_malformed_or_misspelled_rules_are_refused(tmp_path: Path, rule: Any) -> None:

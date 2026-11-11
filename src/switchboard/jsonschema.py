@@ -3,8 +3,8 @@
 It supports the keywords tool schemas here use: ``type``, ``enum``, ``const``, ``properties``,
 ``required``, ``additionalProperties`` (boolean), ``propertyNames``, ``minProperties``,
 ``maxProperties``, ``items``, ``minLength``, ``maxLength``, ``pattern``, ``minimum``, ``maximum``,
-``minItems``, and ``maxItems``. Unknown keywords are ignored, so a schema can still carry
-``description`` and ``format`` for the assistant's benefit.
+``minItems``, and ``maxItems``. Tool registration checks schema definitions and refuses unsupported
+constraints. Recognized annotations, including ``description`` and ``format``, are not assertions.
 
 Patterns follow JSON Schema's search semantics, except that a pattern ending in ``$`` must reach the
 very end of the string: Python's ``$`` would otherwise accept a trailing newline.
@@ -12,9 +12,12 @@ very end of the string: Python's ``$`` would otherwise accept a trailing newline
 
 from __future__ import annotations
 
+import math
 import re
 from collections.abc import Mapping, Sequence
 from typing import Any
+
+from switchboard.util import json_equal
 
 _TYPE_CHECKS = {
     "object": lambda value: isinstance(value, dict),
@@ -26,18 +29,123 @@ _TYPE_CHECKS = {
     "null": lambda value: value is None,
 }
 
+_SIZE_KEYWORDS = frozenset(
+    {"minLength", "maxLength", "minItems", "maxItems", "minProperties", "maxProperties"}
+)
+_ANNOTATIONS = frozenset(
+    {
+        "title",
+        "description",
+        "default",
+        "examples",
+        "format",
+        "deprecated",
+        "readOnly",
+        "writeOnly",
+        "$comment",
+        "$id",
+    }
+)
+_KEYWORDS = (
+    _SIZE_KEYWORDS
+    | _ANNOTATIONS
+    | {
+        "type",
+        "enum",
+        "const",
+        "properties",
+        "required",
+        "additionalProperties",
+        "propertyNames",
+        "items",
+        "pattern",
+        "minimum",
+        "maximum",
+        "$schema",
+    }
+)
+
+
+def check_schema(schema: Any, path: str = "$") -> None:
+    """Validate the supported definition subset before a tool can be registered."""
+    if not isinstance(schema, Mapping):
+        raise ValueError(f"{path}: schemas must be objects in the supported subset")
+    unknown = [str(key) for key in schema if key not in _KEYWORDS and not str(key).startswith("x-")]
+    if unknown:
+        raise ValueError(f"{path}: unsupported schema keyword(s): {', '.join(sorted(unknown))}")
+    for key in ("title", "description", "format", "$comment", "$id"):
+        if key in schema and not isinstance(schema[key], str):
+            raise ValueError(f"{path}.{key}: expected a string")
+    if "$schema" in schema and (
+        not isinstance(schema["$schema"], str)
+        or schema["$schema"]
+        not in {
+            "https://json-schema.org/draft/2020-12/schema",
+            "https://json-schema.org/draft/2020-12/schema#",
+        }
+    ):
+        raise ValueError(f"{path}: this subset accepts only the 2020-12 schema identifier")
+    if "type" in schema:
+        value = schema["type"]
+        names = [value] if isinstance(value, str) else value
+        if (
+            not isinstance(names, list)
+            or not names
+            or not all(isinstance(name, str) and name in _TYPE_CHECKS for name in names)
+        ):
+            raise ValueError(f"{path}.type: expected a supported type or non-empty list of types")
+    for key in _SIZE_KEYWORDS:
+        if key in schema:
+            value = schema[key]
+            if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+                raise ValueError(f"{path}.{key}: expected a non-negative integer")
+    for key in ("minimum", "maximum"):
+        if key in schema:
+            value = schema[key]
+            if (
+                isinstance(value, bool)
+                or not isinstance(value, (int, float))
+                or (isinstance(value, float) and not math.isfinite(value))
+            ):
+                raise ValueError(f"{path}.{key}: expected a finite number")
+    if "additionalProperties" in schema and not isinstance(schema["additionalProperties"], bool):
+        raise ValueError(f"{path}.additionalProperties: only booleans are supported")
+    if "required" in schema:
+        required = schema["required"]
+        if not isinstance(required, list) or not all(isinstance(name, str) for name in required):
+            raise ValueError(f"{path}.required: expected a list of property names")
+    if "enum" in schema and (not isinstance(schema["enum"], list) or not schema["enum"]):
+        raise ValueError(f"{path}.enum: expected a non-empty list")
+    if "pattern" in schema:
+        if not isinstance(schema["pattern"], str):
+            raise ValueError(f"{path}.pattern: expected a string")
+        try:
+            re.compile(schema["pattern"])
+        except re.error as exc:
+            raise ValueError(f"{path}.pattern: invalid regular expression") from exc
+    properties = schema.get("properties", {})
+    if not isinstance(properties, Mapping) or not all(isinstance(name, str) for name in properties):
+        raise ValueError(f"{path}.properties: expected a table of property schemas")
+    for name, child in properties.items():
+        check_schema(child, f"{path}.properties.{name}")
+    for key in ("items", "propertyNames"):
+        if key in schema:
+            check_schema(schema[key], f"{path}.{key}")
+
 
 def validate(instance: Any, schema: Mapping[str, Any], path: str = "$") -> list[str]:
     """Return a list of human-readable problems; empty means valid."""
+    if isinstance(instance, float) and not math.isfinite(instance):
+        return [f"{path}: must be a finite JSON number"]
     errors: list[str] = []
     expected = schema.get("type")
     if expected is not None:
         names = [expected] if isinstance(expected, str) else list(expected)
         if not any(_TYPE_CHECKS.get(name, lambda _v: False)(instance) for name in names):
             return [f"{path}: expected {' or '.join(names)}"]
-    if "enum" in schema and instance not in schema["enum"]:
+    if "enum" in schema and not any(json_equal(instance, item) for item in schema["enum"]):
         errors.append(f"{path}: must be one of {list(schema['enum'])}")
-    if "const" in schema and instance != schema["const"]:
+    if "const" in schema and not json_equal(instance, schema["const"]):
         errors.append(f"{path}: must equal {schema['const']!r}")
     if isinstance(instance, str):
         errors.extend(_check_string(instance, schema, path))

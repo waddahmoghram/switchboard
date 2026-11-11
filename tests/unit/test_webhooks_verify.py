@@ -18,6 +18,7 @@ from switchboard.connectors.webhooks.verify import (
     check_hmac_sha256,
     check_msgraph,
     check_token_header,
+    parse_json,
     parse_signature,
     safe_headers,
     same,
@@ -30,6 +31,11 @@ SECRET = "test-secret"
 NOW = 1_800_000_000.0
 T = int(NOW)
 BODY = b'{"event":"build","status":"passed"}'
+
+
+@pytest.mark.parametrize("literal", ["NaN", "Infinity", "-Infinity", "1e9999"])
+def test_non_finite_numbers_are_not_valid_webhook_json(literal: str) -> None:
+    assert parse_json(f'{{"value":{literal}}}'.encode()) == (False, None)
 
 
 def request(

@@ -17,7 +17,7 @@ decision and add constraints:
 ``decision``          ``"allow"``, ``"ask"``, or ``"deny"``.
 ``allow_recipients``  Glob patterns every recipient must match (for tools that declare recipients).
 ``max_amount``        Upper bound for tools that declare an amount.
-``max_per_hour``      Successful-call budget per rolling hour.
+``max_per_hour``      Successful and in-flight calls per rolling hour, including approvals.
 
 A ``KILL_SWITCH`` file in the data directory denies every non-read call. Human invocations from the
 command line turn ``ask`` into ``allow``, because typing the command is the approval. A ``spend``
@@ -96,7 +96,9 @@ class Policy:
         if tool_name in self._rules:
             return self._rules[tool_name]
         globs = sorted(
-            (pattern for pattern in self._rules if "*" in pattern or "?" in pattern), key=len, reverse=True
+            (pattern for pattern in self._rules if any(char in pattern for char in "*?[")),
+            key=len,
+            reverse=True,
         )
         for pattern in globs:
             if glob_any(tool_name, [pattern]):
@@ -128,11 +130,7 @@ class Policy:
                 return Verdict(Decision.DENY, f"amount {amount} exceeds the cap of {cap}")
 
         limit = rule.get("max_per_hour")
-        if (
-            limit is not None
-            and origin is not Origin.APPROVAL
-            and self._recent_calls(tool.name, 3600) >= int(limit)
-        ):
+        if limit is not None and self._recent_calls(tool.name, 3600) >= int(limit):
             return Verdict(Decision.DENY, f"rate limit of {int(limit)} calls per hour reached")
 
         configured = rule.get("decision")
@@ -144,8 +142,10 @@ class Policy:
         decision = Decision(configured) if configured else DEFAULT_BY_TIER[tool.tier]
         reason = "configured rule" if configured else f"default for the {tool.tier.value} tier"
 
-        if tool.tier is Tier.SPEND and decision is Decision.ALLOW and cap is None:
-            return Verdict(Decision.ASK, "spend tools need a max_amount before they can run unattended")
+        if tool.tier is Tier.SPEND and decision is Decision.ALLOW and (cap is None or tool.amount is None):
+            return Verdict(
+                Decision.ASK, "spend tools need an amount extractor and max_amount to run unattended"
+            )
         if origin is Origin.HUMAN and decision is Decision.ASK:
             return Verdict(Decision.ALLOW, "invoked directly by a human")
         return Verdict(decision, reason)
@@ -181,6 +181,9 @@ def _as_decimal(value: Any, label: str) -> Decimal | None:
     if value is None:
         return None
     try:
-        return Decimal(str(value))
+        amount = Decimal(str(value))
     except InvalidOperation as exc:
         raise ConfigError(f"{label} must be a number") from exc
+    if not amount.is_finite() or amount < 0:
+        raise ConfigError(f"{label} must be a finite, non-negative number")
+    return amount

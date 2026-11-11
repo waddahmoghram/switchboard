@@ -5,9 +5,10 @@ from __future__ import annotations
 import fnmatch
 import hashlib
 import json
+import math
 from collections.abc import Iterable
 from datetime import UTC, datetime, timedelta
-from typing import Any
+from typing import Any, NoReturn
 
 
 def now() -> datetime:
@@ -36,6 +37,33 @@ def iso_before(seconds: float) -> str:
 def canonical_json(value: Any) -> str:
     """Deterministic, ASCII-only JSON used for hashing and storage (lone surrogates stay escaped)."""
     return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=True, default=str)
+
+
+def json_loads(value: str | bytes) -> Any:
+    """Read JSON without accepting NaN, infinity, or overflowing floating-point literals."""
+    return json.loads(value, parse_constant=_invalid_number, parse_float=_finite_float)
+
+
+def json_equal(left: Any, right: Any) -> bool:
+    """Compare JSON values without treating booleans as numbers."""
+    if isinstance(left, bool) or isinstance(right, bool):
+        return type(left) is type(right) and left == right
+    if isinstance(left, dict) and isinstance(right, dict):
+        return left.keys() == right.keys() and all(json_equal(left[key], right[key]) for key in left)
+    if isinstance(left, list) and isinstance(right, list):
+        return len(left) == len(right) and all(json_equal(a, b) for a, b in zip(left, right, strict=True))
+    return bool(left == right)
+
+
+def _invalid_number(value: str) -> NoReturn:
+    raise ValueError(f"{value} is not a finite JSON number")
+
+
+def _finite_float(value: str) -> float:
+    number = float(value)
+    if not math.isfinite(number):
+        _invalid_number(value)
+    return number
 
 
 def printable(text: str) -> str:

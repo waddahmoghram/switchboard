@@ -5,9 +5,9 @@ invitations, all through the policy gate. It reads three kinds of sources:
 
 * **`ics_url`**: a private iCalendar (`.ics`) feed address, such as Google Calendar's "secret
   address in iCal format". Read-only.
-* **`caldav`**: a calendar server that speaks CalDAV (Calendaring Extensions to Web Distributed
-  Authoring and Versioning, or WebDAV), defined in Request for Comments (RFC) 4791, such as iCloud,
-  Fastmail, Nextcloud, or Radicale. Read-only unless you set `writable = true`.
+* **`caldav`**: a server using Web Distributed Authoring and Versioning (WebDAV) with Calendaring
+  Extensions to WebDAV (CalDAV), defined in Request for Comments (RFC) 4791, such as iCloud, Fastmail,
+  Nextcloud, or Radicale. Read-only unless you set `writable = true`.
 * **`ics_file`**: an `.ics` file on this machine. Read-only.
 
 No paid aggregator and no automation service sits in between. Feeds are downloaded directly from
@@ -106,7 +106,8 @@ source. Set `owner_email` if you want the invitation tools.
   against iCloud, uses `https://caldav.icloud.com/` and `https://contacts.icloud.com/`
   ([vdirsyncer iCloud notes](https://vdirsyncer.pimutils.org/en/stable/tutorials/icloud.html)).
   Discovery then moves to per-account hosts such as `pNN-caldav.icloud.com`, which Switchboard
-  accepts because they share the parent domain of the configured host.
+  explicitly permits for iCloud over the standard encrypted port. Sharing an arbitrary parent domain
+  is not enough to receive your credentials.
 
 ### Fastmail (checked 2026-11-11)
 
@@ -135,9 +136,10 @@ network.
   saving changes.
 * **Discovery** follows RFC 6764: the configured Uniform Resource Locator (URL) may be a calendar,
   a principal, or a server root; otherwise `/.well-known/caldav` leads to `current-user-principal`, then
-  `calendar-home-set`, then the calendars that accept events. Discovered calendars are remembered
-  until one answers 403, 404 or 410 (deleted, moved, or no longer shared). That calendar is skipped
-  with a warning in tool results, the others still refresh, and the next refresh runs discovery again.
+  `calendar-home-set`, then the calendars that accept events. Every source refresh repeats discovery
+  so newly created or shared calendars appear without restarting the process; this costs extra
+  discovery requests. A calendar that answers 403, 404 or 410 is skipped with a warning while the
+  others still refresh. If all fail, the old event cache is retained with an error.
 * **CalDAV reads** use one `calendar-query` REPORT per calendar with a `VEVENT` filter and a
   UTC `time-range` from 31 days ago to 366 days ahead; agenda requests outside that range see only
   what the cache holds. **Feeds** are downloaded with `If-None-Match` and `If-Modified-Since`, so an
@@ -186,9 +188,10 @@ network.
 
 * Credentials and feed addresses are secret references resolved only when a tool or job runs.
   Error messages name the source, never the address or credentials.
-* Credentials go only to the configured origin or, over HTTPS, to a host under the same parent
-  domain. Redirects anywhere else are refused, as are downgrades from HTTPS to plain Hypertext
-  Transfer Protocol (HTTP).
+* Credentials go only to the configured origin or explicitly recognized iCloud account hosts over
+  HTTPS on port 443. Other hosts and changed ports are refused, even when they share a parent domain;
+  configure that server directly if you trust it. Every redirect, including a `GET`, is checked before
+  forwarding credentials. Downgrades to plain Hypertext Transfer Protocol (HTTP) are refused.
 * Server replies are parsed with `xml.etree.ElementTree`, which does not fetch external entities.
   An expat pre-scan refuses any reply that declares a `DOCTYPE` or entities, even one placed after a
   comment, before a single entity is expanded.

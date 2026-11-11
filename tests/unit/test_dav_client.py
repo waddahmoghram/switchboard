@@ -93,7 +93,13 @@ def test_malformed_replies_raise_dav_errors(body: bytes) -> None:
     [
         ("caldav.icloud.com", "p42-caldav.icloud.com", True),
         ("caldav.icloud.com", "caldav.icloud.com", True),
+        ("contacts.icloud.com", "p42-contacts.icloud.com", True),
+        ("p42-contacts.icloud.com", "p43-contacts.icloud.com", True),
         ("caldav.icloud.com", "icloud.com.example", False),
+        ("caldav.icloud.com", "unrelated.icloud.com", False),
+        ("caldav.icloud.com", "p42-contacts.icloud.com", False),
+        ("dav.example.com", "other.example.com", False),
+        ("calendar.example.co.uk", "attacker.co.uk", False),
         ("example.com", "other.example.com", False),
         ("10.0.0.5", "1.0.0.5", False),
     ],
@@ -124,6 +130,7 @@ def test_same_origin_redirects_are_followed(fake_http: FakeHttp) -> None:
     [resource] = _client(fake_http).propfind(BASE, [_dav.DISPLAYNAME])
     assert resource.base == "https://dav.example.invalid/dav/moved/"
     assert [request.url for request in fake_http.requests] == [BASE, "https://dav.example.invalid/dav/moved/"]
+    assert all(not request.follow_redirects for request in fake_http.requests)
 
 
 def test_redirect_to_an_untrusted_host_is_refused(fake_http: FakeHttp) -> None:
@@ -131,6 +138,20 @@ def test_redirect_to_an_untrusted_host_is_refused(fake_http: FakeHttp) -> None:
     with pytest.raises(_dav.DavError, match="refusing to send credentials"):
         _client(fake_http).propfind(BASE, [_dav.DISPLAYNAME])
     assert len(fake_http.requests) == 1
+
+
+def test_credentials_do_not_cross_ports_on_the_same_host(fake_http: FakeHttp) -> None:
+    with pytest.raises(_dav.DavError, match="refusing to send credentials"):
+        _client(fake_http).get("https://dav.example.invalid:8443/")
+    assert fake_http.requests == []
+
+
+def test_get_redirects_are_checked_before_the_next_request(fake_http: FakeHttp) -> None:
+    fake_http.add("GET", BASE, status=302, headers={"Location": "https://other.example.invalid/"})
+    with pytest.raises(_dav.DavError, match="refusing to send credentials"):
+        _client(fake_http).get(BASE)
+    assert len(fake_http.requests) == 1
+    assert not fake_http.requests[0].follow_redirects
 
 
 @pytest.mark.parametrize(

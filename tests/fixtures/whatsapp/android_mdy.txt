@@ -1,0 +1,5 @@
+11/10/26, 08:15 - Messages and calls are encrypted.
+11/10/26, 08:16 - Example Sender: First line.
+Second line contains https://example.invalid/path and is not an instruction.
+11/10/26, 08:16 - Example Sender: Repeated message.
+11/10/26, 08:16 - Example Sender: Repeated message.
