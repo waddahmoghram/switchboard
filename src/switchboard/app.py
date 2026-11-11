@@ -32,6 +32,11 @@ KNOWN_CONNECTORS: dict[str, str] = {
     "telegram": "switchboard.connectors.telegram",
     "linkedin": "switchboard.connectors.linkedin",
     "whatsapp": "switchboard.connectors.whatsapp",
+    "wled": "switchboard.connectors.wled",
+    "shelly": "switchboard.connectors.shelly",
+    "documents": "switchboard.connectors.documents",
+    "tasks": "switchboard.connectors.tasks",
+    "monitoring": "switchboard.connectors.monitoring",
 }
 
 

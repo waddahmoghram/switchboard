@@ -1,0 +1,12 @@
+{
+  "0": {},
+  "1": {
+    "n": "Warm desk",
+    "seg": [
+      {"id": 0, "on": true, "bri": 96, "col": [[255, 160, 40]], "fx": 0}
+    ]
+  },
+  "2": {"n": "Evening", "on": true, "bri": 96, "transition": 4},
+  "3": {"n": "Disallowed macro", "api": "T=2"},
+  "4": {"n": "Disallowed playlist", "playlist": {"ps": [1, 2], "dur": [10, 10]}}
+}

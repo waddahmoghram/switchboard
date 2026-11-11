@@ -1,8 +1,8 @@
 # Switchboard
 
 Self-hosted hooks that let your personal assistant work with **your own** mail, calendars, contacts, bank data,
-orders, notifications, webhooks, and home devices — without paying an aggregator such as Plaid or an
-automation service such as Zapier, and without handing them your credentials.
+orders, notifications, webhooks, home devices, local notes, tasks, and health checks — without paying an
+aggregator such as Plaid or an automation service such as Zapier, and without handing them your credentials.
 
 Switchboard is a single Python package with **no third-party Python runtime dependencies**. It uses standard
 mail, calendar, and contact protocols, bank export files, and direct service interfaces. It exposes tools
@@ -36,14 +36,29 @@ results must stay on your machine. See [the operating boundary](./docs/DEPLOYMEN
 | `whatsapp` | Your manually exported personal chat snapshots                                 | `whatsapp_import_export` (draft); `whatsapp_search`, `whatsapp_read` (read); no live messaging                                                               |
 | core       | Switchboard itself                                                             | `switchboard_status`, `approvals_pending`, `approvals_status` (read)                                                                                         |
 
+### Local-first extensions
+
+| Connector                                     | Purpose                                                                                                                  | Boundary                                                                        |
+| --------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------- |
+| [home](./docs/connectors/home.md)             | Typed lighting, climate/fan and media controls, sensor/energy summaries, and state-change polling through Home Assistant | Explicit targets and safety limits; not arbitrary household automation          |
+| [wled](./docs/connectors/wled.md)             | Direct local lighting status and approved absolute controls/presets                                                      | Fixed configured endpoints; no firmware or arbitrary command interface          |
+| [shelly](./docs/connectors/shelly.md)         | Direct generation 2+ device/energy reads and opt-in approved safe switch controls                                        | Selected devices/components; not high-power appliance automation                |
+| [documents](./docs/connectors/documents.md)   | Bounded read-only listing, search and reading of selected local notes                                                    | Private allowlisted text collections, not a whole-disk assistant                |
+| [tasks](./docs/connectors/tasks.md)           | Local tasks, revisions, and one-shot reminder events                                                                     | Notification rules are separate from queueing; no task-provider synchronization |
+| [monitoring](./docs/connectors/monitoring.md) | Fixed-target health, backup-report freshness and disk-capacity observations                                              | Read-only checks; not a backup, restore, shell or server-management tool        |
+
+These are opt-in. Home Assistant is a separate self-hosted device gateway; direct WLED and Shelly hooks
+do not require it. Device compatibility, authentication, and exact capabilities depend on the selected
+model and firmware. No device was contacted during authoring.
+
 There is no "buy" or "pay" tool. Price watches tell you when an item hits your target, and you buy it
 yourself. The reasons are in [Tradeoffs](./docs/TRADEOFFS.md#money-movement-and-checkout).
 
 ## How it fits together
 
 * **Assistants** call tools over MCP on standard input and output; no network port is opened.
-* **The runner** (`switchboard run`) polls mailboxes, calendars, enabled Telegram inboxes, and price watches,
-  turns what it finds into events, and runs your automation rules — a local "if this, then that".
+* **The runner** (`switchboard run`) runs enabled polling and health jobs, queues due task reminders,
+  turns observations into events, and runs your automation rules — a local "if this, then that".
 * **You** approve pending actions from the terminal, flip the kill switch, and verify the audit log.
 
 Every tool call goes through the same dispatcher: argument validation, policy, audit, then execution.
@@ -54,6 +69,10 @@ The Telegram connector is an assistant-pulled inbox/reply bridge, not a model ru
 not start an assistant turn. Your assistant must check the inbox through its tools or an operator-configured
 loop. LinkedIn and WhatsApp imports are historical snapshots, not live personal-account access. LinkedIn
 publishing is off until explicitly configured; live WhatsApp messaging is not implemented.
+
+Likewise, a device accepting a command is not proof of its physical state, and a reminder event is not a
+delivered notification. Read the returned verification/error state and each connector's limits before
+building a multi-step routine.
 
 ## Start here: no accounts
 
@@ -122,7 +141,9 @@ the local user account.
   [shopping](./docs/connectors/shopping.md), [notify](./docs/connectors/notify.md),
   [webhooks](./docs/connectors/webhooks.md), [home](./docs/connectors/home.md),
   [Telegram](./docs/connectors/telegram.md), [LinkedIn](./docs/connectors/linkedin.md), and
-  [WhatsApp exports](./docs/connectors/whatsapp.md)
+  [WhatsApp exports](./docs/connectors/whatsapp.md), [WLED](./docs/connectors/wled.md),
+  [Shelly](./docs/connectors/shelly.md), [documents](./docs/connectors/documents.md),
+  [tasks](./docs/connectors/tasks.md), and [monitoring](./docs/connectors/monitoring.md)
 
 ## License
 

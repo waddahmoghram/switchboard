@@ -1,0 +1,53 @@
+{
+  "state": {
+    "on": true,
+    "bri": 128,
+    "transition": 7,
+    "ps": -1,
+    "pl": -1,
+    "nl": {"on": false, "dur": 60},
+    "udpn": {"send": true, "recv": true},
+    "seg": [
+      {
+        "id": 0,
+        "start": 0,
+        "stop": 30,
+        "on": true,
+        "bri": 128,
+        "col": [[255, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0]],
+        "fx": 0,
+        "sel": true
+      },
+      {
+        "id": 1,
+        "start": 30,
+        "stop": 60,
+        "on": false,
+        "bri": 64,
+        "col": [[0, 0, 255, 16], [0, 0, 0, 0], [0, 0, 0, 0]],
+        "fx": 0,
+        "sel": false
+      },
+      {
+        "id": 2,
+        "start": 60,
+        "stop": 90,
+        "on": true,
+        "bri": 255,
+        "col": [[0, 0, 0, 64], [0, 0, 0, 0], [0, 0, 0, 0]],
+        "fx": 0,
+        "sel": true
+      }
+    ]
+  },
+  "info": {
+    "ver": "0.15.0",
+    "name": "Synthetic untrusted device name",
+    "live": false,
+    "leds": {"count": 90, "maxseg": 16, "lc": 0, "seglc": [1, 3, 2]},
+    "mac": "000000000000",
+    "ip": "192.168.50.20",
+    "wifi": {"bssid": "00:00:00:00:00:00"},
+    "user_private_field": "synthetic-private-marker"
+  }
+}

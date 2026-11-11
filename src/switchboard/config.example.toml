@@ -8,7 +8,7 @@
 [switchboard]
 # Connectors to load. Start with one, check it with `switchboard doctor`, then add more.
 # Available: mail, calendar, contacts, finance, shopping, notify, webhooks, home,
-# telegram, linkedin, whatsapp
+# telegram, linkedin, whatsapp, wled, shelly, documents, tasks, monitoring
 connectors = []
 # data_dir = "~/.local/share/switchboard"   # database, audit log, inboxes (created with mode 700)
 event_retention_days = 14
@@ -502,15 +502,39 @@ base_url = "https://homeassistant.example.net:8123"
 token = "file:~/.config/switchboard/secrets/home-assistant"
 # Entity globs assistants may see. Prefer exact entity identifiers for anything sensitive.
 expose = ["light.*", "climate.*", "sensor.*"]
+# New typed controls require reviewed concrete profiles; empty defaults do not widen old exposure.
+# Profiled targets refuse the generic service tool, so use the typed tool's current binding.
+lights = []
+rooms = {}
+climate = {}
+fans = {}
+media_players = {}
+lighting_presets = {}
 # Always blocked, even when exposed. Setting this replaces the default list below, so keep every
 # domain you still want blocked. "cover" includes garage doors.
 # deny_domains = ["lock", "alarm_control_panel", "cover", "camera"]
 # allow_http = false                            # true only for a plain-http server on your own network
 
+[connectors.home.poll]
+enabled = false
+entities = []
+interval_seconds = 60
+stale_after_seconds = 300
+
+[connectors.home.quiet_hours]
+enabled = false
+
+[connectors.home.speech]
+enabled = false
+
 # Every action waits for your approval (the default for act tools), at most 20 per hour.
 [policy.tools.home_call_service]
 decision = "ask"
 max_per_hour = 20
+
+[policy.tools.home_announce]
+decision = "ask"
+max_per_hour = 6
 
 # Reading exposed states needs no approval.
 # [policy.tools.home_states]
@@ -555,3 +579,98 @@ import_dir = "~/.local/share/switchboard/whatsapp-imports"
 # Required before enabling: choose MDY, DMY, or YMD for the actual export; never auto-detected.
 date_order = ""
 timezone = "America/Los_Angeles" # Optional context only; no offset inference.
+
+# ==================== tasks ====================
+# Local tasks and one-shot reminder events; no remote task provider or automatic notification.
+[connectors.tasks]
+poll_interval_seconds = 60
+max_reminders_per_tick = 100
+
+# [policy.tools.tasks_delete]
+# decision = "ask"
+# max_per_hour = 10
+
+# ==================== documents ====================
+# Explicit private text collections only. Fill collections before enabling; no whole-home scan.
+[connectors.documents]
+max_entries = 256
+max_file_bytes = 262144
+max_search_bytes = 2097152
+max_return_chars = 8000
+collections = []
+
+# Replace the empty list above with one or more collection tables like this:
+# [[connectors.documents.collections]]
+# name = "personal"
+# path = "~/.local/share/switchboard/notes/personal"
+# extensions = [".md", ".markdown", ".txt"]
+
+# ==================== shelly ====================
+# Generation 2+ reads. Replace the pinned identity/model with your own device's verified values.
+[connectors.shelly]
+timeout_seconds = 5
+
+[connectors.shelly.devices.desk_lamp]
+base_url = "http://192.168.10.40"
+allow_http = true
+expected_device_id = "shellyplusplugs-000000000001"
+expected_model = "SNPL-00112EU"
+expected_generation = 2
+switch_ids = [0]
+password = "env:SWITCHBOARD_SHELLY_DESK_PASSWORD"
+allow_control = false
+
+# Only supported reviewed low-power lighting loads may opt in; see docs/connectors/shelly.md.
+# [connectors.shelly.devices.desk_lamp.controls."0"]
+# safe_load = "nonessential_lighting"
+# max_power_watts = 60
+# safety_acknowledged = true
+
+# [policy.tools.shelly_switch_set]
+# decision = "ask"
+# max_per_hour = 4
+
+# ==================== wled ====================
+# Replace the address and review segment scope before enabling. No discovery or firmware changes.
+[connectors.wled]
+timeout_seconds = 5
+max_response_bytes = 65536
+
+[[connectors.wled.devices]]
+name = "desk"
+base_url = "http://192.168.50.20"
+allow_http = true
+allow_global = false
+segments = [0]
+presets = []
+
+# [policy.tools."wled_set_*"]
+# decision = "ask"
+#
+# [policy.tools.wled_apply_preset]
+# decision = "ask"
+
+# ==================== monitoring ====================
+# Read-only observations. Configure your own targets/reports; this does not run backup software.
+[connectors.monitoring]
+poll_interval_seconds = 300
+snapshot_stale_after_seconds = 600
+
+[connectors.monitoring.checks.personal_service]
+kind = "endpoint"
+url = "https://health.example.invalid/ready"
+expected_status = 200
+readiness_field = "status"
+readiness_equals = "ready"
+
+[connectors.monitoring.checks.personal_backup]
+kind = "backup"
+directory = "~/.local/share/switchboard/backup-reports"
+filename = "personal-backup.json"
+max_age_seconds = 86400
+
+[connectors.monitoring.checks.personal_disk]
+kind = "disk"
+path = "~/.local/share/switchboard"
+min_free_bytes = 1073741824
+min_free_percent = 10

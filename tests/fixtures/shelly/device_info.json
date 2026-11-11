@@ -1,0 +1,12 @@
+{
+  "id": "shellyplusplugs-000000000001",
+  "mac": "000000000001",
+  "model": "SNPL-00112EU",
+  "gen": 2,
+  "fw_id": "synthetic-firmware",
+  "ver": "1.7.0",
+  "app": "PlusPlugS",
+  "auth_en": false,
+  "auth_domain": null,
+  "key": "synthetic-secret-provider-field-must-not-be-returned"
+}

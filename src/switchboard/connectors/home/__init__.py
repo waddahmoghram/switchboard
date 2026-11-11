@@ -1,8 +1,9 @@
-"""Home: read and control the Home Assistant entities you expose, through its REST API.
+"""Home: exposed Home Assistant states, reviewed controls, opt-in sampling and announcements.
 
 ``home_states`` (read) lists exposed entities with a few attributes. ``home_call_service`` (act) runs
 one action on one exposed entity and waits for your approval by default. Locks, alarm panels, covers
-(garage doors), and cameras stay blocked unless you change ``deny_domains``. See docs/connectors/home.md.
+(garage doors), and cameras stay blocked unless you change the legacy ``deny_domains`` setting.
+New controls require separate exact device allowlists. See docs/connectors/home.md.
 """
 
 from __future__ import annotations
@@ -12,7 +13,12 @@ from collections.abc import Callable, Mapping
 from typing import Any
 
 from switchboard.connectors.home.client import HomeAssistant
+from switchboard.connectors.home.controls import HomeControls
+from switchboard.connectors.home.service import register_extension
 from switchboard.connectors.home.settings import DOMAIN, ENTITY_ID, HomeSettings, load_settings
+from switchboard.connectors.home.state import KEPT_ATTRIBUTES as KEPT_ATTRIBUTES
+from switchboard.connectors.home.state import minimal_state as minimal_state
+from switchboard.connectors.home.store import MIGRATIONS as MIGRATIONS
 from switchboard.context import AppContext
 from switchboard.errors import ConfigError, SecretError, ToolError
 from switchboard.policy import Tier
@@ -21,15 +27,6 @@ from switchboard.util import canonical_json, truncate
 
 NAME = "home"
 
-KEPT_ATTRIBUTES = (
-    "friendly_name",
-    "device_class",
-    "unit_of_measurement",
-    "current_temperature",
-    "temperature",
-    "hvac_action",
-    "brightness",
-)
 # Keys that would let ``data`` aim the action at entities, devices, or areas other than entity_id.
 TARGET_KEYS = frozenset({"entity_id", "device_id", "area_id", "floor_id", "label_id"})
 
@@ -104,6 +101,7 @@ CALL_SCHEMA: dict[str, Any] = {
 def register(ctx: AppContext, registry: ToolRegistry) -> None:
     settings = load_settings(ctx.connector_config(NAME))
     client = HomeAssistant(ctx, settings)
+    service = register_extension(ctx, registry, settings, client)
     registry.add(
         Tool(
             name="home_states",
@@ -130,7 +128,7 @@ def register(ctx: AppContext, registry: ToolRegistry) -> None:
             ),
             tier=Tier.ACT,
             input_schema=CALL_SCHEMA,
-            handler=_call_service(client, settings),
+            handler=_call_service(client, settings, service.controls),
             title="Control a home device",
             summarize=summarize_call,
             connector=NAME,
@@ -157,26 +155,6 @@ def summarize_call(args: Mapping[str, Any]) -> str:
     data = args.get("data") or {}
     detail = f" with {truncate(canonical_json(data), 120)}" if data else ""
     return f"Home Assistant {args.get('domain')}.{args.get('service')} on {args.get('entity_id')}{detail}"
-
-
-def minimal_state(raw: Mapping[str, Any]) -> dict[str, Any]:
-    """Entity id, state, last change, and only the attributes in KEPT_ATTRIBUTES (scalars only)."""
-    attributes = raw.get("attributes")
-    kept: dict[str, Any] = {}
-    if isinstance(attributes, Mapping):
-        for key in KEPT_ATTRIBUTES:
-            value = attributes.get(key)
-            if isinstance(value, str):
-                kept[key] = truncate(value, 200)
-            elif isinstance(value, (bool, int, float)):
-                kept[key] = value
-    changed = raw.get("last_changed")
-    return {
-        "entity_id": str(raw.get("entity_id", "")),
-        "state": truncate(str(raw.get("state", "")), 255),
-        "attributes": kept,
-        "last_changed": changed if isinstance(changed, str) else None,
-    }
 
 
 def _states(client: HomeAssistant, settings: HomeSettings) -> Callable[[dict[str, Any]], dict[str, Any]]:
@@ -206,8 +184,10 @@ def _states(client: HomeAssistant, settings: HomeSettings) -> Callable[[dict[str
 
 
 def _call_service(
-    client: HomeAssistant, settings: HomeSettings
+    client: HomeAssistant, settings: HomeSettings, controls: HomeControls | None = None
 ) -> Callable[[dict[str, Any]], dict[str, Any]]:
+    guard = controls if controls is not None else HomeControls(client, settings)
+
     def handler(args: dict[str, Any]) -> dict[str, Any]:
         domain = _require(DOMAIN, args["domain"], "domain")
         service = _require(DOMAIN, args["service"], "service")
@@ -222,6 +202,7 @@ def _call_service(
         data = dict(args.get("data") or {})
         if TARGET_KEYS & data.keys():
             raise ToolError("data cannot choose targets; name the entity in entity_id")
+        guard.require_legacy_target(domain, entity_id)
         changed = client.call_service(domain, service, {"entity_id": entity_id, **data})
         return {
             "called": f"{domain}.{service}",

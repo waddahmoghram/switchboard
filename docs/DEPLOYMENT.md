@@ -164,9 +164,40 @@ Only one process or assistant may consume updates for a Telegram bot. If OpenCla
 that bot's Telegram frontend, leave this receiver disabled for that bot and use the assistant's existing
 frontend with Switchboard tools instead.
 
+## Add local devices, notes, tasks, and monitoring
+
+Enable one capability at a time after the offline tests pass on your own machine:
+
+* [Home Assistant](./connectors/home.md) supplies the broader device gateway, including supported
+  lighting, climate, fan, speaker and sensor integrations. It is separate software you operate, not
+  installed or started by Switchboard. Use reviewed target lists and per-device limits.
+* [WLED](./connectors/wled.md) and [Shelly](./connectors/shelly.md) provide direct local hooks without
+  the gateway. Configure fixed endpoints yourself; these are not network discovery or arbitrary command
+  tools. Plain local transport, when needed, requires explicit consent and an appropriately trusted network.
+* [Documents](./connectors/documents.md) reads bounded text from selected private collections. It is not
+  permission to scan your home directory, work files, or shared folders.
+* [Tasks](./connectors/tasks.md) needs no account. Reminder events require `switchboard run`; add an
+  explicit notification rule and configure the notification connector if you want delivery.
+* [Monitoring](./connectors/monitoring.md) reads fixed health endpoints, backup reports and disk
+  observations. You supply report producers; no backup, restore, remote shell or host-management program
+  is executed by this connector.
+
+Merge the relevant namespaced tables and add names to the existing connector/exposure lists, not duplicate
+root tables. The starter still enables no connectors. Keep device controls disabled until their exact
+targets, capabilities, transport and approval behavior have been checked.
+
+Do not treat a device acknowledgement as completion or an old healthy snapshot as proof a service remains
+healthy. Keep manual overrides and device safety controls. Do not expose locks, garage doors, alarms,
+unreviewed scripts/scenes, or high-power appliances merely because a generic integration supports them.
+Safety profiles belong to their configured control path, not a universal device firewall. Do not expose
+a second, broader path to the same device if you depend on the narrower profile's restrictions.
+The new home profiles refuse generic calls on their configured control targets; unprofiled legacy
+configurations keep the original behavior. New home and native lighting/plug actions bind the reviewed
+configuration, so changing targets or limits requires reading a new binding before requesting an action.
+
 ## Run the background runner
 
-`switchboard run` polls mailboxes, calendars, and enabled Telegram inboxes, checks prices, processes events,
+`switchboard run` runs enabled polling/monitoring jobs, queues due task reminders, processes events,
 and runs your rules. LinkedIn and WhatsApp export imports do not run automatically. Run
 one per data directory: events are not claimed across processes, so a second `switchboard run` exits with
 "another 'switchboard run' is already processing events" while the first holds `runner.lock` there. As a
@@ -192,6 +223,10 @@ systemctl --user daemon-reload
 systemctl --user enable --now switchboard.service
 journalctl --user -u switchboard.service -f
 ```
+
+Jobs run sequentially in this runner. Intervals are minimum spacing, not maximum response or reminder
+delays. A slow provider request, name lookup or filesystem check can delay other jobs; this version has
+no worker pool or whole-job deadline.
 
 The webhook receiver is a separate, optional process (`switchboard webhooks serve`). It binds to `127.0.0.1`;
 see [webhooks](./connectors/webhooks.md) before exposing it through a tunnel.

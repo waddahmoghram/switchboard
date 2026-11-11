@@ -1,0 +1,58 @@
+# Read-only monitoring example. Replace every synthetic address and absolute path before use.
+# This file is not a backup producer and does not install an external monitoring agent.
+# Merge these tables into your private configuration rather than replacing other connector settings.
+[switchboard]
+connectors = ["monitoring"]
+
+[connectors.monitoring]
+poll_interval_seconds = 300
+snapshot_stale_after_seconds = 600
+
+# Hypertext Transfer Protocol (HTTP) success alone is not application readiness.
+# This explicitly requires the JavaScript Object Notation (JSON) field health.ready to equal true.
+[connectors.monitoring.checks.server]
+kind = "endpoint"
+url = "https://health.example.test/ready"
+expected_status = 200
+readiness_field = "health.ready"
+readiness_equals = true
+timeout_seconds = 5
+# bearer_token = "env:SWITCHBOARD_HEALTH_TOKEN"
+# bearer_token = "file:/home/OWNER/.config/switchboard/health-token"
+# Command-based secret references and literal credentials are forbidden.
+# For reachability only, remove BOTH readiness_field and readiness_equals.
+# For your own local plain-HTTP endpoint, explicitly set allow_http = true AND use
+# localhost or a private/loopback numeric address, for example http://127.0.0.1:8000/ready.
+# allow_http = false
+
+# The producer is your own existing backup integration, not Switchboard.
+# Directory: owned by the process user, no group/other access (recommended mode 700).
+# File: owned regular file, no group/other access (recommended mode 600), no links.
+[connectors.monitoring.checks.backup]
+kind = "backup"
+directory = "/home/OWNER/.local/state/switchboard-backup-status"
+filename = "backup.json"
+max_age_seconds = 86400
+
+# This path is on the machine and mount namespace where Switchboard runs.
+# Free capacity is unhealthy if EITHER configured minimum is missed; equality passes.
+[connectors.monitoring.checks.disk]
+kind = "disk"
+path = "/home/OWNER"
+min_free_bytes = 10000000000
+min_free_percent = 10.0
+
+# Optional assistant-call limit. This does not throttle the configured polling job.
+[policy.tools.monitoring_check]
+max_per_hour = 60
+
+# Optional alert rule: enable "notify" too and configure your own channel named "self" first.
+# The notify_self tool is DRAFT tier; monitoring itself sends no notifications or remote writes.
+# [[rules]]
+# name = "Monitoring alert"
+# on = "monitoring.alert"
+# [rules.match]
+# "payload.name" = "backup"
+# [[rules.do]]
+# tool = "notify_self"
+# args = { title = "Check {payload.name}", message = "{payload.status}: {payload.error}", channels = ["self"] }

@@ -130,23 +130,37 @@ up to the hook's body limit). A `dedupe_key` makes polling idempotent. Subscribe
 and may emit derived events. Run one event processor at a time (`switchboard run`); events are not claimed
 across processes in v0.1. Well-known event types:
 
-| Type                      | Emitted by | Representative payload keys                                                                        |
-| ------------------------- | ---------- | -------------------------------------------------------------------------------------------------- |
-| `mail.received`           | mail       | account, mailbox, uid, message_id, from, to, cc, subject, date, text, has_attachments, attachments |
-| `webhook.received`        | webhooks   | hook, received_at, content_type, size, headers (safe subset), json or text                         |
-| `finance.transaction`     | finance    | account, date, amount, currency, merchant, pending, source, category                               |
-| `finance.budget_exceeded` | finance    | category, month, spent, limit, currency                                                            |
-| `shopping.order`          | shopping   | merchant, order_id, total, currency, source_message_id                                             |
-| `shopping.shipment`       | shopping   | merchant, order_id, carrier, tracking_number, tracking_url, status                                 |
-| `shopping.price_drop`     | shopping   | url, title, price, currency, target, previous                                                      |
-| `calendar.upcoming`       | calendar   | calendar, uid, summary, start, end, location, minutes_until                                        |
-| `telegram.message`        | telegram   | id, chat_id, user_id, message_id, untrusted_content; body stays in the inbox                       |
-| `linkedin.imported`       | linkedin   | file, datasets, records, inserted, historical                                                      |
-| `linkedin.draft_created`  | linkedin   | draft_id, draft_hash, author_urn, visibility, characters                                           |
-| `linkedin.post_published` | linkedin   | draft_id, draft_hash, author_urn, visibility, post_urn                                             |
-| `whatsapp.imported`       | whatsapp   | file, records, inserted, historical, chat_label, date_order, timezone_context, archive_member      |
+| Type                      | Emitted by | Representative payload keys                                                                                                                           |
+| ------------------------- | ---------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `mail.received`           | mail       | account, mailbox, uid, message_id, from, to, cc, subject, date, text, has_attachments, attachments                                                    |
+| `webhook.received`        | webhooks   | hook, received_at, content_type, size, headers (safe subset), json or text                                                                            |
+| `finance.transaction`     | finance    | account, date, amount, currency, merchant, pending, source, category                                                                                  |
+| `finance.budget_exceeded` | finance    | category, month, spent, limit, currency                                                                                                               |
+| `shopping.order`          | shopping   | merchant, order_id, total, currency, source_message_id                                                                                                |
+| `shopping.shipment`       | shopping   | merchant, order_id, carrier, tracking_number, tracking_url, status                                                                                    |
+| `shopping.price_drop`     | shopping   | url, title, price, currency, target, previous                                                                                                         |
+| `calendar.upcoming`       | calendar   | calendar, uid, summary, start, end, location, minutes_until                                                                                           |
+| `telegram.message`        | telegram   | id, chat_id, user_id, message_id, untrusted_content; body stays in the inbox                                                                          |
+| `linkedin.imported`       | linkedin   | file, datasets, records, inserted, historical                                                                                                         |
+| `linkedin.draft_created`  | linkedin   | draft_id, draft_hash, author_urn, visibility, characters                                                                                              |
+| `linkedin.post_published` | linkedin   | draft_id, draft_hash, author_urn, visibility, post_urn                                                                                                |
+| `whatsapp.imported`       | whatsapp   | file, records, inserted, historical, chat_label, date_order, timezone_context, archive_member                                                         |
+| `tasks.changed`           | tasks      | id, revision, status                                                                                                                                  |
+| `tasks.deleted`           | tasks      | id, revision, deleted_at                                                                                                                              |
+| `tasks.reminder_due`      | tasks      | id, revision, title, due_at, remind_at, untrusted_content, delivery                                                                                   |
+| `monitoring.changed`      | monitoring | name, kind, status, error, reachable, ready, measurements, report, checked_at, changed_at, revision, previous_status                                  |
+| `monitoring.alert`        | monitoring | Same bounded observation fields; alert-worthy state transition                                                                                        |
+| `wled.action_result`      | wled       | device, target_digest, operation, attempted, requested, status, confirmed, confirmation, effect_unknown, observation, stale, physical_output_verified |
+| `home.state_changed`      | home       | entity_id, previous, current, observed_at, revision, source (opaque server digest), history_complete                                                  |
 
 `text` in `mail.received` is plain text extracted from the message, capped at 20,000 characters.
+`wled.action_result` follows an attempted write, not a pending approval or failed preflight. Its
+`confirmed` field describes matched software readback; `physical_output_verified` remains false.
+An event-storage failure after a write does not prove that the write failed, and must not trigger a
+blind resend.
+`home.state_changed` contains bounded previous/current software observations. Its first baseline is
+silent and `history_complete` is false; elapsed-time staleness is displayed in polling status rather
+than fabricated as an observed device transition.
 
 ## Services
 
@@ -158,6 +172,9 @@ Named services let one connector use another's capability without importing it:
 | `mail.sender`    | mail        | `send(message: EmailMessage, account: str \| None = None) -> str` (returns the Message-ID)                    |
 | `notify`         | notify      | `send(title: str, message: str, *, priority: str = "default", url: str \| None = None) -> list[str]`          |
 | `telegram.inbox` | telegram    | `TelegramService`: `poll()`, `status(args)`, `messages(args)`, `read(args)`, `mark_read(args)`, `reply(args)` |
+| `tasks.local`    | tasks       | `TaskService`: local task handlers and `reminders_job()`; internal calls do not dispatch policy               |
+| `monitoring`     | monitoring  | Cached status, named checks and `poll()` returning checked/changed/events_queued/record_errors counts         |
+| `home`           | home        | Internal read/control/poll handlers; caller must still use the dispatcher for external actions                |
 
 Look services up when a handler runs (`ctx.service("mail.drafts")`), not in `register`, so the
 order in which connectors register does not matter. Raise `ToolError` if a needed service is absent.

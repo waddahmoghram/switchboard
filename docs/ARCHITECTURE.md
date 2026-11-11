@@ -32,9 +32,9 @@ flowchart LR
 
     subgraph OUTSIDE["Outside Switchboard"]
         ASSISTANT("AI assistant client"):::external
-        PROVIDERS("Mail, calendar, contacts,<br/>Home Assistant, ntfy, Telegram, LinkedIn"):::external
+        PROVIDERS("Account providers,<br/>Home Assistant and local devices"):::external
         SENDERS("Webhook senders"):::external
-        FILES("Bank, profile, and chat exports<br/>you download"):::external
+        FILES("Exports, private notes,<br/>and backup reports"):::external
     end
 
     subgraph SWITCHBOARD["Switchboard processes (your machine)"]
@@ -43,8 +43,8 @@ flowchart LR
         RUNNER["Runner<br/>scheduler and rules"]:::active
         HOOKS["Webhook receiver<br/>opt-in, loopback"]:::active
         GATE{{"Dispatcher and policy gate"}}:::caution
-        CONNECTORS["Enabled connectors<br/>mail, calendars, archives,<br/>messaging, shopping, home"]:::active
-        STORE[("SQLite: approvals, events,<br/>ledger, caches")]:::neutral
+        CONNECTORS["Enabled connectors<br/>accounts, files, messaging,<br/>devices, tasks, monitoring"]:::active
+        STORE[("SQLite: approvals, events,<br/>ledger, tasks, snapshots")]:::neutral
         AUDIT[("Hash-chained audit log")]:::neutral
     end
 
@@ -55,10 +55,10 @@ flowchart LR
     GATE --> CONNECTORS
     GATE --> AUDIT
     GATE --> STORE
-    CONNECTORS -->|"encrypted web and mail protocols"| PROVIDERS
+    CONNECTORS -->|"protocols with explicit transport policy"| PROVIDERS
     SENDERS -->|"signed POST through your tunnel"| HOOKS
     HOOKS -->|"webhook.received"| STORE
-    FILES -->|"import inbox"| CONNECTORS
+    FILES -->|"allowlisted reads and imports"| CONNECTORS
     RUNNER -->|"poll jobs"| CONNECTORS
     CONNECTORS -->|"events"| STORE
 ```
@@ -196,6 +196,32 @@ and version are approved. WhatsApp has no live messaging implementation.
 
 All three add private data to the local store. Calling a tool can still disclose its results to a hosted
 assistant; the transport does not make the assistant or its model local.
+
+## Local devices, private files, and reminders
+
+The [home bridge](./connectors/home.md) delegates device protocols to an operator-managed Home Assistant
+server. [WLED](./connectors/wled.md) and [Shelly](./connectors/shelly.md) are separate direct local
+adapters. No firmware installer, radio-commissioning client, or Home Assistant launcher is included.
+New typed controls narrow target and parameter choices; exposing the older generic service tool is a
+broader capability and must be a deliberate choice.
+
+Action acknowledgement, observed software state, and actual physical effect are different evidence.
+A readback can be unavailable, stale, delayed, or report only part of an intended transition. Callers must
+preserve requested/unconfirmed/error outcomes instead of announcing completion from a successful
+request alone. Hardware interlocks and manual control remain independent of model reasoning.
+An outer tool `status = "ok"` or approval state `executed` means the handler returned a report, not
+that a physical action was independently confirmed. Inspect the returned acceptance and observation
+fields before describing the result or requesting another operation.
+
+[Documents](./connectors/documents.md) reads selected local text as untrusted data.
+[Monitoring](./connectors/monitoring.md) observes fixed health targets, backup status files and selected
+filesystems; it does not execute backup programs or administer a server. A successful response proves
+only the check's declared criterion, not restore integrity or general system health.
+
+[Tasks](./connectors/tasks.md) uses local revisions for edits and approval-bound deletion. Its reminder
+job atomically queues a one-shot event and records that queueing. A later rule may request notification,
+but notification delivery is not part of that transaction. Already queued events cannot be withdrawn by
+a later completion, cancellation or deletion.
 
 ## Trust boundaries and threats
 

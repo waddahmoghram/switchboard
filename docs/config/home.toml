@@ -1,23 +1,138 @@
-# Home connector: read and control the Home Assistant entities you expose.
-# Add "home" to [switchboard] connectors, then run `switchboard doctor` and `switchboard call home_states`.
-# Secrets are references (env:NAME, file:~/path with mode 600, or cmd:program args), never values.
+# Home connector example, for YOUR machine. All entity names are fictional; replace them after review.
+# Append "home" to the existing [switchboard] connectors list; do not replace other enabled connectors.
+# Polling and speech remain OFF until you explicitly enable them. Registration never contacts a device.
+# Secrets are references, never literal tokens. Read docs/connectors/home.md before enabling actions.
 
 [connectors.home]
 base_url = "https://homeassistant.example.net:8123"
-# A long-lived access token from a dedicated, non-administrator Home Assistant user.
 token = "file:~/.config/switchboard/secrets/home-assistant"
-# Entity globs assistants may see. Prefer exact entity identifiers for anything sensitive.
-expose = ["light.*", "climate.*", "sensor.*"]
-# Always blocked, even when exposed. Setting this replaces the default list below, so keep every
-# domain you still want blocked. "cover" includes garage doors.
-# deny_domains = ["lock", "alarm_control_panel", "cover", "camera"]
-# allow_http = false                            # true only for a plain-http server on your own network
+allow_http = false
+expose = [
+  "light.living_lamp",
+  "light.reading_lamp",
+  "climate.living_thermostat",
+  "fan.living_fan",
+  "media_player.living_speaker",
+  "sensor.living_temperature",
+  "sensor.living_humidity",
+  "binary_sensor.living_motion",
+  "binary_sensor.kitchen_leak",
+  "sensor.motion_battery",
+  "sensor.house_power",
+  "sensor.house_energy",
+  "tts.existing_local_voice",
+]
+# This replaces the legacy default deny list if changed. New features have their own hard domain limits.
+deny_domains = ["lock", "alarm_control_panel", "cover", "camera"]
+# Only reviewed physical leaf lights, never groups, scripts, scenes, appliance relays or garage controls.
+lights = ["light.living_lamp", "light.reading_lamp"]
 
-# Every action waits for your approval (the default for act tools), at most 20 per hour.
+[connectors.home.rooms]
+# These are local aliases, NOT Home Assistant areas. Actions still REQUIRE explicit entity identifiers.
+living = [
+  "light.living_lamp",
+  "light.reading_lamp",
+  "climate.living_thermostat",
+  "fan.living_fan",
+  "media_player.living_speaker",
+  "sensor.living_temperature",
+  "sensor.living_humidity",
+  "binary_sensor.living_motion",
+]
+kitchen = ["binary_sensor.kitchen_leak"]
+
+[connectors.home.climate."climate.living_thermostat"]
+# Match Home Assistant's REPORTED temperature_unit; C means Celsius, F means Fahrenheit. No conversion.
+unit = "C"
+minimum = 16
+maximum = 26
+max_change = 2
+modes = ["off", "heat", "cool", "heat_cool"]
+
+[connectors.home.fans."fan.living_fan"]
+# Percentages, not revolutions per minute. Both bounds and the per-request change cap are enforced.
+minimum = 0
+maximum = 75
+max_change = 25
+
+[connectors.home.media_players."media_player.living_speaker"]
+# Home Assistant volume levels are fractions from 0 to 1, NOT a loudness or hearing-safety measurement.
+minimum = 0
+maximum = 0.4
+
+[[connectors.home.lighting_presets.reading.actions]]
+entity_id = "light.living_lamp"
+state = "on"
+brightness_pct = 40
+color_temp_kelvin = 3000
+transition = 2
+
+[[connectors.home.lighting_presets.reading.actions]]
+entity_id = "light.reading_lamp"
+state = "on"
+brightness_pct = 50
+transition = 2
+
+[connectors.home.quiet_hours]
+enabled = true
+timezone = "America/Los_Angeles" # Choose your actual installed system time zone.
+start = "22:00"
+end = "07:00"
+
+[connectors.home.poll]
+enabled = false
+interval_seconds = 60
+stale_after_seconds = 300
+entities = [
+  "light.living_lamp",
+  "sensor.living_temperature",
+  "sensor.living_humidity",
+  "binary_sensor.living_motion",
+  "binary_sensor.kitchen_leak",
+  "sensor.motion_battery",
+  "sensor.house_power",
+  "sensor.house_energy",
+]
+
+[connectors.home.speech]
+enabled = false
+engine = "tts.existing_local_voice"
+destinations = ["media_player.living_speaker"]
+# This is YOUR provider review declaration, not automatic proof that the engine is local.
+external_processing = false
+allow_external = false
+allow_sensitive = false
+# Speech never sets volume or unmutes. Approve a separate home_media adjustment first if needed.
+# Calls require binding + exact engine/destination/text/volume_level/sensitive arguments.
+
+# Explicit ask rules prevent a broad policy glob from loosening these actions.
+# A direct human command counts as approval. A kill switch or explicit deny still wins.
 [policy.tools.home_call_service]
 decision = "ask"
 max_per_hour = 20
 
-# Reading exposed states needs no approval.
-# [policy.tools.home_states]
-# decision = "allow"
+[policy.tools.home_lights]
+decision = "ask"
+max_per_hour = 20
+
+[policy.tools.home_climate]
+decision = "ask"
+max_per_hour = 6
+
+[policy.tools.home_fan]
+decision = "ask"
+max_per_hour = 12
+
+[policy.tools.home_media]
+decision = "ask"
+max_per_hour = 20
+
+[policy.tools.home_lighting_preset]
+decision = "ask"
+max_per_hour = 6
+
+# This EXACT entry with ask or deny is REQUIRED before enabling speech. Allow is refused at startup.
+[policy.tools.home_announce]
+decision = "ask"
+allow_recipients = ["media_player.living_speaker"]
+max_per_hour = 6

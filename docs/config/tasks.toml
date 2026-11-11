@@ -1,0 +1,9 @@
+# Merge this table and add "tasks" to your existing [switchboard] connector list.
+[connectors.tasks]
+poll_interval_seconds = 60
+max_reminders_per_tick = 100
+
+# Local task deletion asks by default. Keep the exact task revision in the request.
+# [policy.tools.tasks_delete]
+# decision = "ask"
+# max_per_hour = 10

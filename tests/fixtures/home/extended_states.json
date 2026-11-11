@@ -1,0 +1,118 @@
+[
+  {
+    "entity_id": "light.lounge",
+    "state": "off",
+    "attributes": {
+      "friendly_name": "Synthetic lounge lamp",
+      "brightness": 128,
+      "supported_color_modes": ["rgb", "color_temp"],
+      "supported_features": 32,
+      "rgb_color": [255, 0, 0],
+      "color_temp_kelvin": 3000,
+      "min_color_temp_kelvin": 2000,
+      "max_color_temp_kelvin": 6500,
+      "access_token": "fixture-private-attribute"
+    },
+    "last_changed": "2026-01-01T00:00:00+00:00",
+    "last_updated": "2026-01-01T00:00:00+00:00"
+  },
+  {
+    "entity_id": "light.desk",
+    "state": "off",
+    "attributes": {
+      "friendly_name": "Synthetic desk lamp",
+      "brightness": 128,
+      "supported_color_modes": ["brightness"],
+      "supported_features": 32
+    }
+  },
+  {
+    "entity_id": "climate.lounge",
+    "state": "heat",
+    "attributes": {
+      "temperature": 21,
+      "current_temperature": 19,
+      "temperature_unit": "\u00b0C",
+      "min_temp": 7,
+      "max_temp": 35,
+      "target_temp_low": 20,
+      "target_temp_high": 24,
+      "target_temp_step": 0.5,
+      "supported_features": 3,
+      "hvac_modes": ["off", "heat", "cool", "heat_cool"],
+      "hvac_action": "heating"
+    }
+  },
+  {
+    "entity_id": "fan.lounge",
+    "state": "on",
+    "attributes": {"percentage": 30, "percentage_step": 10, "supported_features": 49}
+  },
+  {
+    "entity_id": "media_player.lounge",
+    "state": "paused",
+    "attributes": {
+      "volume_level": 0.3,
+      "is_volume_muted": false,
+      "supported_features": 21005,
+      "group_members": ["media_player.lounge"],
+      "media_content_id": "https://private.example.test/not-returned",
+      "media_title": "Not returned"
+    }
+  },
+  {
+    "entity_id": "tts.local_voice",
+    "state": "2026-11-10T12:00:00+00:00",
+    "attributes": {"friendly_name": "Synthetic existing engine"}
+  },
+  {
+    "entity_id": "sensor.temperature",
+    "state": "19.5",
+    "attributes": {
+      "device_class": "temperature",
+      "unit_of_measurement": "\u00b0C",
+      "state_class": "measurement"
+    },
+    "last_updated": "2026-01-01T00:00:00+00:00"
+  },
+  {
+    "entity_id": "sensor.humidity",
+    "state": "47",
+    "attributes": {"device_class": "humidity", "unit_of_measurement": "%"}
+  },
+  {
+    "entity_id": "binary_sensor.motion",
+    "state": "on",
+    "attributes": {"device_class": "motion"}
+  },
+  {
+    "entity_id": "binary_sensor.leak",
+    "state": "off",
+    "attributes": {"device_class": "moisture"}
+  },
+  {
+    "entity_id": "binary_sensor.battery",
+    "state": "on",
+    "attributes": {"device_class": "battery"}
+  },
+  {
+    "entity_id": "sensor.battery",
+    "state": "82",
+    "attributes": {"device_class": "battery", "unit_of_measurement": "%"}
+  },
+  {
+    "entity_id": "sensor.power",
+    "state": "0.75",
+    "attributes": {"device_class": "power", "unit_of_measurement": "kW", "state_class": "measurement"}
+  },
+  {
+    "entity_id": "sensor.energy",
+    "state": "125.5",
+    "attributes": {"device_class": "energy", "unit_of_measurement": "kWh", "state_class": "total_increasing"}
+  },
+  {
+    "entity_id": "sensor.energy_joules",
+    "state": "4200",
+    "attributes": {"device_class": "energy", "unit_of_measurement": "J", "state_class": "total"}
+  }
+]

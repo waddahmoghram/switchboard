@@ -121,6 +121,31 @@ Details and primary sources: [Telegram](./connectors/telegram.md),
 [LinkedIn](./connectors/linkedin.md), and [WhatsApp exports](./connectors/whatsapp.md). The code and synthetic
 tests are authored, not live-provider verification.
 
+## Local devices, documents, tasks, and monitoring
+
+* **A self-hosted gateway saves protocol work, not maintenance.** The home bridge uses your Home Assistant
+  installation. Direct [WLED](./connectors/wled.md) and [Shelly](./connectors/shelly.md) hooks avoid that
+  dependency for selected devices, but have narrower model/protocol coverage. No Matter controller,
+  Zigbee coordinator, firmware installer or universal speaker implementation is included.
+* **Local control is not automatically encrypted or authenticated.** Some devices expect plain local
+  requests or provide limited authentication. Explicit transport settings, network isolation and
+  model-specific setup still matter. No listening device-control port is opened by Switchboard.
+* **Physical results need evidence.** A device can accept a command without reaching the requested state.
+  Returned observations have scope and time limits. Software readback cannot certify a safe physical
+  condition, replace hardware protection, or make an ambiguous write safe to repeat automatically.
+  Home fades and spoken announcements remain explicitly unconfirmed. Direct Shelly control is narrower
+  than its read support: selected generation 2 lighting-plug models and reviewed low-power loads only.
+* **Private notes remain private only within the chosen data path.** The [documents](./connectors/documents.md)
+  tools are bounded, read-only text access, not a general file manager or complete document-understanding
+  engine. A hosted assistant can still receive exposed content.
+* **Reminders are queued work, not delivery receipts.** [Tasks](./connectors/tasks.md) is a local store,
+  not synchronization with a commercial task provider. Due reminders need the runner and an explicit
+  notification rule. Old queued events can outlive task edits or deletion.
+* **Health checks have narrow meaning.** [Monitoring](./connectors/monitoring.md) can report the declared
+  endpoint criterion, report freshness and disk limits. A fresh backup status file is a producer's claim,
+  not a restore test; a responding endpoint is not proof every dependency is healthy. This is not a
+  general monitoring agent or remote administrator.
+
 ## Architecture choices
 
 | Choice                         | Benefit                                                            | Cost                                                                                                 |

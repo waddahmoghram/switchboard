@@ -1,4 +1,4 @@
-"""A minimal client for the Home Assistant REST API.
+"""A small client for Home Assistant's Representational State Transfer interface.
 
 Endpoints used: ``GET /api/states``, ``GET /api/states/<entity_id>``, and
 ``POST /api/services/<domain>/<service>``, each with ``Authorization: Bearer <long-lived token>``.
@@ -10,9 +10,10 @@ from __future__ import annotations
 import json
 import re
 from collections.abc import Mapping
+from dataclasses import dataclass, field
 from typing import Any
 
-from switchboard.connectors.home.settings import HomeSettings
+from switchboard.connectors.home.settings import ENTITY_ID, HomeSettings
 from switchboard.context import AppContext
 from switchboard.errors import HttpError, SecretError, ToolError
 from switchboard.httpclient import HttpResponse
@@ -28,16 +29,34 @@ _STATUS_MESSAGES = {
 }
 
 
+@dataclass(frozen=True)
+class ActionReceipt:
+    """Transport acceptance is separate from observed state or physical completion."""
+
+    accepted: bool | None
+    changed: list[dict[str, Any]] = field(default_factory=list)
+    error: str | None = None
+
+
 class HomeAssistant:
     def __init__(self, ctx: AppContext, settings: HomeSettings) -> None:
         self.ctx = ctx
         self.settings = settings
 
-    def states(self) -> list[dict[str, Any]]:
+    def states(self, *, strict: bool = False) -> list[dict[str, Any]]:
         """Every state the token may read, as Home Assistant returns them (filter before showing)."""
         data = _json(self._request("GET", "/api/states"))
         if not isinstance(data, list):
             raise ToolError("Home Assistant returned an unexpected states list")
+        if strict and any(
+            not isinstance(item, dict)
+            or not isinstance(item.get("entity_id"), str)
+            or not ENTITY_ID.fullmatch(item["entity_id"])
+            or not isinstance(item.get("state"), str)
+            or not isinstance(item.get("attributes"), dict)
+            for item in data
+        ):
+            raise ToolError("Home Assistant returned a malformed states list")
         return [item for item in data if isinstance(item, dict) and isinstance(item.get("entity_id"), str)]
 
     def state(self, entity_id: str) -> dict[str, Any]:
@@ -58,6 +77,43 @@ class HomeAssistant:
             return []
         return [item for item in changed if isinstance(item, dict) and isinstance(item.get("entity_id"), str)]
 
+    def submit(self, domain: str, service: str, data: Mapping[str, Any]) -> ActionReceipt:
+        """Send an effect once, without redirects or retries, preserving ambiguous outcomes."""
+        body = json.dumps(dict(data), allow_nan=False).encode("utf-8")
+        headers = {"Authorization": f"Bearer {self._token()}", "Content-Type": "application/json"}
+        try:
+            response = self.ctx.http.request(
+                "POST",
+                f"{self.settings.base_url}/api/services/{domain}/{service}",
+                headers=headers,
+                body=body,
+                timeout=15,
+                max_bytes=1024 * 1024,
+                allow_http=self.settings.allow_http,
+                follow_redirects=False,
+            )
+        except HttpError:
+            return ActionReceipt(
+                None,
+                error="request outcome is unknown; inspect state before any new request; nothing was resent",
+            )
+        if not response.ok:
+            ambiguous = response.status >= 500 or response.status == 408
+            message = _STATUS_MESSAGES.get(response.status, f"Home Assistant answered HTTP {response.status}")
+            if ambiguous:
+                message += "; effects may be partial; nothing was resent"
+            return ActionReceipt(None if ambiguous else False, error=message)
+        try:
+            changed = response.json()
+        except ValueError:
+            changed = []
+        if not isinstance(changed, list):
+            changed = []
+        return ActionReceipt(
+            True,
+            [item for item in changed if isinstance(item, dict) and isinstance(item.get("entity_id"), str)],
+        )
+
     def _request(self, method: str, path: str, body: bytes | None = None) -> HttpResponse:
         headers = {"Authorization": f"Bearer {self._token()}"}
         if body is not None:
@@ -68,10 +124,16 @@ class HomeAssistant:
                 self.settings.base_url + path,
                 headers=headers,
                 body=body,
+                timeout=15,
+                max_bytes=8 * 1024 * 1024,
                 allow_http=self.settings.allow_http,
+                follow_redirects=False,
             )
-        except HttpError as exc:
-            raise ToolError(f"cannot reach Home Assistant: {exc}") from exc
+        except HttpError:
+            message = "cannot reach Home Assistant"
+            if method == "POST":
+                message += "; action outcome may be unknown; nothing was resent"
+            raise ToolError(message) from None
         if not response.ok:
             raise ToolError(
                 _STATUS_MESSAGES.get(response.status, f"Home Assistant answered HTTP {response.status}")

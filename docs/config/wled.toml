@@ -1,0 +1,25 @@
+# Example only: merge deliberately into your own configuration, preserving other connectors.
+# Replace the private address and segment identifiers after inspecting your own WLED device.
+[switchboard]
+connectors = ["wled"]
+
+[mcp]
+expose = ["switchboard_status", "approvals_*", "wled_*"]
+
+[connectors.wled]
+timeout_seconds = 5
+max_response_bytes = 65536
+
+[[connectors.wled.devices]]
+name = "desk"
+base_url = "http://192.168.50.20"
+allow_http = true # Explicit consent to unencrypted requests on your isolated local network.
+allow_global = false # No whole-device power, brightness, or persistent transition changes.
+segments = [0]
+presets = []
+
+[policy.tools."wled_set_*"]
+decision = "ask"
+
+[policy.tools.wled_apply_preset]
+decision = "ask"

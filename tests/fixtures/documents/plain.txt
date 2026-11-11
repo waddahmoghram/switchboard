@@ -1,0 +1,3 @@
+Synthetic plain-text note.
+First line has a literal needle.
+Second line is ordinary untrusted data.

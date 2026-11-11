@@ -1,0 +1,28 @@
+# Root-merge example: merge "shelly" into your existing connector list rather than replacing it.
+# Synthetic addresses and identity: replace them with a verified device on your own network.
+[switchboard]
+connectors = ["shelly"]
+
+[connectors.shelly]
+timeout_seconds = 5
+
+[connectors.shelly.devices.desk_lamp]
+base_url = "http://192.168.10.40"
+allow_http = true # Explicit consent for unencrypted traffic on your own private network.
+expected_device_id = "shellyplusplugs-000000000001"
+expected_model = "SNPL-00112EU"
+expected_generation = 2
+switch_ids = [0]
+password = "env:SWITCHBOARD_SHELLY_DESK_PASSWORD"
+allow_control = false
+
+# Only after physically verifying a nonessential lighting load rated at most 60 watts:
+# change allow_control above to true AND uncomment this complete component table.
+# [connectors.shelly.devices.desk_lamp.controls."0"]
+# safe_load = "nonessential_lighting"
+# max_power_watts = 60
+# safety_acknowledged = true
+
+[policy.tools.shelly_switch_set]
+decision = "ask"
+max_per_hour = 4
