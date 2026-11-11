@@ -1,0 +1,109 @@
+# Finance connector settings. Paste what you need into your config.toml and add "finance" to
+# [switchboard] connectors. Everything here is synthetic: Example Credit Union does not exist.
+# See docs/connectors/finance.md for what each part does.
+
+[connectors.finance]
+# Currency for summaries and budgets; transactions in other currencies are stored but not totaled.
+currency = "USD"
+# An existing directory you own, not writable by others (mkdir -m 700 ~/finance-inbox).
+# Save .ofx, .qfx, and .csv downloads here; imported files move to processed/, unreadable ones to failed/.
+import_dir = "~/finance-inbox"
+# Time zone for alert email dates and for "this month" (default: this computer's time zone).
+# "UTC", an offset such as "-08:00", or a name such as "America/Los_Angeles".
+# timezone = "America/Los_Angeles"
+# Categories left out of income and spending (moving money between your own accounts).
+transfer_categories = ["transfer"]
+
+# Friendly names for accounts. last4 is the last four digits, in quotes so leading zeros survive.
+[connectors.finance.accounts.everyday]
+last4 = "6789"
+kind = "checking"
+
+[connectors.finance.accounts.card]
+last4 = "4321"
+kind = "credit_card"
+
+[connectors.finance.accounts.savings]
+kind = "savings"
+csv_profile = "example-cu"        # CSV files read with this profile belong to this account
+
+# How one bank lays out its CSV export.
+[connectors.finance.csv_profiles.example-cu]
+files = "example-cu-*.csv"        # inbox files this profile applies to
+date_column = "Date"
+date_format = ["%m/%d/%Y", "%Y-%m-%d"]
+description_column = "Description"
+amount_column = "Amount"          # or debit_column = "Debit" and credit_column = "Credit"
+# memo_column = "Memo"
+# id_column = "Reference"         # the bank's transaction id, when the export has one
+# skip_rows = 2                   # preamble rows before the header row
+# delimiter = ";"
+# decimal_mark = ","              # for amounts such as 1.234,56
+# encoding = "utf-8-sig"          # the default; also skips a byte order mark
+# invert_sign = true              # when purchases are positive numbers (common for card exports)
+
+# Bank alert emails (needs the mail connector). The first matching rule wins.
+[[connectors.finance.alert_rules]]
+name = "example card charge"
+from = "alerts@examplecu.example.com"           # a glob, or a list of globs
+subject = "(?i)transaction alert"
+# Named groups: amount (required), merchant, last4, date. Single quotes keep backslashes literal.
+body = 'A charge of \$(?P<amount>[\d,]+\.\d{2}) at (?P<merchant>.+?) on your card ending in (?P<last4>\d{4})'
+direction = "out"                                # money spent; use "in" for deposit alerts
+# account = "card"                               # instead of matching the last4 group
+# date_format = "%m/%d/%Y"                       # for a (?P<date>...) group
+
+[[connectors.finance.alert_rules]]
+name = "example deposit"
+from = ["alerts@examplecu.example.com"]
+body = 'Deposit of \$(?P<amount>[\d,]+\.\d{2})'
+direction = "in"
+account = "everyday"
+
+# Category = regular expressions matched, ignoring case, against the merchant, description, and memo.
+# The first category in this order wins; anything else is "uncategorized".
+[connectors.finance.categories]
+income = ["payroll", "direct dep"]
+groceries = ["example market", "example grocer"]
+subscriptions = ["examplestream", "example news"]
+dining = ["coffee", "bakery", "diner"]
+transfer = ["payment thank you", "transfer (to|from)"]
+
+# Monthly limits per category, in the currency above. Exceeding one emits finance.budget_exceeded
+# once per category per month.
+[connectors.finance.budgets]
+groceries = 600
+dining = 150
+
+# ---- Suggested policy rules ----
+# Reads are allowed by default. Bound how much transaction data an assistant can pull per hour.
+[policy.tools.finance_transactions]
+max_per_hour = 60
+
+# The import tool only writes your local ledger (draft tier, allowed by default). To approve each
+# import yourself, use decision = "ask".
+[policy.tools.finance_import_inbox]
+max_per_hour = 12
+# decision = "ask"
+
+# There are no money-movement tools. If any tool matching this glob ever appears, deny it.
+[policy.tools."finance_*pay*"]
+decision = "deny"
+
+# ---- Example automation rules ----
+# Notify yourself about large card charges (needs the notify connector's notify_self tool).
+[[rules]]
+name = "large card charge"
+on = "finance.transaction"
+[rules.match]
+"payload.amount" = { lte = -100 }
+[[rules.do]]
+tool = "notify_self"
+args = { title = "Card charge", message = "{payload.amount} {payload.currency} at {payload.merchant}" }
+
+[[rules]]
+name = "budget exceeded"
+on = "finance.budget_exceeded"
+[[rules.do]]
+tool = "notify_self"
+args = { title = "Budget exceeded", message = "{payload.category}: {payload.spent} of {payload.limit} in {payload.month}" }

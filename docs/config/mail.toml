@@ -1,0 +1,77 @@
+# Mail connector: merge into your configuration and add "mail" to [switchboard] connectors.
+# Setup per provider, tool tiers, and tradeoffs: docs/connectors/mail.md
+#
+# Reading uses the Internet Message Access Protocol (IMAP) and never marks mail as read; sending uses
+# the Simple Mail Transfer Protocol (SMTP) and is off unless send_enabled = true. Secrets are references
+# (env:, file:, cmd:), never values.
+
+[connectors.mail]
+poll_interval_seconds = 300   # how often watched mailboxes are checked (60 or more)
+max_body_chars = 20000        # cap for mail_read text; mail.received events never exceed 20000
+
+# Gmail with an app password (needs 2-Step Verification). The durable free option.
+[connectors.mail.accounts.personal]
+provider = "gmail"            # gmail, outlook, icloud, fastmail, or custom
+address = "alex@example.com"
+auth = "password"
+password = "cmd:pass show mail/gmail-app-password"
+watch = ["INBOX"]             # mailboxes that emit mail.received; [] turns polling off
+send_enabled = false          # mail_send refuses this account until true
+# drafts_mailbox = "[Gmail]/Drafts"   # normally detected from the server's \Drafts flag
+
+# Outlook.com: OAuth only. Register a free app (personal accounts, public client flows on),
+# then run: switchboard mail oauth-login hotmail
+# [connectors.mail.accounts.hotmail]
+# provider = "outlook"
+# address = "alex@example.org"
+# auth = "oauth2"
+# client_id = "00000000-0000-0000-0000-000000000000"   # Application (client) ID of your registration
+# tenant = "consumers"                                 # personal Microsoft accounts
+# watch = ["INBOX"]
+
+# Gmail through OAuth instead of an app password. While your Google consent screen is in "Testing",
+# refresh tokens expire after 7 days; see docs/connectors/mail.md before choosing this.
+# [connectors.mail.accounts.gmail-oauth]
+# provider = "gmail"
+# address = "alex@example.com"
+# auth = "oauth2"
+# client_id = "1234567890-example.apps.googleusercontent.com"
+# client_secret = "cmd:pass show mail/google-client-secret"   # only if your Desktop app client has one
+
+# iCloud Mail with an app-specific password. If IMAP sign-in fails with the full address, Apple says to
+# use the part before the @ for IMAP while SMTP keeps the full address:
+# [connectors.mail.accounts.icloud]
+# provider = "icloud"
+# address = "alex@example.com"
+# password = "cmd:pass show mail/icloud-app-password"
+# username = "alex"
+# smtp_username = "alex@example.com"
+
+# Fastmail with an app password (Basic plans have no IMAP or SMTP):
+# [connectors.mail.accounts.fastmail]
+# provider = "fastmail"
+# address = "alex@example.com"
+# password = "cmd:pass show mail/fastmail-app-password"
+
+# Any other server: IMAP always uses implicit Transport Layer Security (TLS); for SMTP, port 465 means
+# implicit TLS and other ports upgrade with STARTTLS.
+# [connectors.mail.accounts.home]
+# provider = "custom"
+# address = "alex@example.org"
+# password = "env:HOME_MAIL_PASSWORD"
+# imap_host = "imap.example.org"
+# smtp_host = "smtp.example.org"
+# smtp_port = 587
+# send_enabled = true
+
+# Suggested policy for sending. mail_send asks for approval by default; these rules narrow it further.
+# [policy.tools.mail_send]
+# decision = "ask"                                     # keep a human in the loop
+# allow_recipients = ["*@example.com", "sam@example.org"]   # To, carbon copy (Cc), and blind carbon
+#                                                           # copy (Bcc) addresses must all match
+# max_per_hour = 5
+#
+# Drafts are safe to allow (they only land in your Drafts mailbox); to hide sending from assistants
+# entirely, leave mail_send out of [mcp] expose:
+# expose = ["switchboard_status", "approvals_*", "mail_accounts", "mail_mailboxes", "mail_search",
+#           "mail_read", "mail_draft"]

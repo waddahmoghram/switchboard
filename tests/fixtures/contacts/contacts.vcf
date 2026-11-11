@@ -1,0 +1,35 @@
+BEGIN:VCARD
+VERSION:3.0
+PRODID:-//Synthetic//Contacts Export//EN
+N:Rivera;Alex;J.;Dr.;
+FN:Dr. Alex J. Rivera
+ORG:Example Labs;Research
+EMAIL;TYPE=INTERNET;TYPE=WORK;TYPE=pref:alex.rivera@example.invalid
+item1.EMAIL;type=INTERNET:alex@home.example.invalid
+item1.X-ABLabel:_$!<Other>!$_
+TEL;TYPE=CELL:+1 555-0100
+TEL;TYPE=WORK,VOICE:+1 (555) 0101
+BDAY:1985-04-12
+NOTE:Met at the synthetic conference\, booth 4.\nPrefers email.
+UID:card-alex@example.invalid
+END:VCARD
+BEGIN:VCARD
+VERSION:4.0
+FN:Sam Example
+N:Example;Sam;;;
+EMAIL;TYPE=home;PREF=1:sam@example.invalid
+TEL;VALUE=uri;TYPE="voice,cell":tel:+44-20-7946-0000
+ORG:Example Co
+NOTE:A long note that is folded across two physical lines in the fi
+ le to check unfolding.
+UID:urn:uuid:4f8b2c1e-0000-4000-8000-000000000002
+END:VCARD
+BEGIN:VCARD
+VERSION:3.0
+N:Nobody;Kim;;;
+EMAIL;INTERNET;HOME:kim@example.invalid
+END:VCARD
+BEGIN:VCARD
+VERSION:3.0
+NOTE:A card without a name, email, or phone.
+END:VCARD

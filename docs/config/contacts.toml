@@ -1,0 +1,34 @@
+# Contacts connector: CardDAV address books and local .vcf files, cached for quick lookups.
+# Add "contacts" to [switchboard] connectors, keep the sources you use, then run `switchboard doctor`.
+# Secrets are references (env:NAME, file:~/path with mode 600, or cmd:program args), never values.
+# Details and provider notes: docs/connectors/contacts.md
+
+[connectors.contacts]
+# refresh_interval_seconds = 21600              # every six hours (300 or more)
+
+# iCloud or Fastmail over CardDAV with an app-specific password (your normal password will not work).
+# The url may be the server, which is searched for address books, or one address book's own address.
+[connectors.contacts.sources.icloud]
+type = "carddav"
+url = "https://contacts.icloud.com/"            # Fastmail: https://carddav.fastmail.com/
+username = "you@example.com"                    # your Apple Account or Fastmail login
+password = "cmd:pass show switchboard/icloud-app-password"
+
+# Google Contacts needs OAuth for CardDAV, which Switchboard does not use: export a vCard file from
+# Google Contacts (More actions > Export) and read it here. Re-export to pick up changes.
+[connectors.contacts.sources.google_export]
+type = "vcf_file"
+path = "~/Contacts/google-contacts.vcf"
+
+# A self-hosted server on your own network.
+# [connectors.contacts.sources.home]
+# type = "carddav"
+# url = "http://contacts.home.example:5232/you/contacts/"
+# username = "you"
+# password = "file:~/.config/switchboard/secrets/radicale-password"
+# allow_http = true                             # only for a server you run on your own network
+
+# Suggested policy. Searching is read-only and runs without asking; cap it so a confused assistant
+# cannot page through the whole address book.
+[policy.tools.contacts_search]
+max_per_hour = 120

@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<d:multistatus xmlns:d="DAV:" xmlns:card="urn:ietf:params:xml:ns:carddav">
+  <d:response>
+    <d:href>/dav/addressbooks/owner/default/</d:href>
+    <d:propstat>
+      <d:prop>
+        <d:resourcetype><d:collection/><card:addressbook/></d:resourcetype>
+        <d:getetag>"book-7"</d:getetag>
+      </d:prop>
+      <d:status>HTTP/1.1 200 OK</d:status>
+    </d:propstat>
+  </d:response>
+  <d:response>
+    <d:href>/dav/addressbooks/owner/default/alex.vcf</d:href>
+    <d:propstat>
+      <d:prop><d:resourcetype/><d:getetag>"alex-1"</d:getetag></d:prop>
+      <d:status>HTTP/1.1 200 OK</d:status>
+    </d:propstat>
+  </d:response>
+  <d:response>
+    <d:href>/dav/addressbooks/owner/default/sam.vcf</d:href>
+    <d:propstat>
+      <d:prop><d:resourcetype/><d:getetag>"sam-4"</d:getetag></d:prop>
+      <d:status>HTTP/1.1 200 OK</d:status>
+    </d:propstat>
+  </d:response>
+</d:multistatus>

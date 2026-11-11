@@ -1,0 +1,58 @@
+# Calendar connector: secret iCalendar feeds, CalDAV calendars, and local .ics files.
+# Add "calendar" to [switchboard] connectors, keep the sources you use, then run `switchboard doctor`.
+# Secrets are references (env:NAME, file:~/path with mode 600, or cmd:program args), never values.
+# Details and provider notes: docs/connectors/calendar.md
+
+[connectors.calendar]
+timezone = "America/New_York"                   # IANA name; shows times, and places floating and all-day events
+owner_email = "you@example.com"                 # organizer of invitations; proposed drafts are addressed here
+# invite_account = "personal"                   # mail connector account for drafts and invitations
+# refresh_interval_seconds = 900                # how often every source is refreshed (60 or more)
+# upcoming_minutes = 30                         # emit calendar.upcoming this long before timed events
+
+# Google Calendar, read-only: Settings > Settings > (your calendar) > Integrate calendar >
+# "Secret address in iCal format". That address alone grants read access to the calendar, so keep it
+# in a file with mode 600 and reference the file. Reset the address in Google Calendar if it leaks.
+[connectors.calendar.sources.google]
+type = "ics_url"
+url = "file:~/.config/switchboard/secrets/google-calendar-address"
+# allow_http = false                            # feeds should always be https:// (webcal:// works too)
+
+# iCloud or Fastmail over CalDAV with an app-specific password (your normal password will not work).
+# The url may be the server, which is searched for calendars, or one calendar's own address.
+[connectors.calendar.sources.icloud]
+type = "caldav"
+url = "https://caldav.icloud.com/"              # Fastmail: https://caldav.fastmail.com/
+username = "you@example.com"                    # your Apple Account or Fastmail login
+password = "cmd:pass show switchboard/icloud-app-password"
+writable = false                                # true lets calendar_create_event add (never change) events
+
+# A self-hosted server on your own network.
+# [connectors.calendar.sources.home]
+# type = "caldav"
+# url = "http://calendar.home.example:5232/you/personal/"
+# username = "you"
+# password = "file:~/.config/switchboard/secrets/radicale-password"
+# allow_http = true                             # only for a server you run on your own network
+# writable = true
+
+# A calendar file on this machine, for example an exported holiday calendar.
+# [connectors.calendar.sources.holidays]
+# type = "ics_file"
+# path = "~/Calendars/holidays.ics"
+
+# Suggested policy. Read tools run without asking; drafts are allowed but capped.
+[policy.tools.calendar_propose_event]
+max_per_hour = 20
+
+# Creating events changes your calendar, so it asks first (the default for act tools).
+[policy.tools.calendar_create_event]
+decision = "ask"
+max_per_hour = 10
+allow_recipients = ["*@example.com"]            # attendees the server may invite on its own
+
+# Invitations email other people: always ask, and only to addresses you trust.
+[policy.tools.calendar_send_invite]
+decision = "ask"
+max_per_hour = 5
+allow_recipients = ["*@example.com", "friend@example.org"]

@@ -1,0 +1,14 @@
+{
+  "account": "personal",
+  "mailbox": "INBOX",
+  "uid": 202,
+  "message_id": "<eg-55821-ship@gear.example.net>",
+  "from": "Example Gear Shop <no-reply@gear.example.net>",
+  "to": ["owner@example.org"],
+  "cc": [],
+  "subject": "Your package has shipped",
+  "date": "2026-11-09T08:00:00+00:00",
+  "text": "Order #EG-55821 is on the way.\nUSPS tracking: 9400 1000 0000 0000 0000 00\n",
+  "has_attachments": false,
+  "attachments": []
+}

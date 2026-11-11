@@ -1,0 +1,14 @@
+{
+  "account": "personal",
+  "mailbox": "INBOX",
+  "uid": 101,
+  "message_id": "<order-104233@orders.example.com>",
+  "from": "Example Outfitters <ship@orders.example.com>",
+  "to": ["owner@example.org"],
+  "cc": [],
+  "subject": "Your Example Outfitters order EO-104233 is confirmed",
+  "date": "2026-11-09T15:04:05+00:00",
+  "text": "Thanks for shopping with Example Outfitters.\n\nOrder number: EO-104233\nTrail Pack 38L x 1\nSubtotal: $1,249.00\nShipping: $50.00\nOrder total: $1,299.00\n\nQuestions? Call 555-010-0199.\n",
+  "has_attachments": false,
+  "attachments": []
+}

@@ -1,0 +1,14 @@
+{
+  "account": "personal",
+  "mailbox": "INBOX",
+  "uid": 301,
+  "message_id": "<deals-2026-11@news.example.com>",
+  "from": "Example Outfitters <deals@news.example.com>",
+  "to": ["owner@example.org"],
+  "cc": [],
+  "subject": "Your order of savings is on its way: 20% off everything",
+  "date": "2026-11-07T10:00:00+00:00",
+  "text": "Shop the sale today. Questions about tracking? Call 555-010-0199 or 5550100199.\n",
+  "has_attachments": false,
+  "attachments": []
+}

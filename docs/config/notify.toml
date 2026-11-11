@@ -1,0 +1,32 @@
+# Notify connector: short notes to your own phone, chat, or inbox.
+# Add "notify" to [switchboard] connectors, keep the channels you use, then run `switchboard doctor`.
+# Secrets are references (env:NAME, file:~/path with mode 600, or cmd:program args), never values.
+
+# A push notification through ntfy. On a public server the topic works like a password, so it is a
+# secret reference too. Pick a long random topic.
+[connectors.notify.channels.phone]
+type = "ntfy"
+topic = "file:~/.config/switchboard/secrets/ntfy-topic"
+# server = "https://ntfy.sh"                    # the default; or your own ntfy server
+# token = "env:NTFY_TOKEN"                      # access token, sent as an Authorization header
+# tags = ["robot"]                              # up to 5 ntfy tags; names of emoji show as icons
+# allow_http = false                            # true only for a server on your own network
+
+# A message from your own Telegram bot to your own chat. The bot token sits in the request address,
+# so Switchboard never logs or returns that address.
+[connectors.notify.channels.chat]
+type = "telegram"
+bot_token = "cmd:pass show switchboard/telegram-bot"
+chat_id = 123456789                             # a number from getUpdates, or "@yourchannel"
+
+# An email to yourself through the mail connector (which must be enabled for this to work).
+[connectors.notify.channels.inbox]
+type = "email"
+to = ["you@example.com"]                        # your own addresses only (1 to 10)
+# account = "personal"                          # a mail connector account; default if omitted
+
+# The tool can reach only the channels above, so it is a draft-tier tool that runs without asking.
+# Cap it so a confused or manipulated assistant cannot flood you.
+[policy.tools.notify_self]
+max_per_hour = 30
+# decision = "ask"                              # if any channel above reaches someone besides you

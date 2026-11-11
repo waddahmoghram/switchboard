@@ -1,0 +1,70 @@
+# Shopping connector: example settings and suggested policy rules.
+# Copy the parts you need into your config.toml. Nothing here is a secret: the connector needs no
+# accounts, keys, or cookies, and it never buys anything.
+#
+# Order tracking listens to mail.received events, so enable the mail connector too:
+#   [switchboard]
+#   connectors = ["mail", "shopping"]
+
+[connectors.shopping]
+# How often the price job wakes up, in seconds (minimum 300). It fetches only watches that are due.
+price_check_interval_seconds = 21600
+# Minimum time between two fetches of the same product page, in seconds (minimum 3600).
+min_fetch_interval_seconds = 21600
+# Optional: only these sites and their subdomains may be watched. Omit to allow any public https site.
+# An empty or malformed list blocks every watch; `switchboard doctor` reports it.
+allowed_domains = ["example.com"]
+# Optional: the currency of email totals written only with "$", a sign many currencies share.
+default_currency = "USD"
+
+# One table per merchant whose emails you want recognized precisely. Without a rule, conservative
+# generic heuristics still apply. Regexes use Python syntax and match case-insensitively. Write them as
+# Tom's Obvious Minimal Language (TOML) literal strings in single quotes, so backslashes stay as
+# written. A capture group, when present, selects the order id or the total. A rule with a regex that
+# does not compile is skipped as a whole.
+[[connectors.shopping.merchant_rules]]
+name = "Example Outfitters"
+# Matched case-insensitively against the whole From header.
+from_contains = "@orders.example.com"
+order_subject_regex = '^Your Example Outfitters order'
+shipped_subject_regex = '\bhas shipped\b'
+delivered_subject_regex = '\bwas delivered\b'
+order_id_regex = 'Order (?:number|#)\s*:?\s*(EO-[0-9]{6})'
+total_regex = 'Order total:\s*(\$?[0-9,]+\.[0-9]{2})'
+# Optional: the currency of this merchant's totals.
+currency = "USD"
+
+# ---- Suggested policy rules ----
+# Reading orders, shipments, and watches is harmless; these are the defaults made explicit.
+[policy.tools."shopping_orders"]
+decision = "allow"
+
+[policy.tools."shopping_shipments"]
+decision = "allow"
+
+[policy.tools."shopping_watch_list"]
+decision = "allow"
+
+# Adding and removing watches only changes local data. A budget stops a confused assistant from
+# filling the watch list.
+[policy.tools.shopping_watch_add]
+decision = "allow"
+max_per_hour = 20
+
+[policy.tools.shopping_watch_remove]
+decision = "allow"
+max_per_hour = 20
+
+# Checking prices fetches public pages. The per-URL interval already limits fetches; this caps how
+# often an assistant can ask. Use decision = "ask" if you want to approve each manual check.
+[policy.tools.shopping_check_prices]
+max_per_hour = 4
+
+# Optional: tell your phone about a price drop. Check the notify connector's documentation for the exact
+# tool name and arguments before enabling this.
+# [[rules]]
+# name = "price drop to phone"
+# on = "shopping.price_drop"
+# [[rules.do]]
+# tool = "notify_self"
+# args = { title = "Price drop", message = "{payload.title}: {payload.price} {payload.currency} (target {payload.target}) {payload.url}" }

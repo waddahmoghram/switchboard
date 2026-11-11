@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <title>Camp Stove | Example Outfitters</title>
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@graph": [
+      {"@type": "WebSite", "name": "Example Outfitters", "url": "https://shop.example.com/"},
+      {"@type": "WebPage", "@id": "https://shop.example.com/products/camp-stove#page"},
+      {
+        "@type": ["Product", "Thing"],
+        "name": "Camp Stove",
+        "offers": {
+          "@type": "Offer",
+          "price": 42.5,
+          "priceCurrency": "usd",
+          "availability": "http://schema.org/OutOfStock"
+        }
+      }
+    ]
+  }
+  </script>
+</head>
+<body><h1>Camp Stove</h1></body>
+</html>

@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<?OFX OFXHEADER="200" VERSION="220" SECURITY="NONE" OLDFILEUID="NONE" NEWFILEUID="NONE"?>
+<OFX>
+  <SIGNONMSGSRSV1>
+    <SONRS>
+      <STATUS>
+        <CODE>0</CODE>
+        <SEVERITY>INFO</SEVERITY>
+      </STATUS>
+      <DTSERVER>20261106090000.000[-5:EST]</DTSERVER>
+      <LANGUAGE>ENG</LANGUAGE>
+      <FI>
+        <ORG>Example Card Services</ORG>
+        <FID>88888</FID>
+      </FI>
+      <INTU.BID>88888</INTU.BID>
+    </SONRS>
+  </SIGNONMSGSRSV1>
+  <CREDITCARDMSGSRSV1>
+    <CCSTMTTRNRS>
+      <TRNUID>1</TRNUID>
+      <STATUS>
+        <CODE>0</CODE>
+        <SEVERITY>INFO</SEVERITY>
+      </STATUS>
+      <CCSTMTRS>
+        <CURDEF>USD</CURDEF>
+        <CCACCTFROM>
+          <ACCTID>4000000000004321</ACCTID>
+        </CCACCTFROM>
+        <BANKTRANLIST>
+          <DTSTART>20261001</DTSTART>
+          <DTEND>20261106</DTEND>
+          <STMTTRN>
+            <TRNTYPE>DEBIT</TRNTYPE>
+            <DTPOSTED>20261103</DTPOSTED>
+            <TRNAMT>-42.50</TRNAMT>
+            <FITID>CARD-0001</FITID>
+            <NAME>SMITH &amp; SONS HARDWARE</NAME>
+          </STMTTRN>
+          <STMTTRN>
+            <TRNTYPE>CREDIT</TRNTYPE>
+            <DTPOSTED>20261104</DTPOSTED>
+            <TRNAMT>300.00</TRNAMT>
+            <FITID>CARD-0002</FITID>
+            <NAME>PAYMENT THANK YOU</NAME>
+          </STMTTRN>
+        </BANKTRANLIST>
+        <LEDGERBAL>
+          <BALAMT>-512.34</BALAMT>
+          <DTASOF>20261106</DTASOF>
+        </LEDGERBAL>
+      </CCSTMTRS>
+    </CCSTMTTRNRS>
+  </CREDITCARDMSGSRSV1>
+</OFX>

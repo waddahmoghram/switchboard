@@ -1,0 +1,52 @@
+# Webhooks connector: verified deliveries become "webhook.received" events.
+# Add "webhooks" to [switchboard] connectors, then run `switchboard webhooks serve` (127.0.0.1:8787)
+# and `switchboard run`. Each hook below is served at POST /hooks/<name>; delete the ones you do not use.
+# Secrets are references (env:NAME, file:~/path with mode 600, or cmd:program args), never values.
+
+[connectors.webhooks]
+max_body_bytes = 262144                         # larger bodies get 413 before they are read
+
+# Your own scripts sign each request with a keyed-hash message authentication code (HMAC):
+#   X-Switchboard-Signature: t=<unix seconds>,v1=<hex HMAC-SHA256 of "<t>.<body>">
+[connectors.webhooks.hooks.ci]
+verify = "hmac-sha256"
+secret = "file:~/.config/switchboard/secrets/hook-ci"
+# tolerance_seconds = 300                       # accepted clock difference; replays are refused
+
+# GitHub: set the same secret in the webhook settings and choose content type application/json.
+[connectors.webhooks.hooks.github]
+verify = "github"
+secret = "cmd:pass show switchboard/github-webhook"
+
+# A sender that can only add a fixed header. It cannot stop replays, so use it only through an
+# encrypted tunnel.
+[connectors.webhooks.hooks.backup]
+verify = "token-header"
+header = "X-Backup-Token"
+secret = "env:BACKUP_HOOK_TOKEN"
+
+# Microsoft Graph: the secret is the subscription's clientState. The same hook can also be the
+# subscription's lifecycleNotificationUrl.
+[connectors.webhooks.hooks.outlook]
+verify = "msgraph"
+secret = "file:~/.config/switchboard/secrets/graph-client-state"
+
+# Google Calendar: the secret is the channel token (up to 256 characters) set in the watch request.
+[connectors.webhooks.hooks.calendar]
+verify = "google-calendar"
+secret = "file:~/.config/switchboard/secrets/gcal-channel-token"
+
+# webhooks_recent only reads hook names, times, and sizes, so the default (allow) is fine.
+# [policy.tools.webhooks_recent]
+# decision = "allow"
+
+# Example rule: tell yourself when a nightly build fails.
+# [[rules]]
+# name = "failed nightly build"
+# on = "webhook.received"
+# [rules.match]
+# "payload.hook" = "ci"
+# "payload.json.status" = "failed"
+# [[rules.do]]
+# tool = "notify_self"
+# args = { title = "Nightly build failed", message = "Job {payload.json.job} failed" }

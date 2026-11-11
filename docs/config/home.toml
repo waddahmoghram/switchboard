@@ -1,0 +1,23 @@
+# Home connector: read and control the Home Assistant entities you expose.
+# Add "home" to [switchboard] connectors, then run `switchboard doctor` and `switchboard call home_states`.
+# Secrets are references (env:NAME, file:~/path with mode 600, or cmd:program args), never values.
+
+[connectors.home]
+base_url = "https://homeassistant.example.net:8123"
+# A long-lived access token from a dedicated, non-administrator Home Assistant user.
+token = "file:~/.config/switchboard/secrets/home-assistant"
+# Entity globs assistants may see. Prefer exact entity identifiers for anything sensitive.
+expose = ["light.*", "climate.*", "sensor.*"]
+# Always blocked, even when exposed. Setting this replaces the default list below, so keep every
+# domain you still want blocked. "cover" includes garage doors.
+# deny_domains = ["lock", "alarm_control_panel", "cover", "camera"]
+# allow_http = false                            # true only for a plain-http server on your own network
+
+# Every action waits for your approval (the default for act tools), at most 20 per hour.
+[policy.tools.home_call_service]
+decision = "ask"
+max_per_hour = 20
+
+# Reading exposed states needs no approval.
+# [policy.tools.home_states]
+# decision = "allow"

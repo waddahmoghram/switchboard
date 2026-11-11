@@ -1,0 +1,14 @@
+{
+  "account": "personal",
+  "mailbox": "INBOX",
+  "uid": 102,
+  "message_id": "<ship-104233@orders.example.com>",
+  "from": "Example Outfitters <ship@orders.example.com>",
+  "to": ["owner@example.org"],
+  "cc": [],
+  "subject": "Your Example Outfitters order EO-104233 has shipped",
+  "date": "2026-11-10T09:30:00+00:00",
+  "text": "Good news! Order number: EO-104233 is on its way.\nCarrier: UPS\nTracking number: 1ZEX4MPLE012345678\nEstimated delivery: Thursday\n\nNeed help? Call 555-010-0199 or 5550100199. Store reference 4815162342.\n",
+  "has_attachments": false,
+  "attachments": []
+}

@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="utf-8"?>
+<d:multistatus xmlns:d="DAV:" xmlns:card="urn:ietf:params:xml:ns:carddav">
+  <d:response>
+    <d:href>/dav/addressbooks/owner/default/alex.vcf</d:href>
+    <d:propstat>
+      <d:prop>
+        <d:getetag>"alex-1"</d:getetag>
+        <card:address-data>BEGIN:VCARD
+VERSION:3.0
+FN:Dr. Alex J. Rivera
+N:Rivera;Alex;J.;Dr.;
+ORG:Example Labs;Research
+EMAIL;TYPE=INTERNET;TYPE=WORK:alex.rivera@example.invalid
+TEL;TYPE=CELL:+1 555-0100
+UID:card-alex@example.invalid
+END:VCARD
+</card:address-data>
+      </d:prop>
+      <d:status>HTTP/1.1 200 OK</d:status>
+    </d:propstat>
+  </d:response>
+  <d:response>
+    <d:href>/dav/addressbooks/owner/default/sam.vcf</d:href>
+    <d:propstat>
+      <d:prop>
+        <d:getetag>"sam-4"</d:getetag>
+        <card:address-data>BEGIN:VCARD
+VERSION:4.0
+FN:Sam Example
+EMAIL;TYPE=home:sam@example.invalid
+TEL;VALUE=uri;TYPE=cell:tel:+44-20-7946-0000
+UID:urn:uuid:4f8b2c1e-0000-4000-8000-000000000002
+END:VCARD
+</card:address-data>
+      </d:prop>
+      <d:status>HTTP/1.1 200 OK</d:status>
+    </d:propstat>
+  </d:response>
+</d:multistatus>

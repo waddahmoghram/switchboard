@@ -1,0 +1,515 @@
+# Switchboard configuration. Keep this file at mode 600.
+#
+# This file holds settings and *references* to secrets, never secrets themselves:
+#   env:NAME              an environment variable
+#   file:~/path           a file you own with mode 600 (symbolic links are refused)
+#   cmd:pass show x       the output of a command run without a shell (pass, secret-tool, …)
+
+[switchboard]
+# Connectors to load. Start with one, check it with `switchboard doctor`, then add more.
+# Available: mail, calendar, contacts, finance, shopping, notify, webhooks, home
+connectors = []
+# data_dir = "~/.local/share/switchboard"   # database, audit log, inboxes (created with mode 700)
+event_retention_days = 14
+
+[policy]
+# Pending approvals expire after this many minutes.
+approval_ttl_minutes = 60
+
+# Per-tool rules. Keys are tool names or globs. Defaults: read and draft allow, act asks, spend denies.
+# [policy.tools.mail_send]
+# decision = "ask"
+# allow_recipients = ["*@example.com", "you@example.org"]
+# max_per_hour = 5
+#
+# [policy.tools."home_*"]
+# decision = "ask"
+
+[mcp]
+# Which tools an assistant can see and call (globs). Omit to expose every registered tool.
+# expose = ["switchboard_status", "approvals_*", "mail_search", "mail_read", "mail_draft", "calendar_*"]
+
+# Automation rules: when an event matches, call tools through the same policy gate.
+# [[rules]]
+# name = "big card charge"
+# on = "finance.transaction"
+# [rules.match]
+# "payload.amount" = { lte = -100 }
+# [[rules.do]]
+# tool = "notify_self"
+# args = { title = "Card charge", message = "{payload.amount} {payload.currency} at {payload.merchant}" }
+
+# ---- Connector settings ----
+# Each table below is inert until its name is listed in [switchboard] connectors.
+# Full explanations: docs/connectors/<name>.md
+
+# ==================== mail ====================
+# Mail connector: merge into your configuration and add "mail" to [switchboard] connectors.
+# Setup per provider, tool tiers, and tradeoffs: docs/connectors/mail.md
+#
+# Reading uses the Internet Message Access Protocol (IMAP) and never marks mail as read; sending uses
+# the Simple Mail Transfer Protocol (SMTP) and is off unless send_enabled = true. Secrets are references
+# (env:, file:, cmd:), never values.
+
+[connectors.mail]
+poll_interval_seconds = 300   # how often watched mailboxes are checked (60 or more)
+max_body_chars = 20000        # cap for mail_read text; mail.received events never exceed 20000
+
+# Gmail with an app password (needs 2-Step Verification). The durable free option.
+[connectors.mail.accounts.personal]
+provider = "gmail"            # gmail, outlook, icloud, fastmail, or custom
+address = "alex@example.com"
+auth = "password"
+password = "cmd:pass show mail/gmail-app-password"
+watch = ["INBOX"]             # mailboxes that emit mail.received; [] turns polling off
+send_enabled = false          # mail_send refuses this account until true
+# drafts_mailbox = "[Gmail]/Drafts"   # normally detected from the server's \Drafts flag
+
+# Outlook.com: OAuth only. Register a free app (personal accounts, public client flows on),
+# then run: switchboard mail oauth-login hotmail
+# [connectors.mail.accounts.hotmail]
+# provider = "outlook"
+# address = "alex@example.org"
+# auth = "oauth2"
+# client_id = "00000000-0000-0000-0000-000000000000"   # Application (client) ID of your registration
+# tenant = "consumers"                                 # personal Microsoft accounts
+# watch = ["INBOX"]
+
+# Gmail through OAuth instead of an app password. While your Google consent screen is in "Testing",
+# refresh tokens expire after 7 days; see docs/connectors/mail.md before choosing this.
+# [connectors.mail.accounts.gmail-oauth]
+# provider = "gmail"
+# address = "alex@example.com"
+# auth = "oauth2"
+# client_id = "1234567890-example.apps.googleusercontent.com"
+# client_secret = "cmd:pass show mail/google-client-secret"   # only if your Desktop app client has one
+
+# iCloud Mail with an app-specific password. If IMAP sign-in fails with the full address, Apple says to
+# use the part before the @ for IMAP while SMTP keeps the full address:
+# [connectors.mail.accounts.icloud]
+# provider = "icloud"
+# address = "alex@example.com"
+# password = "cmd:pass show mail/icloud-app-password"
+# username = "alex"
+# smtp_username = "alex@example.com"
+
+# Fastmail with an app password (Basic plans have no IMAP or SMTP):
+# [connectors.mail.accounts.fastmail]
+# provider = "fastmail"
+# address = "alex@example.com"
+# password = "cmd:pass show mail/fastmail-app-password"
+
+# Any other server: IMAP always uses implicit Transport Layer Security (TLS); for SMTP, port 465 means
+# implicit TLS and other ports upgrade with STARTTLS.
+# [connectors.mail.accounts.home]
+# provider = "custom"
+# address = "alex@example.org"
+# password = "env:HOME_MAIL_PASSWORD"
+# imap_host = "imap.example.org"
+# smtp_host = "smtp.example.org"
+# smtp_port = 587
+# send_enabled = true
+
+# Suggested policy for sending. mail_send asks for approval by default; these rules narrow it further.
+# [policy.tools.mail_send]
+# decision = "ask"                                     # keep a human in the loop
+# allow_recipients = ["*@example.com", "sam@example.org"]   # To, carbon copy (Cc), and blind carbon
+#                                                           # copy (Bcc) addresses must all match
+# max_per_hour = 5
+#
+# Drafts are safe to allow (they only land in your Drafts mailbox); to hide sending from assistants
+# entirely, leave mail_send out of [mcp] expose:
+# expose = ["switchboard_status", "approvals_*", "mail_accounts", "mail_mailboxes", "mail_search",
+#           "mail_read", "mail_draft"]
+
+# ==================== calendar ====================
+# Calendar connector: secret iCalendar feeds, CalDAV calendars, and local .ics files.
+# Add "calendar" to [switchboard] connectors, keep the sources you use, then run `switchboard doctor`.
+# Secrets are references (env:NAME, file:~/path with mode 600, or cmd:program args), never values.
+# Details and provider notes: docs/connectors/calendar.md
+
+[connectors.calendar]
+timezone = "America/New_York"                   # IANA name; shows times, and places floating and all-day events
+owner_email = "you@example.com"                 # organizer of invitations; proposed drafts are addressed here
+# invite_account = "personal"                   # mail connector account for drafts and invitations
+# refresh_interval_seconds = 900                # how often every source is refreshed (60 or more)
+# upcoming_minutes = 30                         # emit calendar.upcoming this long before timed events
+
+# Google Calendar, read-only: Settings > Settings > (your calendar) > Integrate calendar >
+# "Secret address in iCal format". That address alone grants read access to the calendar, so keep it
+# in a file with mode 600 and reference the file. Reset the address in Google Calendar if it leaks.
+[connectors.calendar.sources.google]
+type = "ics_url"
+url = "file:~/.config/switchboard/secrets/google-calendar-address"
+# allow_http = false                            # feeds should always be https:// (webcal:// works too)
+
+# iCloud or Fastmail over CalDAV with an app-specific password (your normal password will not work).
+# The url may be the server, which is searched for calendars, or one calendar's own address.
+[connectors.calendar.sources.icloud]
+type = "caldav"
+url = "https://caldav.icloud.com/"              # Fastmail: https://caldav.fastmail.com/
+username = "you@example.com"                    # your Apple Account or Fastmail login
+password = "cmd:pass show switchboard/icloud-app-password"
+writable = false                                # true lets calendar_create_event add (never change) events
+
+# A self-hosted server on your own network.
+# [connectors.calendar.sources.home]
+# type = "caldav"
+# url = "http://calendar.home.example:5232/you/personal/"
+# username = "you"
+# password = "file:~/.config/switchboard/secrets/radicale-password"
+# allow_http = true                             # only for a server you run on your own network
+# writable = true
+
+# A calendar file on this machine, for example an exported holiday calendar.
+# [connectors.calendar.sources.holidays]
+# type = "ics_file"
+# path = "~/Calendars/holidays.ics"
+
+# Suggested policy. Read tools run without asking; drafts are allowed but capped.
+[policy.tools.calendar_propose_event]
+max_per_hour = 20
+
+# Creating events changes your calendar, so it asks first (the default for act tools).
+[policy.tools.calendar_create_event]
+decision = "ask"
+max_per_hour = 10
+allow_recipients = ["*@example.com"]            # attendees the server may invite on its own
+
+# Invitations email other people: always ask, and only to addresses you trust.
+[policy.tools.calendar_send_invite]
+decision = "ask"
+max_per_hour = 5
+allow_recipients = ["*@example.com", "friend@example.org"]
+
+# ==================== contacts ====================
+# Contacts connector: CardDAV address books and local .vcf files, cached for quick lookups.
+# Add "contacts" to [switchboard] connectors, keep the sources you use, then run `switchboard doctor`.
+# Secrets are references (env:NAME, file:~/path with mode 600, or cmd:program args), never values.
+# Details and provider notes: docs/connectors/contacts.md
+
+[connectors.contacts]
+# refresh_interval_seconds = 21600              # every six hours (300 or more)
+
+# iCloud or Fastmail over CardDAV with an app-specific password (your normal password will not work).
+# The url may be the server, which is searched for address books, or one address book's own address.
+[connectors.contacts.sources.icloud]
+type = "carddav"
+url = "https://contacts.icloud.com/"            # Fastmail: https://carddav.fastmail.com/
+username = "you@example.com"                    # your Apple Account or Fastmail login
+password = "cmd:pass show switchboard/icloud-app-password"
+
+# Google Contacts needs OAuth for CardDAV, which Switchboard does not use: export a vCard file from
+# Google Contacts (More actions > Export) and read it here. Re-export to pick up changes.
+[connectors.contacts.sources.google_export]
+type = "vcf_file"
+path = "~/Contacts/google-contacts.vcf"
+
+# A self-hosted server on your own network.
+# [connectors.contacts.sources.home]
+# type = "carddav"
+# url = "http://contacts.home.example:5232/you/contacts/"
+# username = "you"
+# password = "file:~/.config/switchboard/secrets/radicale-password"
+# allow_http = true                             # only for a server you run on your own network
+
+# Suggested policy. Searching is read-only and runs without asking; cap it so a confused assistant
+# cannot page through the whole address book.
+[policy.tools.contacts_search]
+max_per_hour = 120
+
+# ==================== finance ====================
+# Finance connector settings. Paste what you need into your config.toml and add "finance" to
+# [switchboard] connectors. Everything here is synthetic: Example Credit Union does not exist.
+# See docs/connectors/finance.md for what each part does.
+
+[connectors.finance]
+# Currency for summaries and budgets; transactions in other currencies are stored but not totaled.
+currency = "USD"
+# An existing directory you own, not writable by others (mkdir -m 700 ~/finance-inbox).
+# Save .ofx, .qfx, and .csv downloads here; imported files move to processed/, unreadable ones to failed/.
+import_dir = "~/finance-inbox"
+# Time zone for alert email dates and for "this month" (default: this computer's time zone).
+# "UTC", an offset such as "-08:00", or a name such as "America/Los_Angeles".
+# timezone = "America/Los_Angeles"
+# Categories left out of income and spending (moving money between your own accounts).
+transfer_categories = ["transfer"]
+
+# Friendly names for accounts. last4 is the last four digits, in quotes so leading zeros survive.
+[connectors.finance.accounts.everyday]
+last4 = "6789"
+kind = "checking"
+
+[connectors.finance.accounts.card]
+last4 = "4321"
+kind = "credit_card"
+
+[connectors.finance.accounts.savings]
+kind = "savings"
+csv_profile = "example-cu"        # CSV files read with this profile belong to this account
+
+# How one bank lays out its CSV export.
+[connectors.finance.csv_profiles.example-cu]
+files = "example-cu-*.csv"        # inbox files this profile applies to
+date_column = "Date"
+date_format = ["%m/%d/%Y", "%Y-%m-%d"]
+description_column = "Description"
+amount_column = "Amount"          # or debit_column = "Debit" and credit_column = "Credit"
+# memo_column = "Memo"
+# id_column = "Reference"         # the bank's transaction id, when the export has one
+# skip_rows = 2                   # preamble rows before the header row
+# delimiter = ";"
+# decimal_mark = ","              # for amounts such as 1.234,56
+# encoding = "utf-8-sig"          # the default; also skips a byte order mark
+# invert_sign = true              # when purchases are positive numbers (common for card exports)
+
+# Bank alert emails (needs the mail connector). The first matching rule wins.
+[[connectors.finance.alert_rules]]
+name = "example card charge"
+from = "alerts@examplecu.example.com"           # a glob, or a list of globs
+subject = "(?i)transaction alert"
+# Named groups: amount (required), merchant, last4, date. Single quotes keep backslashes literal.
+body = 'A charge of \$(?P<amount>[\d,]+\.\d{2}) at (?P<merchant>.+?) on your card ending in (?P<last4>\d{4})'
+direction = "out"                                # money spent; use "in" for deposit alerts
+# account = "card"                               # instead of matching the last4 group
+# date_format = "%m/%d/%Y"                       # for a (?P<date>...) group
+
+[[connectors.finance.alert_rules]]
+name = "example deposit"
+from = ["alerts@examplecu.example.com"]
+body = 'Deposit of \$(?P<amount>[\d,]+\.\d{2})'
+direction = "in"
+account = "everyday"
+
+# Category = regular expressions matched, ignoring case, against the merchant, description, and memo.
+# The first category in this order wins; anything else is "uncategorized".
+[connectors.finance.categories]
+income = ["payroll", "direct dep"]
+groceries = ["example market", "example grocer"]
+subscriptions = ["examplestream", "example news"]
+dining = ["coffee", "bakery", "diner"]
+transfer = ["payment thank you", "transfer (to|from)"]
+
+# Monthly limits per category, in the currency above. Exceeding one emits finance.budget_exceeded
+# once per category per month.
+[connectors.finance.budgets]
+groceries = 600
+dining = 150
+
+# ---- Suggested policy rules ----
+# Reads are allowed by default. Bound how much transaction data an assistant can pull per hour.
+[policy.tools.finance_transactions]
+max_per_hour = 60
+
+# The import tool only writes your local ledger (draft tier, allowed by default). To approve each
+# import yourself, use decision = "ask".
+[policy.tools.finance_import_inbox]
+max_per_hour = 12
+# decision = "ask"
+
+# There are no money-movement tools. If any tool matching this glob ever appears, deny it.
+[policy.tools."finance_*pay*"]
+decision = "deny"
+
+# ---- Example automation rules ----
+# Notify yourself about large card charges (needs the notify connector's notify_self tool).
+[[rules]]
+name = "large card charge"
+on = "finance.transaction"
+[rules.match]
+"payload.amount" = { lte = -100 }
+[[rules.do]]
+tool = "notify_self"
+args = { title = "Card charge", message = "{payload.amount} {payload.currency} at {payload.merchant}" }
+
+[[rules]]
+name = "budget exceeded"
+on = "finance.budget_exceeded"
+[[rules.do]]
+tool = "notify_self"
+args = { title = "Budget exceeded", message = "{payload.category}: {payload.spent} of {payload.limit} in {payload.month}" }
+
+# ==================== shopping ====================
+# Shopping connector: example settings and suggested policy rules.
+# Copy the parts you need into your config.toml. Nothing here is a secret: the connector needs no
+# accounts, keys, or cookies, and it never buys anything.
+#
+# Order tracking listens to mail.received events, so enable the mail connector too:
+#   [switchboard]
+#   connectors = ["mail", "shopping"]
+
+[connectors.shopping]
+# How often the price job wakes up, in seconds (minimum 300). It fetches only watches that are due.
+price_check_interval_seconds = 21600
+# Minimum time between two fetches of the same product page, in seconds (minimum 3600).
+min_fetch_interval_seconds = 21600
+# Optional: only these sites and their subdomains may be watched. Omit to allow any public https site.
+# An empty or malformed list blocks every watch; `switchboard doctor` reports it.
+allowed_domains = ["example.com"]
+# Optional: the currency of email totals written only with "$", a sign many currencies share.
+default_currency = "USD"
+
+# One table per merchant whose emails you want recognized precisely. Without a rule, conservative
+# generic heuristics still apply. Regexes use Python syntax and match case-insensitively. Write them as
+# Tom's Obvious Minimal Language (TOML) literal strings in single quotes, so backslashes stay as
+# written. A capture group, when present, selects the order id or the total. A rule with a regex that
+# does not compile is skipped as a whole.
+[[connectors.shopping.merchant_rules]]
+name = "Example Outfitters"
+# Matched case-insensitively against the whole From header.
+from_contains = "@orders.example.com"
+order_subject_regex = '^Your Example Outfitters order'
+shipped_subject_regex = '\bhas shipped\b'
+delivered_subject_regex = '\bwas delivered\b'
+order_id_regex = 'Order (?:number|#)\s*:?\s*(EO-[0-9]{6})'
+total_regex = 'Order total:\s*(\$?[0-9,]+\.[0-9]{2})'
+# Optional: the currency of this merchant's totals.
+currency = "USD"
+
+# ---- Suggested policy rules ----
+# Reading orders, shipments, and watches is harmless; these are the defaults made explicit.
+[policy.tools."shopping_orders"]
+decision = "allow"
+
+[policy.tools."shopping_shipments"]
+decision = "allow"
+
+[policy.tools."shopping_watch_list"]
+decision = "allow"
+
+# Adding and removing watches only changes local data. A budget stops a confused assistant from
+# filling the watch list.
+[policy.tools.shopping_watch_add]
+decision = "allow"
+max_per_hour = 20
+
+[policy.tools.shopping_watch_remove]
+decision = "allow"
+max_per_hour = 20
+
+# Checking prices fetches public pages. The per-URL interval already limits fetches; this caps how
+# often an assistant can ask. Use decision = "ask" if you want to approve each manual check.
+[policy.tools.shopping_check_prices]
+max_per_hour = 4
+
+# Optional: tell your phone about a price drop. Check the notify connector's documentation for the exact
+# tool name and arguments before enabling this.
+# [[rules]]
+# name = "price drop to phone"
+# on = "shopping.price_drop"
+# [[rules.do]]
+# tool = "notify_self"
+# args = { title = "Price drop", message = "{payload.title}: {payload.price} {payload.currency} (target {payload.target}) {payload.url}" }
+
+# ==================== notify ====================
+# Notify connector: short notes to your own phone, chat, or inbox.
+# Add "notify" to [switchboard] connectors, keep the channels you use, then run `switchboard doctor`.
+# Secrets are references (env:NAME, file:~/path with mode 600, or cmd:program args), never values.
+
+# A push notification through ntfy. On a public server the topic works like a password, so it is a
+# secret reference too. Pick a long random topic.
+[connectors.notify.channels.phone]
+type = "ntfy"
+topic = "file:~/.config/switchboard/secrets/ntfy-topic"
+# server = "https://ntfy.sh"                    # the default; or your own ntfy server
+# token = "env:NTFY_TOKEN"                      # access token, sent as an Authorization header
+# tags = ["robot"]                              # up to 5 ntfy tags; names of emoji show as icons
+# allow_http = false                            # true only for a server on your own network
+
+# A message from your own Telegram bot to your own chat. The bot token sits in the request address,
+# so Switchboard never logs or returns that address.
+[connectors.notify.channels.chat]
+type = "telegram"
+bot_token = "cmd:pass show switchboard/telegram-bot"
+chat_id = 123456789                             # a number from getUpdates, or "@yourchannel"
+
+# An email to yourself through the mail connector (which must be enabled for this to work).
+[connectors.notify.channels.inbox]
+type = "email"
+to = ["you@example.com"]                        # your own addresses only (1 to 10)
+# account = "personal"                          # a mail connector account; default if omitted
+
+# The tool can reach only the channels above, so it is a draft-tier tool that runs without asking.
+# Cap it so a confused or manipulated assistant cannot flood you.
+[policy.tools.notify_self]
+max_per_hour = 30
+# decision = "ask"                              # if any channel above reaches someone besides you
+
+# ==================== webhooks ====================
+# Webhooks connector: verified deliveries become "webhook.received" events.
+# Add "webhooks" to [switchboard] connectors, then run `switchboard webhooks serve` (127.0.0.1:8787)
+# and `switchboard run`. Each hook below is served at POST /hooks/<name>; delete the ones you do not use.
+# Secrets are references (env:NAME, file:~/path with mode 600, or cmd:program args), never values.
+
+[connectors.webhooks]
+max_body_bytes = 262144                         # larger bodies get 413 before they are read
+
+# Your own scripts sign each request with a keyed-hash message authentication code (HMAC):
+#   X-Switchboard-Signature: t=<unix seconds>,v1=<hex HMAC-SHA256 of "<t>.<body>">
+[connectors.webhooks.hooks.ci]
+verify = "hmac-sha256"
+secret = "file:~/.config/switchboard/secrets/hook-ci"
+# tolerance_seconds = 300                       # accepted clock difference; replays are refused
+
+# GitHub: set the same secret in the webhook settings and choose content type application/json.
+[connectors.webhooks.hooks.github]
+verify = "github"
+secret = "cmd:pass show switchboard/github-webhook"
+
+# A sender that can only add a fixed header. It cannot stop replays, so use it only through an
+# encrypted tunnel.
+[connectors.webhooks.hooks.backup]
+verify = "token-header"
+header = "X-Backup-Token"
+secret = "env:BACKUP_HOOK_TOKEN"
+
+# Microsoft Graph: the secret is the subscription's clientState. The same hook can also be the
+# subscription's lifecycleNotificationUrl.
+[connectors.webhooks.hooks.outlook]
+verify = "msgraph"
+secret = "file:~/.config/switchboard/secrets/graph-client-state"
+
+# Google Calendar: the secret is the channel token (up to 256 characters) set in the watch request.
+[connectors.webhooks.hooks.calendar]
+verify = "google-calendar"
+secret = "file:~/.config/switchboard/secrets/gcal-channel-token"
+
+# webhooks_recent only reads hook names, times, and sizes, so the default (allow) is fine.
+# [policy.tools.webhooks_recent]
+# decision = "allow"
+
+# Example rule: tell yourself when a nightly build fails.
+# [[rules]]
+# name = "failed nightly build"
+# on = "webhook.received"
+# [rules.match]
+# "payload.hook" = "ci"
+# "payload.json.status" = "failed"
+# [[rules.do]]
+# tool = "notify_self"
+# args = { title = "Nightly build failed", message = "Job {payload.json.job} failed" }
+
+# ==================== home ====================
+# Home connector: read and control the Home Assistant entities you expose.
+# Add "home" to [switchboard] connectors, then run `switchboard doctor` and `switchboard call home_states`.
+# Secrets are references (env:NAME, file:~/path with mode 600, or cmd:program args), never values.
+
+[connectors.home]
+base_url = "https://homeassistant.example.net:8123"
+# A long-lived access token from a dedicated, non-administrator Home Assistant user.
+token = "file:~/.config/switchboard/secrets/home-assistant"
+# Entity globs assistants may see. Prefer exact entity identifiers for anything sensitive.
+expose = ["light.*", "climate.*", "sensor.*"]
+# Always blocked, even when exposed. Setting this replaces the default list below, so keep every
+# domain you still want blocked. "cover" includes garage doors.
+# deny_domains = ["lock", "alarm_control_panel", "cover", "camera"]
+# allow_http = false                            # true only for a plain-http server on your own network
+
+# Every action waits for your approval (the default for act tools), at most 20 per hour.
+[policy.tools.home_call_service]
+decision = "ask"
+max_per_hour = 20
+
+# Reading exposed states needs no approval.
+# [policy.tools.home_states]
+# decision = "allow"

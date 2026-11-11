@@ -1,0 +1,25 @@
+{
+  "value": [
+    {
+      "id": "sbtestnotification001",
+      "subscriptionId": "00000000-0000-4000-8000-000000000001",
+      "subscriptionExpirationDateTime": "2027-01-16T08:00:00.000Z",
+      "clientState": "test-client-state",
+      "changeType": "created",
+      "resource": "users/00000000-0000-4000-8000-00000000000a/messages/sbtestmessage1",
+      "tenantId": "00000000-0000-4000-8000-00000000000b",
+      "resourceData": {
+        "@odata.type": "#Microsoft.Graph.Message",
+        "@odata.id": "Users/00000000-0000-4000-8000-00000000000a/Messages/sbtestmessage1",
+        "id": "sbtestmessage1"
+      }
+    },
+    {
+      "subscriptionId": "00000000-0000-4000-8000-000000000001",
+      "subscriptionExpirationDateTime": "2027-01-16T08:00:00.000Z",
+      "tenantId": "00000000-0000-4000-8000-00000000000b",
+      "clientState": "test-client-state",
+      "lifecycleEvent": "reauthorizationRequired"
+    }
+  ]
+}

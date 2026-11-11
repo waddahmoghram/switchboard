@@ -1,0 +1,78 @@
+[
+  {
+    "entity_id": "light.kitchen",
+    "state": "on",
+    "attributes": {
+      "friendly_name": "Kitchen",
+      "brightness": 180,
+      "supported_color_modes": ["brightness"],
+      "icon": "mdi:lightbulb"
+    },
+    "last_changed": "2026-11-10T18:02:11+00:00",
+    "last_updated": "2026-11-10T18:02:11+00:00",
+    "context": {"id": "01SBTESTCONTEXT00000000001", "parent_id": null, "user_id": null}
+  },
+  {
+    "entity_id": "light.porch",
+    "state": "off",
+    "attributes": {"friendly_name": "Porch"},
+    "last_changed": "2026-11-10T07:30:00+00:00"
+  },
+  {
+    "entity_id": "climate.living_room",
+    "state": "heat",
+    "attributes": {
+      "friendly_name": "Living room",
+      "current_temperature": 20.5,
+      "temperature": 21,
+      "hvac_action": "heating",
+      "hvac_modes": ["off", "heat"]
+    },
+    "last_changed": "2026-11-10T06:00:00+00:00"
+  },
+  {
+    "entity_id": "sensor.outdoor_temperature",
+    "state": "12.4",
+    "attributes": {
+      "friendly_name": "Outdoor temperature",
+      "unit_of_measurement": "°C",
+      "device_class": "temperature",
+      "state_class": "measurement"
+    },
+    "last_changed": "2026-11-10T18:00:00+00:00"
+  },
+  {
+    "entity_id": "lock.front_door",
+    "state": "locked",
+    "attributes": {"friendly_name": "Front door"},
+    "last_changed": "2026-11-10T22:00:00+00:00"
+  },
+  {
+    "entity_id": "cover.garage_door",
+    "state": "closed",
+    "attributes": {"friendly_name": "Garage door", "device_class": "garage"},
+    "last_changed": "2026-11-10T08:15:00+00:00"
+  },
+  {
+    "entity_id": "camera.driveway",
+    "state": "idle",
+    "attributes": {
+      "friendly_name": "Driveway",
+      "access_token": "sb-test-camera-token",
+      "entity_picture": "/api/camera_proxy/camera.driveway?token=sb-test-camera-token"
+    },
+    "last_changed": "2026-11-10T00:00:00+00:00"
+  },
+  {
+    "entity_id": "alarm_control_panel.home",
+    "state": "armed_away",
+    "attributes": {"friendly_name": "Alarm"},
+    "last_changed": "2026-11-10T08:20:00+00:00"
+  },
+  {
+    "entity_id": "switch.coffee_maker",
+    "state": "off",
+    "attributes": {"friendly_name": "Coffee maker"},
+    "last_changed": "2026-11-10T09:00:00+00:00"
+  }
+]

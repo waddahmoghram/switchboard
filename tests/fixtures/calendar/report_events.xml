@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="utf-8"?>
+<d:multistatus xmlns:d="DAV:" xmlns:cal="urn:ietf:params:xml:ns:caldav">
+  <d:response>
+    <d:href>/dav/calendars/owner/personal/review.ics</d:href>
+    <d:propstat>
+      <d:prop>
+        <d:getetag>"etag-review-1"</d:getetag>
+        <cal:calendar-data>BEGIN:VCALENDAR
+VERSION:2.0
+PRODID:-//Synthetic//CalDAV Server//EN
+BEGIN:VEVENT
+UID:review@example.invalid
+DTSTAMP:20261101T120000Z
+DTSTART;TZID=America/New_York:20261112T140000
+DTEND;TZID=America/New_York:20261112T150000
+SUMMARY:Quarterly review
+LOCATION:Room 7
+END:VEVENT
+END:VCALENDAR
+</cal:calendar-data>
+      </d:prop>
+      <d:status>HTTP/1.1 200 OK</d:status>
+    </d:propstat>
+  </d:response>
+  <d:response>
+    <d:href>/dav/calendars/owner/personal/standup.ics</d:href>
+    <d:propstat>
+      <d:prop>
+        <d:getetag>"etag-standup-3"</d:getetag>
+        <cal:calendar-data>BEGIN:VCALENDAR
+VERSION:2.0
+PRODID:-//Synthetic//CalDAV Server//EN
+BEGIN:VEVENT
+UID:standup@example.invalid
+DTSTAMP:20261101T120000Z
+DTSTART;TZID=America/New_York:20261102T093000
+DTEND;TZID=America/New_York:20261102T094500
+RRULE:FREQ=WEEKLY;BYDAY=MO,TH
+SUMMARY:Standup
+END:VEVENT
+END:VCALENDAR
+</cal:calendar-data>
+      </d:prop>
+      <d:status>HTTP/1.1 200 OK</d:status>
+    </d:propstat>
+  </d:response>
+</d:multistatus>

@@ -1,0 +1,14 @@
+{
+  "account": "personal",
+  "mailbox": "INBOX",
+  "uid": 201,
+  "message_id": "<eg-55821@gear.example.net>",
+  "from": "Example Gear Shop <no-reply@gear.example.net>",
+  "to": ["owner@example.org"],
+  "cc": [],
+  "subject": "Order confirmation",
+  "date": "2026-11-08T08:00:00+00:00",
+  "text": "Thank you for your purchase!\nOrder #EG-55821\nItems: 2\nGrand total: \u20ac89.90\n",
+  "has_attachments": false,
+  "attachments": []
+}

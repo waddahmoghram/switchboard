@@ -1,0 +1,14 @@
+{
+  "account": "personal",
+  "mailbox": "INBOX",
+  "uid": 103,
+  "message_id": "<delivered-104233@orders.example.com>",
+  "from": "Example Outfitters <ship@orders.example.com>",
+  "to": ["owner@example.org"],
+  "cc": [],
+  "subject": "Your Example Outfitters order EO-104233 was delivered",
+  "date": "2026-11-12T14:14:00+00:00",
+  "text": "Order number: EO-104233 was left at the front door at 2:14 PM.\n",
+  "has_attachments": false,
+  "attachments": []
+}
