@@ -1,0 +1,296 @@
+# Continuous integration for Switchboard. Authored and unexecuted: no run of this workflow has been observed.
+# Security: read-only token, no secrets, no deployment, no caches, credentials not persisted after checkout,
+# and every action pinned to a full commit SHA (release tag in the trailing comment).
+name: CI
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  CMAKE_BUILD_PARALLEL_LEVEL: "4"
+  CTEST_PARALLEL_LEVEL: "2"
+  UV_VERSION: "0.13.7"
+  FUZZ_SECONDS: "60"
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  python:
+    name: Python ${{ matrix.python }} (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, macos-15]
+        python: ["3.11", "3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          version: ${{ env.UV_VERSION }}
+          python-version: ${{ matrix.python }}
+          enable-cache: "false"
+      - name: Install the project and pinned development tools
+        run: uv sync
+      - name: Lint
+        run: uv run --no-sync ruff check src tests
+      - name: Check formatting
+        run: uv run --no-sync ruff format --check src tests
+      - name: Type-check
+        run: uv run --no-sync mypy --config-file pyproject.toml src tests
+      - name: Unit, contract, fault, and fuzz tests
+        run: uv run --no-sync pytest -m "not integration"
+      - name: Integration tests (local servers and subprocesses only)
+        run: uv run --no-sync pytest -m integration
+
+  contracts:
+    name: Cross-engine contracts
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          version: ${{ env.UV_VERSION }}
+          python-version: "3.12"
+          enable-cache: "false"
+      - name: Install native dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libcurl4-openssl-dev libsqlite3-dev nlohmann-json3-dev libssl-dev
+      - name: Python engine against the shared fixtures
+        run: |
+          uv sync
+          uv run --no-sync pytest tests/contracts
+      - name: Configure the native engine
+        working-directory: native
+        run: cmake --preset dev
+      - name: Build the native contract runner
+        working-directory: native
+        run: cmake --build --preset dev --target native-test-contracts
+      - name: Native engine against the shared fixtures
+        working-directory: native
+        run: ctest --preset dev --label-regex contracts
+
+  native:
+    name: Native (${{ matrix.name }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: gcc
+            os: ubuntu-24.04
+            cc: gcc
+            cxx: g++
+          - name: clang
+            os: ubuntu-24.04
+            cc: clang
+            cxx: clang++
+          - name: apple-clang
+            os: macos-15
+            cc: clang
+            cxx: clang++
+    env:
+      CC: ${{ matrix.cc }}
+      CXX: ${{ matrix.cxx }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install native dependencies (Ubuntu)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libcurl4-openssl-dev libsqlite3-dev nlohmann-json3-dev libssl-dev
+      - name: Install native dependencies (macOS)
+        if: runner.os == 'macOS'
+        env:
+          HOMEBREW_NO_AUTO_UPDATE: "1"
+          HOMEBREW_NO_INSTALL_CLEANUP: "1"
+        run: |
+          brew install nlohmann-json openssl@3
+          echo "CMAKE_PREFIX_PATH=$(brew --prefix openssl@3):$(brew --prefix)" >> "$GITHUB_ENV"
+      - name: Toolchain versions
+        run: |
+          cmake --version
+          "$CXX" --version
+      - name: Configure (dev preset, warnings as errors)
+        working-directory: native
+        run: cmake --preset dev
+      - name: Build
+        working-directory: native
+        run: cmake --build --preset dev
+      - name: Test
+        working-directory: native
+        run: ctest --preset dev
+
+  sanitizers:
+    name: Sanitizers (${{ matrix.preset }}, ${{ matrix.cc }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - preset: asan-ubsan
+            cc: gcc
+            cxx: g++
+          - preset: asan-ubsan
+            cc: clang
+            cxx: clang++
+          - preset: tsan
+            cc: clang
+            cxx: clang++
+    env:
+      CC: ${{ matrix.cc }}
+      CXX: ${{ matrix.cxx }}
+      PRESET: ${{ matrix.preset }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install native dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libcurl4-openssl-dev libsqlite3-dev nlohmann-json3-dev libssl-dev
+      - name: Install the LLVM sanitizer runtimes
+        if: matrix.cc == 'clang'
+        run: |
+          major="$(clang -dumpversion | cut -d. -f1)"
+          sudo apt-get install -y --no-install-recommends "libclang-rt-${major}-dev"
+      # High address-space randomization breaks some sanitizer runtimes' memory layout assumptions.
+      - name: Limit address-space randomization for sanitizers
+        run: sudo sysctl -w vm.mmap_rnd_bits=28
+      - name: Configure
+        working-directory: native
+        run: cmake --preset "$PRESET"
+      - name: Build
+        working-directory: native
+        run: cmake --build --preset "$PRESET"
+      - name: Test
+        working-directory: native
+        run: ctest --preset "$PRESET"
+
+  rust:
+    name: Rust wrapper
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      CARGO_TARGET_DIR: ${{ github.workspace }}/build/rust-target
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install native dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libcurl4-openssl-dev libsqlite3-dev nlohmann-json3-dev libssl-dev
+      - name: Configure the native library (release preset)
+        working-directory: native
+        run: cmake --preset release
+      - name: Build the native library
+        working-directory: native
+        run: cmake --build --preset release --target switchboard_native
+      - name: Build and test the Rust wrapper against the built library
+        run: |
+          library="$GITHUB_WORKSPACE/build/native-release"
+          export RUSTFLAGS="-L native=$library -C link-arg=-Wl,-rpath,$library"
+          export LD_LIBRARY_PATH="$library"
+          cargo --version
+          cargo build --locked --all-targets --manifest-path native/clients/rust/Cargo.toml
+          cargo test --locked --manifest-path native/clients/rust/Cargo.toml
+
+  fuzz:
+    name: Fuzz smoke (libFuzzer)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install native dependencies and the LLVM fuzzing runtime
+        run: |
+          sudo apt-get update
+          major="$(clang -dumpversion | cut -d. -f1)"
+          sudo apt-get install -y --no-install-recommends \
+            libcurl4-openssl-dev libsqlite3-dev nlohmann-json3-dev libssl-dev "libclang-rt-${major}-dev"
+      - name: Limit address-space randomization for sanitizers
+        run: sudo sysctl -w vm.mmap_rnd_bits=28
+      - name: Configure
+        working-directory: native
+        run: cmake --preset fuzz
+      - name: Build
+        working-directory: native
+        run: cmake --build --preset fuzz
+      - name: Replay the committed seed corpora
+        working-directory: native
+        run: ctest --preset fuzz
+      - name: Fuzz each target for a bounded time
+        run: |
+          mkdir -p build/fuzz-artifacts
+          for target in json schema timestamp endpoint digest c_api; do
+            echo "::group::fuzz $target for ${FUZZ_SECONDS}s"
+            scratch="build/fuzz-scratch/$target"
+            mkdir -p "$scratch"
+            dictionary=()
+            case "$target" in
+              json | schema | c_api) dictionary=(-dict=native/fuzz/json.dict) ;;
+            esac
+            # The scratch corpus comes first, so new inputs never modify the committed seeds.
+            "build/native-fuzz/native-fuzz-$target" \
+              -max_total_time="$FUZZ_SECONDS" \
+              -timeout=10 \
+              -rss_limit_mb=2048 \
+              -print_final_stats=1 \
+              -artifact_prefix="build/fuzz-artifacts/$target-" \
+              "${dictionary[@]}" \
+              "$scratch" "native/fuzz/corpus/$target"
+            echo "::endgroup::"
+          done
+      - name: Keep crash reproducers
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: fuzz-artifacts
+          path: build/fuzz-artifacts/
+          if-no-files-found: ignore
+          retention-days: 14
+
+  package:
+    name: Install and consume the package
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install native dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libcurl4-openssl-dev libsqlite3-dev nlohmann-json3-dev libssl-dev pkg-config
+      - name: Release build, scratch install, and CMake and pkg-config consumers
+        run: bash scripts/ci/validate.sh package

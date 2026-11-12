@@ -881,3 +881,39 @@ def test_an_ambiguous_preset_effect_stops_remaining_actions_without_compensation
     assert result["confirmed"] is False
     assert result["not_attempted"] == ["light.desk"]
     assert len(post_bodies(fake_http)) == 1
+
+
+@pytest.mark.parametrize(
+    ("status", "effect_unknown", "state"),
+    [(200, False, "succeeded"), (400, False, "succeeded"), (503, True, "uncertain")],
+)
+def test_reports_flag_unknown_delivery_for_the_action_journal(
+    home_app: AppFactory, fake_http: FakeHttp, status: int, effect_unknown: bool, state: str
+) -> None:
+    app = home_app(configuration())
+    add_state(fake_http, "light.lounge")
+    add_post(fake_http, "light", "turn_on", status=status)
+    add_state(fake_http, "light.lounge", state="on")
+    outcome = app.call("home_lights", action_args(app, entity_ids=["light.lounge"], state="on"), Origin.HUMAN)
+    assert outcome.status == "ok"
+    assert outcome.data["effect_unknown"] is effect_unknown
+    assert outcome.data["confirmed"] is (status == 200)
+    assert outcome.action is not None and outcome.action["state"] == state
+
+
+def test_an_ambiguous_preset_step_marks_the_whole_report_unknown(
+    home_app: AppFactory, fake_http: FakeHttp
+) -> None:
+    app = home_app(configuration())
+    info = app.call("home_targets", {}, Origin.ASSISTANT).data
+    add_state(fake_http, "light.lounge")
+    add_state(fake_http, "light.desk")
+    fake_http.add_error("POST", f"{HA}/api/services/light/turn_on")
+    add_state(fake_http, "light.lounge", state="on", brightness=102)
+    args = action_args(app, name="reading", fingerprint=info["lighting_presets"]["reading"]["fingerprint"])
+    outcome = app.call("home_lighting_preset", args, Origin.HUMAN)
+    assert outcome.data["effect_unknown"] is True
+    assert [step["effect_unknown"] for step in outcome.data["results"]] == [True]
+    assert outcome.action is not None and outcome.action["state"] == "uncertain"
+    repeat = app.call("home_lighting_preset", args, Origin.HUMAN)
+    assert repeat.status == "denied" and len(post_bodies(fake_http)) == 1

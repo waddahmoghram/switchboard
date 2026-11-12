@@ -15,7 +15,7 @@ from typing import Any
 
 from switchboard.connectors.home.settings import ENTITY_ID, HomeSettings
 from switchboard.context import AppContext
-from switchboard.errors import HttpError, SecretError, ToolError
+from switchboard.errors import HttpError, SecretError, ToolError, UncertainOutcomeError
 from switchboard.httpclient import HttpResponse
 
 _HEADER_SAFE = re.compile(r"[!-~]+")
@@ -133,11 +133,13 @@ class HomeAssistant:
             message = "cannot reach Home Assistant"
             if method == "POST":
                 message += "; action outcome may be unknown; nothing was resent"
+                raise UncertainOutcomeError(message) from None
             raise ToolError(message) from None
         if not response.ok:
-            raise ToolError(
-                _STATUS_MESSAGES.get(response.status, f"Home Assistant answered HTTP {response.status}")
-            )
+            message = _STATUS_MESSAGES.get(response.status, f"Home Assistant answered HTTP {response.status}")
+            if method == "POST" and (response.status >= 500 or response.status == 408):
+                raise UncertainOutcomeError(message)
+            raise ToolError(message)
         return response
 
     def _token(self) -> str:

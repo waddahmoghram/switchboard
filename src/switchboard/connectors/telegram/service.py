@@ -7,7 +7,7 @@ from datetime import UTC, datetime
 from typing import Any, TypeGuard
 
 from switchboard.context import AppContext
-from switchboard.errors import ToolError
+from switchboard.errors import ToolError, UncertainOutcomeError
 from switchboard.util import canonical_json, iso, now, truncate
 
 from .client import BotClient, TelegramError
@@ -147,6 +147,8 @@ class TelegramService:
             )
         except TelegramError as exc:
             self.inbox.finish_reply(args["id"], "unknown" if exc.ambiguous else "failed", error=str(exc))
+            if exc.ambiguous:
+                raise UncertainOutcomeError(str(exc)) from exc
             raise
         identifier = result.get("message_id") if isinstance(result, dict) else None
         chat = result.get("chat") if isinstance(result, dict) else None
@@ -154,7 +156,7 @@ class TelegramService:
         if not _integer(identifier) or not _integer(chat_id, positive=False) or chat_id != message["chat_id"]:
             reason = "Telegram did not provide a matching reply confirmation; do not retry automatically"
             self.inbox.finish_reply(args["id"], "unknown", error=reason)
-            raise ToolError(reason)
+            raise UncertainOutcomeError(reason)
         self.inbox.finish_reply(args["id"], "sent", message_id=identifier)
         return {"id": args["id"], "chat_id": message["chat_id"], "status": "sent", "message_id": identifier}
 

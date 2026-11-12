@@ -1,0 +1,11 @@
+# pkg-config metadata for the Switchboard native engine's C interface.
+# C++ users of switchboard/native.hpp also need nlohmann_json headers (pkg-config name: nlohmann_json).
+prefix=@SWITCHBOARD_PC_PREFIX@
+libdir=@SWITCHBOARD_PC_LIBDIR@
+includedir=@SWITCHBOARD_PC_INCLUDEDIR@
+
+Name: switchboard-native
+Description: Switchboard native engine with a versioned C interface
+Version: @PROJECT_VERSION@
+Libs: -L${libdir} -lswitchboard_native
+Cflags: -I${includedir}

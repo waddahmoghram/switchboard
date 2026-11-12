@@ -1,0 +1,243 @@
+{
+  "format": "switchboard-contract-cases",
+  "version": 1,
+  "contract_revision": 1,
+  "area": "approvals",
+  "summary": "Approvals bind the exact stored arguments: approving executes them at most once under the policy in force at that moment; denial, replay, a changed policy, the kill switch and the duplicate guard all prevent execution.",
+  "cases": [
+    {
+      "id": "approve-executes-exactly-once",
+      "summary": "A pending act call runs once when approved; a second approval of the same request is refused.",
+      "steps": [
+        {
+          "op": "call",
+          "tool": "contract_act",
+          "args": {"mode": "confirmed"},
+          "expect": {"status": "pending", "approval_id": true, "action": null},
+          "save": {"approval": "approval_id"}
+        },
+        {
+          "op": "call",
+          "tool": "approvals_pending",
+          "expect": {"status": "ok", "action": null, "data": [{"id": {"$saved": "approval"}, "tool": "contract_act"}]}
+        },
+        {"op": "call", "tool": "switchboard_status", "expect": {"status": "ok", "data": {"pending_approvals": 1}}},
+        {"op": "handler_calls", "expect": {"contract_act": 0}},
+        {
+          "op": "approve",
+          "approval": {"$saved": "approval"},
+          "expect": {"status": "ok", "tool": "contract_act", "action": "succeeded", "data": {"handled": true, "confirmed": true}},
+          "save": {"action": "action.id"}
+        },
+        {"op": "handler_calls", "expect": {"contract_act": 1}},
+        {"op": "approve", "approval": {"$saved": "approval"}, "expect": {"status": "error", "action": null}},
+        {"op": "handler_calls", "expect": {"contract_act": 1}},
+        {
+          "op": "call",
+          "tool": "approvals_status",
+          "args": {"id": {"$saved": "approval"}},
+          "expect": {"status": "ok", "data": {"id": {"$saved": "approval"}, "tool": "contract_act", "status": "executed"}}
+        },
+        {"op": "call", "tool": "approvals_pending", "expect": {"status": "ok", "data": []}},
+        {"op": "action_state", "action": {"$saved": "action"}, "expect": {"state": "succeeded"}}
+      ]
+    },
+    {
+      "id": "deny-prevents-execution",
+      "summary": "A denied request never runs, cannot be approved afterwards, and cannot be denied twice.",
+      "steps": [
+        {
+          "op": "call",
+          "tool": "contract_act",
+          "args": {"mode": "ok"},
+          "expect": {"status": "pending", "approval_id": true},
+          "save": {"approval": "approval_id"}
+        },
+        {"op": "deny", "approval": {"$saved": "approval"}, "expect": {"denied": true}},
+        {"op": "deny", "approval": {"$saved": "approval"}, "expect": {"denied": false}},
+        {"op": "approve", "approval": {"$saved": "approval"}, "expect": {"status": "error", "action": null}},
+        {"op": "call", "tool": "approvals_status", "args": {"id": {"$saved": "approval"}}, "expect": {"status": "ok", "data": {"status": "denied"}}},
+        {"op": "handler_calls", "expect": {"contract_act": 0}},
+        {"op": "recent_actions", "args": {}, "expect": {"entries": []}}
+      ]
+    },
+    {
+      "id": "policy-changed-to-deny-before-approval",
+      "summary": "Approval re-evaluates the policy in force when it executes: a rule changed to deny after the request blocks it.",
+      "steps": [
+        {
+          "op": "call",
+          "tool": "contract_act",
+          "args": {"mode": "ok", "tag": "before"},
+          "expect": {"status": "pending", "approval_id": true},
+          "save": {"approval": "approval_id"}
+        },
+        {"op": "restart", "config": {"policy": {"tools": {"contract_act": {"decision": "deny"}}}}},
+        {"op": "approve", "approval": {"$saved": "approval"}, "expect": {"status": "denied", "action": null}},
+        {"op": "call", "tool": "approvals_status", "args": {"id": {"$saved": "approval"}}, "expect": {"status": "ok", "data": {"status": "failed"}}},
+        {"op": "approve", "approval": {"$saved": "approval"}, "expect": {"status": "error", "action": null}},
+        {"op": "handler_calls", "expect": {"contract_act": 0}}
+      ]
+    },
+    {
+      "id": "kill-switch-blocks-a-pending-approval",
+      "summary": "An approval executed while the kill switch is on is denied and finishes as failed; removing the switch does not revive it.",
+      "steps": [
+        {
+          "op": "call",
+          "tool": "contract_act",
+          "args": {"mode": "ok"},
+          "expect": {"status": "pending", "approval_id": true},
+          "save": {"approval": "approval_id"}
+        },
+        {"op": "kill_switch", "on": true},
+        {"op": "approve", "approval": {"$saved": "approval"}, "expect": {"status": "denied", "action": null}},
+        {"op": "kill_switch", "on": false},
+        {"op": "approve", "approval": {"$saved": "approval"}, "expect": {"status": "error", "action": null}},
+        {"op": "call", "tool": "approvals_status", "args": {"id": {"$saved": "approval"}}, "expect": {"status": "ok", "data": {"status": "failed"}}},
+        {"op": "handler_calls", "expect": {"contract_act": 0}}
+      ]
+    },
+    {
+      "id": "duplicate-guard-applies-when-an-approval-executes",
+      "summary": "A request queued while an identical attempt is uncertain is refused when approved, naming the blocking action, and finishes as failed.",
+      "steps": [
+        {
+          "op": "call",
+          "tool": "contract_act",
+          "args": {"mode": "uncertain", "tag": "door"},
+          "origin": "human",
+          "expect": {"status": "error", "action": "uncertain"},
+          "save": {"blocking": "action.id"}
+        },
+        {
+          "op": "call",
+          "tool": "contract_act",
+          "args": {"mode": "uncertain", "tag": "door"},
+          "expect": {"status": "pending", "approval_id": true, "action": null},
+          "save": {"approval": "approval_id"}
+        },
+        {
+          "op": "approve",
+          "approval": {"$saved": "approval"},
+          "expect": {"status": "denied", "action": null, "message_contains": [{"$saved": "blocking"}]}
+        },
+        {"op": "call", "tool": "approvals_status", "args": {"id": {"$saved": "approval"}}, "expect": {"status": "ok", "data": {"status": "failed"}}},
+        {"op": "action_state", "action": {"$saved": "blocking"}, "expect": {"state": "uncertain"}},
+        {"op": "handler_calls", "expect": {"contract_act": 1}}
+      ]
+    },
+    {
+      "id": "approved-read-is-not-journaled",
+      "summary": "A read tool configured to ask runs once when approved and records no action.",
+      "config": {"policy": {"tools": {"contract_read": {"decision": "ask"}}}},
+      "steps": [
+        {
+          "op": "call",
+          "tool": "contract_read",
+          "args": {"mode": "ok"},
+          "expect": {"status": "pending", "approval_id": true, "action": null},
+          "save": {"approval": "approval_id"}
+        },
+        {"op": "approve", "approval": {"$saved": "approval"}, "expect": {"status": "ok", "action": null, "data": {"handled": true}}},
+        {"op": "handler_calls", "expect": {"contract_read": 1}},
+        {"op": "recent_actions", "args": {}, "expect": {"entries": []}}
+      ]
+    },
+    {
+      "id": "approving-an-unknown-identifier-is-invalid",
+      "summary": "A well-formed identifier that names no request is invalid and runs nothing.",
+      "steps": [
+        {"op": "approve", "approval": {"$engine": "absent_approval_id"}, "expect": {"status": "invalid", "action": null}},
+        {"op": "deny", "approval": {"$engine": "absent_approval_id"}, "expect": {"denied": false}}
+      ]
+    },
+    {
+      "id": "approval-identifier-format",
+      "summary": "Both engines return an approval identifier with a pending outcome; its length differs.",
+      "steps": [
+        {
+          "op": "call",
+          "tool": "contract_act",
+          "args": {"mode": "ok"},
+          "expect": {"status": "pending", "approval_id": true},
+          "divergence": {
+            "topic": "Approval identifiers",
+            "reason": "Python approval identifiers are 4 random bytes in hexadecimal; native ones are 16 random bytes.",
+            "python": {"patterns": {"approval_id": "[0-9a-f]{8}"}},
+            "native": {"patterns": {"approval_id": "[0-9a-f]{32}"}}
+          }
+        }
+      ]
+    },
+    {
+      "id": "approval-status-result",
+      "summary": "approvals_status reports an executed request; the stored result has a different shape.",
+      "steps": [
+        {
+          "op": "call",
+          "tool": "contract_act",
+          "args": {"mode": "ok"},
+          "expect": {"status": "pending", "approval_id": true},
+          "save": {"approval": "approval_id"}
+        },
+        {"op": "approve", "approval": {"$saved": "approval"}, "expect": {"status": "ok", "action": "succeeded"}},
+        {
+          "op": "call",
+          "tool": "approvals_status",
+          "args": {"id": {"$saved": "approval"}},
+          "expect": {"status": "ok", "action": null},
+          "divergence": {
+            "topic": "Approval result",
+            "reason": "Python stores the handler's data as the approval result; the native engine stores the whole outcome envelope.",
+            "python": {"data": {"status": "executed", "result": {"handled": true}}},
+            "native": {"data": {"status": "executed", "result": {"status": "ok", "tool": "contract_act", "data": {"handled": true}}}}
+          }
+        }
+      ]
+    },
+    {
+      "id": "unknown-approval-status",
+      "summary": "approvals_status for a well-formed identifier that names no request.",
+      "steps": [
+        {
+          "op": "call",
+          "tool": "approvals_status",
+          "args": {"id": {"$engine": "absent_approval_id"}},
+          "expect": {"action": null},
+          "divergence": {
+            "topic": "Unknown approval lookup",
+            "reason": "Python's approvals_status reports status unknown in an ok outcome; the native handler raises an invalid error, which its dispatcher reports as an invalid outcome.",
+            "python": {"status": "ok", "data": {"status": "unknown"}},
+            "native": {"status": "invalid"}
+          }
+        }
+      ]
+    },
+    {
+      "id": "approved-call-journal-origin",
+      "summary": "The journal links an approved execution to its approval; the recorded origin differs.",
+      "steps": [
+        {
+          "op": "call",
+          "tool": "contract_act",
+          "args": {"mode": "ok"},
+          "expect": {"status": "pending", "approval_id": true},
+          "save": {"approval": "approval_id"}
+        },
+        {"op": "approve", "approval": {"$saved": "approval"}, "expect": {"status": "ok", "action": "succeeded"}},
+        {
+          "op": "recent_actions",
+          "args": {},
+          "expect": {"entries": [{"tool": "contract_act", "state": "succeeded", "approval_id": {"$saved": "approval"}}]},
+          "divergence": {
+            "topic": "Approved-call journal origin",
+            "reason": "Python records an approved execution with origin approval; the native engine executes it with the human origin and records human.",
+            "python": {"entries": [{"tool": "contract_act", "state": "succeeded", "approval_id": {"$saved": "approval"}, "origin": "approval"}]},
+            "native": {"entries": [{"tool": "contract_act", "state": "succeeded", "approval_id": {"$saved": "approval"}, "origin": "human"}]}
+          }
+        }
+      ]
+    }
+  ]
+}

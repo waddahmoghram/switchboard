@@ -17,10 +17,34 @@ from typing import Any
 from switchboard.errors import ConfigError
 
 _CORE_KEYS = {
-    "switchboard": frozenset({"connectors", "data_dir", "event_retention_days"}),
+    "switchboard": frozenset(
+        {
+            "connectors",
+            "data_dir",
+            "event_retention_days",
+            "tool_timeout_seconds",
+            "job_timeout_seconds",
+            "job_workers",
+        }
+    ),
     "policy": frozenset({"tools", "approval_ttl_minutes"}),
     "mcp": frozenset({"expose", "instructions"}),
+    "retention": frozenset({"tool_calls_days", "approvals_days", "actions_days", "connectors"}),
+    "broker": frozenset({"client_socket", "operator_socket", "client_uids", "operator_uids"}),
 }
+
+# (section, key): (minimum, maximum, default)
+_BOUNDED_INTEGERS: dict[tuple[str, str], tuple[int, int, int]] = {
+    ("switchboard", "event_retention_days"): (1, 3650, 14),
+    ("switchboard", "tool_timeout_seconds"): (5, 3600, 120),
+    ("switchboard", "job_timeout_seconds"): (5, 3600, 300),
+    ("switchboard", "job_workers"): (1, 16, 4),
+    ("policy", "approval_ttl_minutes"): (1, 10080, 60),
+    ("retention", "tool_calls_days"): (1, 3650, 30),
+    ("retention", "approvals_days"): (1, 3650, 90),
+    ("retention", "actions_days"): (1, 3650, 180),
+}
+_MAX_UID = 2**32 - 2
 
 
 def _xdg(var: str, fallback: str) -> Path:
@@ -57,15 +81,48 @@ class Config:
             if unknown:
                 raise ConfigError(f"[{section}]: unknown setting(s): {', '.join(sorted(unknown))}")
         self.mcp_exposure()
-        for section, key in (
-            ("switchboard", "event_retention_days"),
-            ("policy", "approval_ttl_minutes"),
-        ):
-            settings = self.section(section)
-            if key in settings:
-                value = settings[key]
-                if isinstance(value, bool) or not isinstance(value, int) or value < 1:
-                    raise ConfigError(f"[{section}] {key} must be a positive whole number")
+        for section, key in _BOUNDED_INTEGERS:
+            self.bounded(section, key)
+        self.retention_connector_days()
+        self.broker_settings()
+
+    def bounded(self, section: str, key: str) -> int:
+        """A validated whole number from a documented range, or its documented default."""
+        minimum, maximum, default = _BOUNDED_INTEGERS[(section, key)]
+        value = self.section(section).get(key, default)
+        if isinstance(value, bool) or not isinstance(value, int) or not minimum <= value <= maximum:
+            raise ConfigError(f"[{section}] {key} must be a whole number from {minimum} to {maximum}")
+        return value
+
+    def retention_connector_days(self) -> dict[str, int]:
+        """Per-connector retention overrides from ``[retention.connectors]``; connectors check names."""
+        result: dict[str, int] = {}
+        for name, value in self.section("retention", "connectors").items():
+            if isinstance(value, bool) or not isinstance(value, int) or not 1 <= value <= 3650:
+                raise ConfigError(f"[retention.connectors] {name} must be a whole number from 1 to 3650")
+            result[str(name)] = value
+        return result
+
+    def broker_settings(self) -> dict[str, Any]:
+        """Validated ``[broker]`` settings; an absent table means no broker is configured."""
+        table = self.section("broker")
+        for key in ("client_socket", "operator_socket"):
+            if key in table and (not isinstance(table[key], str) or not table[key].strip()):
+                raise ConfigError(f"[broker] {key} must be a socket path")
+        for key in ("client_uids", "operator_uids"):
+            if key not in table:
+                continue
+            value = table[key]
+            if (
+                not isinstance(value, list)
+                or not 1 <= len(value) <= 64
+                or not all(
+                    isinstance(uid, int) and not isinstance(uid, bool) and 0 <= uid <= _MAX_UID
+                    for uid in value
+                )
+            ):
+                raise ConfigError(f"[broker] {key} must list 1 to 64 numeric user identifiers")
+        return dict(table)
 
     def section(self, *keys: str) -> dict[str, Any]:
         """Return a nested table; missing tables are empty, malformed tables are errors."""

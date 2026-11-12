@@ -1,0 +1,271 @@
+{
+  "version": 6,
+  "cmakeMinimumRequired": {
+    "major": 3,
+    "minor": 25,
+    "patch": 0
+  },
+  "configurePresets": [
+    {
+      "name": "base",
+      "hidden": true,
+      "binaryDir": "${sourceDir}/../build/native-${presetName}",
+      "cacheVariables": {
+        "CMAKE_EXPORT_COMPILE_COMMANDS": "ON"
+      }
+    },
+    {
+      "name": "dev",
+      "displayName": "Development",
+      "description": "Debug build with tests and warnings as errors",
+      "inherits": "base",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "SWITCHBOARD_BUILD_TESTS": "ON",
+        "SWITCHBOARD_WARNINGS_AS_ERRORS": "ON"
+      }
+    },
+    {
+      "name": "release",
+      "displayName": "Release",
+      "description": "Optimized library and programs without tests, suitable for installing",
+      "inherits": "base",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "SWITCHBOARD_BUILD_TESTS": "OFF"
+      }
+    },
+    {
+      "name": "asan-ubsan",
+      "displayName": "AddressSanitizer and UndefinedBehaviorSanitizer",
+      "description": "Debug build with tests under AddressSanitizer (including leak checks where supported) and UndefinedBehaviorSanitizer",
+      "inherits": "base",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "SWITCHBOARD_BUILD_TESTS": "ON",
+        "SWITCHBOARD_WARNINGS_AS_ERRORS": "ON",
+        "SWITCHBOARD_SANITIZE": "address;undefined"
+      }
+    },
+    {
+      "name": "tsan",
+      "displayName": "ThreadSanitizer",
+      "description": "Debug build with tests under ThreadSanitizer; the test preset runs the concurrency label",
+      "inherits": "base",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "SWITCHBOARD_BUILD_TESTS": "ON",
+        "SWITCHBOARD_WARNINGS_AS_ERRORS": "ON",
+        "SWITCHBOARD_SANITIZE": "thread"
+      }
+    },
+    {
+      "name": "fuzz",
+      "displayName": "libFuzzer",
+      "description": "LLVM Clang build of the libFuzzer targets with AddressSanitizer and UndefinedBehaviorSanitizer",
+      "inherits": "base",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "RelWithDebInfo",
+        "CMAKE_C_COMPILER": "clang",
+        "CMAKE_CXX_COMPILER": "clang++",
+        "SWITCHBOARD_BUILD_TESTS": "OFF",
+        "SWITCHBOARD_BUILD_FUZZERS": "ON",
+        "SWITCHBOARD_SANITIZE": "address;undefined"
+      }
+    },
+    {
+      "name": "coverage",
+      "displayName": "Coverage",
+      "description": "Debug build with tests instrumented for gcov-format line coverage",
+      "inherits": "base",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "SWITCHBOARD_BUILD_TESTS": "ON",
+        "SWITCHBOARD_COVERAGE": "ON"
+      }
+    }
+  ],
+  "buildPresets": [
+    {
+      "name": "dev",
+      "configurePreset": "dev"
+    },
+    {
+      "name": "release",
+      "configurePreset": "release"
+    },
+    {
+      "name": "asan-ubsan",
+      "configurePreset": "asan-ubsan"
+    },
+    {
+      "name": "tsan",
+      "configurePreset": "tsan"
+    },
+    {
+      "name": "fuzz",
+      "configurePreset": "fuzz"
+    },
+    {
+      "name": "coverage",
+      "configurePreset": "coverage"
+    }
+  ],
+  "testPresets": [
+    {
+      "name": "test-base",
+      "hidden": true,
+      "output": {
+        "outputOnFailure": true
+      },
+      "execution": {
+        "noTestsAction": "error"
+      }
+    },
+    {
+      "name": "dev",
+      "inherits": "test-base",
+      "configurePreset": "dev"
+    },
+    {
+      "name": "asan-ubsan",
+      "inherits": "test-base",
+      "configurePreset": "asan-ubsan",
+      "environment": {
+        "ASAN_OPTIONS": "detect_stack_use_after_return=1:check_initialization_order=1:$penv{ASAN_OPTIONS}",
+        "UBSAN_OPTIONS": "print_stacktrace=1:halt_on_error=1:$penv{UBSAN_OPTIONS}"
+      }
+    },
+    {
+      "name": "tsan",
+      "inherits": "test-base",
+      "configurePreset": "tsan",
+      "filter": {
+        "include": {
+          "label": "concurrency"
+        }
+      },
+      "environment": {
+        "TSAN_OPTIONS": "halt_on_error=1:second_deadlock_stack=1:$penv{TSAN_OPTIONS}"
+      }
+    },
+    {
+      "name": "fuzz",
+      "inherits": "test-base",
+      "configurePreset": "fuzz",
+      "filter": {
+        "include": {
+          "label": "fuzz-corpus"
+        }
+      },
+      "environment": {
+        "UBSAN_OPTIONS": "print_stacktrace=1:halt_on_error=1:$penv{UBSAN_OPTIONS}"
+      }
+    },
+    {
+      "name": "coverage",
+      "inherits": "test-base",
+      "configurePreset": "coverage"
+    }
+  ],
+  "workflowPresets": [
+    {
+      "name": "dev",
+      "steps": [
+        {
+          "type": "configure",
+          "name": "dev"
+        },
+        {
+          "type": "build",
+          "name": "dev"
+        },
+        {
+          "type": "test",
+          "name": "dev"
+        }
+      ]
+    },
+    {
+      "name": "release",
+      "steps": [
+        {
+          "type": "configure",
+          "name": "release"
+        },
+        {
+          "type": "build",
+          "name": "release"
+        }
+      ]
+    },
+    {
+      "name": "asan-ubsan",
+      "steps": [
+        {
+          "type": "configure",
+          "name": "asan-ubsan"
+        },
+        {
+          "type": "build",
+          "name": "asan-ubsan"
+        },
+        {
+          "type": "test",
+          "name": "asan-ubsan"
+        }
+      ]
+    },
+    {
+      "name": "tsan",
+      "steps": [
+        {
+          "type": "configure",
+          "name": "tsan"
+        },
+        {
+          "type": "build",
+          "name": "tsan"
+        },
+        {
+          "type": "test",
+          "name": "tsan"
+        }
+      ]
+    },
+    {
+      "name": "fuzz",
+      "steps": [
+        {
+          "type": "configure",
+          "name": "fuzz"
+        },
+        {
+          "type": "build",
+          "name": "fuzz"
+        },
+        {
+          "type": "test",
+          "name": "fuzz"
+        }
+      ]
+    },
+    {
+      "name": "coverage",
+      "steps": [
+        {
+          "type": "configure",
+          "name": "coverage"
+        },
+        {
+          "type": "build",
+          "name": "coverage"
+        },
+        {
+          "type": "test",
+          "name": "coverage"
+        }
+      ]
+    }
+  ]
+}

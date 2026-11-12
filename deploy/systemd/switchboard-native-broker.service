@@ -1,0 +1,59 @@
+# Switchboard native broker: the C++ engine under a dedicated account that owns its configuration,
+# credentials, and database. The assistant's account reaches only the client socket and your account only
+# the operator socket; see native/docs/isolation.md for the accounts, groups, and configuration this unit
+# expects. Install as /etc/systemd/system/switchboard-native-broker.service. Authored, not yet started on
+# any host.
+
+[Unit]
+Description=Switchboard native broker (client and operator sockets)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=switchboard
+Group=switchboard
+# One directory per socket, owned by the broker and set-group-identifier, so each socket inherits the group
+# of the accounts allowed to reach it. "+" runs these two commands with the privileges needed to set groups.
+ExecStartPre=+/usr/bin/install -d -o switchboard -g switchboard-client -m 2750 /run/switchboard-native/client
+ExecStartPre=+/usr/bin/install -d -o switchboard -g switchboard-operator -m 2750 /run/switchboard-native/operator
+ExecStart=/usr/local/bin/switchboard-native --config /etc/switchboard/native.json broker
+Restart=on-failure
+RestartSec=10
+# SIGTERM cancels web transfers of the call in progress; other handler work ends by its deadline
+# (switchboard.tool_timeout_seconds, 120 by default). Raise this if you raise the tool timeout.
+TimeoutStopSec=150
+
+UMask=0077
+StateDirectory=switchboard-native
+StateDirectoryMode=0700
+# /run/switchboard-native: traversable, not listable. systemd removes it, and the sockets, when this unit stops.
+RuntimeDirectory=switchboard-native
+RuntimeDirectoryMode=0711
+
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+ProtectProc=invisible
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+CapabilityBoundingSet=
+AmbientCapabilities=
+RemoveIPC=yes
+
+[Install]
+WantedBy=multi-user.target

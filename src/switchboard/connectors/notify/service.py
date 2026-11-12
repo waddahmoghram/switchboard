@@ -2,7 +2,8 @@
 
 Other connectors look it up with ``ctx.service("notify")`` and call
 ``send(title, message, *, priority="default", url=None)``; it returns the names of the channels that
-accepted the note. One failing channel never stops the others.
+accepted the note. One failing channel never stops the others. Channels whose outcome is unknown are
+logged and left out of that list; they are never retried automatically.
 """
 
 from __future__ import annotations
@@ -14,7 +15,8 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
-from switchboard.connectors.notify.channels import Channel, ChannelError, Notification
+from switchboard import execution
+from switchboard.connectors.notify.channels import Channel, ChannelError, ChannelUncertainError, Notification
 from switchboard.context import AppContext
 from switchboard.util import truncate
 
@@ -54,13 +56,22 @@ def make_notification(
 
 @dataclass
 class DeliveryReport:
-    """Which channels accepted a note and why the others did not."""
+    """Which channels accepted a note, which refused it, and which may have delivered it anyway.
+
+    ``uncertain`` and ``effect_unknown`` appear in :meth:`to_dict` only when some outcome is unknown, so
+    the action journal records the call as uncertain and an identical repeat waits for the operator.
+    """
 
     sent: list[str] = field(default_factory=list)
     failed: dict[str, str] = field(default_factory=dict)
+    uncertain: dict[str, str] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
-        return {"sent": list(self.sent), "failed": dict(self.failed)}
+        report: dict[str, Any] = {"sent": list(self.sent), "failed": dict(self.failed)}
+        if self.uncertain:
+            report["uncertain"] = dict(self.uncertain)
+            report["effect_unknown"] = True
+        return report
 
 
 class NotifyService:
@@ -80,7 +91,8 @@ class NotifyService:
     def deliver(self, note: Notification, names: Sequence[str] | None = None) -> DeliveryReport:
         """Deliver to ``names`` in that order (default: every channel, in configuration order).
 
-        Each channel's failure is recorded in the report; it never stops the remaining channels.
+        Each channel's failure is recorded in the report; it never stops the remaining channels. Once the
+        current execution deadline has passed, the remaining channels are not attempted.
         """
         chosen = list(self.channels) if names is None else list(dict.fromkeys(names))
         report = DeliveryReport()
@@ -89,17 +101,26 @@ class NotifyService:
             if channel is None:
                 report.failed[name] = "no such channel"
                 continue
+            limit = execution.current()
+            if limit is not None and limit.expired():
+                report.failed[name] = f"not attempted: the {limit.label} deadline passed"
+                continue
             try:
                 channel.send(note, self._ctx)
+            except ChannelUncertainError as exc:
+                report.uncertain[name] = str(exc)
             except ChannelError as exc:
                 report.failed[name] = str(exc)
             except Exception as exc:
-                # Only the type: an unexpected error's text could quote a URL that carries a secret.
-                report.failed[name] = f"internal error ({type(exc).__name__})"
+                # Only the type: an unexpected error's text could quote a URL that carries a secret. It may
+                # have happened after the note was handed over, so the outcome is unknown.
+                report.uncertain[name] = f"internal error ({type(exc).__name__})"
             else:
                 report.sent.append(name)
         for name, reason in report.failed.items():
             log.warning("notify channel %s failed: %s", name, reason)
+        for name, reason in report.uncertain.items():
+            log.warning("notify channel %s outcome unknown: %s", name, reason)
         return report
 
 

@@ -19,8 +19,15 @@ Arguments: `title` (1–120 characters), `message` (1–2,000 characters), `prio
 `default`, `high`, or `urgent`), `url` (optional, must start with `https://`, no spaces), and
 `channels` (optional list of channel names; omit it to use every channel). The result lists the
 channels that accepted the note and why the others failed, for example
-`{"sent": ["chat"], "failed": {"phone": "ntfy answered HTTP 500"}}`. The call fails only when no
+`{"sent": ["chat"], "failed": {"phone": "ntfy answered HTTP 403"}}`. The call fails only when no
 channel accepted it.
+
+A channel that may have delivered the note anyway is listed under `uncertain` instead, and the result then
+carries `"effect_unknown": true`: a connection lost while sending, an HTTP 408 or 5xx reply, a Telegram reply
+without `ok: true`, or an email the mail connector could not confirm. The call's action is then recorded as
+`uncertain`, and an identical note is refused until you check the device and run `switchboard actions resolve`.
+When no channel accepted the note and at least one is uncertain, the call reports an error with an uncertain
+action. Channels after the call's deadline are not attempted and are listed under `failed`.
 
 ### Why `notify_self` is a draft-tier tool
 
@@ -124,7 +131,9 @@ max_per_hour = 30
 ## Limits and tradeoffs
 
 * **Delivery is best effort.** Switchboard does not retry. A failed channel is reported in the tool
-  result and the log; other channels still receive the note.
+  result and the log; other channels still receive the note. A channel whose outcome is unknown is never
+  resent automatically. The `notify` service that other connectors use returns only the channels that
+  accepted the note and logs the uncertain ones.
 * **Public ntfy is convenient but shared.** Anyone who learns the topic reads your notifications.
   A self-hosted server, or ntfy access control with a token, removes that risk at the cost of running
   or configuring it.

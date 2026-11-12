@@ -1,0 +1,61 @@
+{
+  "format": "switchboard-contract-tools",
+  "version": 1,
+  "summary": "In-process tools both runners register after their engine starts (Python ToolRegistry.add, native Extension). They pass the same schema, policy, approval, journal and audit path as built-in tools. A handler never contacts anything: it counts the call for the handler_calls step, then returns or raises according to the mode argument.",
+  "schema": {
+    "type": "object",
+    "properties": {
+      "mode": {
+        "type": "string",
+        "enum": [
+          "ok",
+          "confirmed",
+          "unconfirmed",
+          "effect_unknown",
+          "effect_unknown_text",
+          "effect_unknown_nested",
+          "fail",
+          "uncertain",
+          "crash"
+        ]
+      },
+      "tag": {"type": "string", "maxLength": 32}
+    },
+    "required": ["mode"],
+    "additionalProperties": false
+  },
+  "tools": [
+    {"name": "contract_read", "tier": "read"},
+    {"name": "contract_draft", "tier": "draft"},
+    {"name": "contract_act", "tier": "act"},
+    {"name": "contract_spend", "tier": "spend"}
+  ],
+  "modes": {
+    "ok": {"returns": {"handled": true}},
+    "confirmed": {"returns": {"handled": true, "confirmed": true}},
+    "unconfirmed": {"returns": {"handled": true, "confirmed": false}},
+    "effect_unknown": {"returns": {"handled": null, "effect_unknown": true}},
+    "effect_unknown_text": {"returns": {"handled": true, "effect_unknown": "true"}},
+    "effect_unknown_nested": {"returns": {"handled": true, "report": {"effect_unknown": true}}},
+    "fail": {"raises": "failed"},
+    "uncertain": {"raises": "uncertain"},
+    "crash": {"raises": "unexpected"}
+  },
+  "raises": {
+    "failed": {
+      "meaning": "The handler asserts the effect did not happen.",
+      "python": "switchboard.errors.ToolError",
+      "native": "switchboard::Error with code contract_rejected"
+    },
+    "uncertain": {
+      "meaning": "The handler cannot tell whether the effect happened.",
+      "python": "switchboard.errors.UncertainOutcomeError",
+      "native": "switchboard::Error with code uncertain"
+    },
+    "unexpected": {
+      "meaning": "An unexpected failure; the effect is unknown.",
+      "python": "RuntimeError",
+      "native": "std::runtime_error"
+    }
+  }
+}

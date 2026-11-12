@@ -124,6 +124,7 @@ class HomeSpeech:
             else ("rejected" if receipt.accepted is False else "unknown"),
             "status": "rejected" if receipt.accepted is False else "requested_unconfirmed",
             "confirmed": False,
+            "effect_unknown": receipt.accepted is None,
             "delivery_verified": False,
             "limitation": "acceptance or a playing state cannot verify that this text was heard",
             "observed_player": observed,

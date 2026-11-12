@@ -12,6 +12,31 @@
 connectors = []
 # data_dir = "~/.local/share/switchboard"   # database, audit log, inboxes (created with mode 700)
 event_retention_days = 14
+# Deadline for one tool call (5-3600 seconds). Web requests inside the call stop when it passes; a write that
+# runs out of time is recorded as uncertain, never retried automatically. See docs/RECOVERY.md.
+# tool_timeout_seconds = 120
+# Deadline for one polling-job run (5-3600 seconds) and concurrent runner lanes (1-16).
+# job_timeout_seconds = 300
+# job_workers = 4
+
+# Optional retention for `switchboard data purge` (whole days). Open journal entries are never purged.
+# Connector data is purged only for connectors listed under [retention.connectors].
+# See docs/DATA_LIFECYCLE.md.
+# [retention]
+# tool_calls_days = 30
+# approvals_days = 90
+# actions_days = 180
+# [retention.connectors]
+# telegram = 14
+
+# Optional broker that owns credentials and the database under a dedicated account. The assistant's
+# account reaches only the client socket; your account reaches the operator socket. Running both under
+# one account gives no separation. See docs/ISOLATION.md.
+# [broker]
+# client_socket = "/run/switchboard/client.sock"
+# operator_socket = "/run/switchboard/operator.sock"
+# client_uids = [1001]
+# operator_uids = [1000]
 
 [policy]
 # Pending approvals expire after this many minutes.
@@ -28,8 +53,10 @@ approval_ttl_minutes = 60
 # decision = "ask"
 
 [mcp]
-# Which tools an assistant can see and call (globs). Omit to expose every registered tool.
-# expose = ["switchboard_status", "approvals_*", "mail_search", "mail_read", "mail_draft", "calendar_*"]
+# Which tools an assistant can see and call (globs). Omit to expose every registered tool. Keep
+# actions_recent exposed so the assistant can see actions whose outcome is uncertain.
+# expose = ["switchboard_status", "approvals_*", "actions_recent", "mail_search", "mail_read", "mail_draft",
+#           "calendar_*"]
 
 # Automation rules: when an event matches, call tools through the same policy gate.
 # [[rules]]
@@ -121,8 +148,8 @@ send_enabled = false          # mail_send refuses this account until true
 #
 # Drafts are safe to allow (they only land in your Drafts mailbox); to hide sending from assistants
 # entirely, leave mail_send out of [mcp] expose:
-# expose = ["switchboard_status", "approvals_*", "mail_accounts", "mail_mailboxes", "mail_search",
-#           "mail_read", "mail_draft"]
+# expose = ["switchboard_status", "approvals_*", "actions_recent", "mail_accounts", "mail_mailboxes",
+#           "mail_search", "mail_read", "mail_draft"]
 
 # ==================== calendar ====================
 # Calendar connector: secret iCalendar feeds, CalDAV calendars, and local .ics files.

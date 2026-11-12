@@ -11,9 +11,9 @@ switchboard = "switchboard.cli:main"
 
 [dependency-groups]
 dev = [
-  "pytest>=8.0",
-  "ruff>=0.6",
-  "mypy>=1.10",
+  "pytest==8.4.2",
+  "ruff==0.15.0",
+  "mypy==1.18.2",
 ]
 
 [build-system]
@@ -28,6 +28,9 @@ testpaths = ["tests"]
 pythonpath = ["src", "."]
 markers = [
   "integration: starts local servers or subprocesses; never touches real accounts",
+  "contracts: shared cross-engine fixtures from contracts/cases",
+  "fuzz: deterministic seeded mutation fuzzing with bounded iterations",
+  "faults: deterministic fault injection at storage, audit, transport, or protocol layers",
 ]
 addopts = "-ra"
 

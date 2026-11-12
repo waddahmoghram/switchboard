@@ -9,16 +9,14 @@
 #include <cstdlib>
 #include <cstring>
 #include <ctime>
-#include <fstream>
-#include <iomanip>
 #include <limits>
 #include <regex>
 #include <set>
-#include <sstream>
 #include <utility>
 
 #include <dirent.h>
 #include <fcntl.h>
+#include <openssl/evp.h>
 #include <openssl/sha.h>
 #include <sqlite3.h>
 #include <sys/stat.h>
@@ -28,6 +26,14 @@ namespace switchboard
 {
 namespace
 {
+#if defined(SQLITE_OPEN_NOFOLLOW)
+constexpr int SQLITE_NO_FOLLOW = SQLITE_OPEN_NOFOLLOW;
+#else
+constexpr int SQLITE_NO_FOLLOW = 0;
+#endif
+
+thread_local std::optional<ExecutionLimits> active_limits;
+
 class File
 {
 
@@ -523,6 +529,107 @@ void directory_info(const int descriptor)
         throw Error("filesystem", "the native directory must be owned by you with mode 700");
     }
 }
+
+void plain_filename(const std::string &filename)
+{
+    if (filename.empty() || filename == "." || filename == ".." || filename.find_first_of("/\\") != std::string::npos ||
+        filename.find('\0') != std::string::npos)
+    {
+        throw Error("invalid", "choose a bounded native filename, not a path");
+    }
+}
+
+std::string hexadecimal(const unsigned char *bytes, const std::size_t length)
+{
+    static constexpr char digits[] = "0123456789abcdef";
+    std::string result;
+    result.reserve(length * 2);
+    for (std::size_t index = 0; index < length; ++index)
+    {
+        result.push_back(digits[bytes[index] >> 4]);
+        result.push_back(digits[bytes[index] & 0x0F]);
+    }
+    return result;
+}
+
+const char *const INCOMPLETE_STATE = "native state is incomplete; restore it rather than silently recreating missing history";
+
+std::int64_t checked_version(Database &database)
+{
+    const auto version = database.query("PRAGMA user_version").front()["user_version"].get<std::int64_t>();
+    if (version > STATE_SCHEMA_VERSION)
+    {
+        throw Error("database", "native state schema version " + std::to_string(version) + " is newer than this engine supports (" +
+                                    std::to_string(STATE_SCHEMA_VERSION) + "); restore a matching backup or upgrade instead of downgrading");
+    }
+    if (version < 0)
+    {
+        throw Error("database", "native state version is unsupported; do not reuse another backend's database");
+    }
+    return version;
+}
+
+std::set<std::string> state_tables(Database &database)
+{
+    std::set<std::string> result;
+    for (const auto &row : database.query("SELECT name FROM sqlite_master WHERE type = 'table' AND name IN "
+                                          "('native_approvals', 'native_calls', 'native_events', 'native_audit', 'native_actions')"))
+    {
+        result.insert(row.at("name").get<std::string>());
+    }
+    return result;
+}
+
+void check_complete(const std::set<std::string> &tables, const std::int64_t version)
+{
+    for (const auto *name : {"native_approvals", "native_calls", "native_events", "native_audit"})
+    {
+        if (!tables.contains(name))
+        {
+            throw Error("database", INCOMPLETE_STATE);
+        }
+    }
+    if (version >= 2 && !tables.contains("native_actions"))
+    {
+        throw Error("database", INCOMPLETE_STATE);
+    }
+}
+
+void create_core_tables(Database &database)
+{
+    database.execute("CREATE TABLE native_approvals (id TEXT PRIMARY KEY, tool TEXT NOT NULL, args TEXT NOT NULL, summary TEXT NOT NULL, "
+                     "status TEXT NOT NULL, created_at INTEGER NOT NULL, expires_at INTEGER NOT NULL, result TEXT, error TEXT)");
+    database.execute("CREATE TABLE native_calls (id INTEGER PRIMARY KEY AUTOINCREMENT, tool TEXT NOT NULL, state TEXT NOT NULL, created_at INTEGER NOT NULL)");
+    database.execute("CREATE INDEX native_call_budget ON native_calls(tool, state, created_at)");
+    database.execute("CREATE TABLE native_events (id INTEGER PRIMARY KEY AUTOINCREMENT, source TEXT NOT NULL, type TEXT NOT NULL, "
+                     "payload TEXT NOT NULL, dedupe_key TEXT UNIQUE, created_at INTEGER NOT NULL)");
+    database.execute("CREATE TABLE native_audit (id INTEGER PRIMARY KEY AUTOINCREMENT, previous_hash TEXT NOT NULL, record TEXT NOT NULL, hash TEXT NOT NULL)");
+}
+
+// Version 2: one row per non-read execution attempt. Only the owner may record a late result, and only
+// uncertain rows can be reconciled; see contracts/README.md.
+void create_action_journal(Database &database)
+{
+    database.execute("CREATE TABLE native_actions ("
+                     "id TEXT PRIMARY KEY CHECK (length(id) = 32 AND id NOT GLOB '*[^0-9a-f]*'), "
+                     "tool TEXT NOT NULL, "
+                     "args_digest TEXT NOT NULL CHECK (length(args_digest) = 64), "
+                     "args TEXT NOT NULL, "
+                     "origin TEXT NOT NULL CHECK (origin IN ('assistant', 'rule', 'human')), "
+                     "approval_id TEXT, "
+                     "state TEXT NOT NULL CHECK (state IN ('in_flight', 'succeeded', 'failed', 'uncertain', 'reconciled_applied', "
+                     "'reconciled_not_applied')), "
+                     "owner TEXT NOT NULL, "
+                     "started_at INTEGER NOT NULL, "
+                     "deadline_at INTEGER NOT NULL, "
+                     "finished_at INTEGER, "
+                     "error TEXT, "
+                     "resolved_at INTEGER, "
+                     "resolution_note TEXT)");
+    database.execute("CREATE INDEX native_actions_open ON native_actions(tool, args_digest, state)");
+    database.execute("CREATE INDEX native_actions_recent ON native_actions(started_at, id)");
+    database.execute("CREATE INDEX native_actions_state ON native_actions(state, deadline_at)");
+}
 }  // namespace
 
 Error::Error(std::string code, std::string message) : std::runtime_error(std::move(message)), code_(std::move(code))
@@ -532,6 +639,41 @@ Error::Error(std::string code, std::string message) : std::runtime_error(std::mo
 const std::string &Error::code() const noexcept
 {
     return code_;
+}
+
+bool ExecutionLimits::cancelled() const noexcept
+{
+    return cancel_generation != nullptr && cancel_generation->load(std::memory_order_acquire) != started_generation;
+}
+
+bool ExecutionLimits::expired() const noexcept
+{
+    return std::chrono::steady_clock::now() >= deadline;
+}
+
+std::int64_t ExecutionLimits::remaining_seconds() const noexcept
+{
+    const auto remaining = deadline - std::chrono::steady_clock::now();
+    if (remaining <= std::chrono::steady_clock::duration::zero())
+    {
+        return 0;
+    }
+    return std::chrono::ceil<std::chrono::seconds>(remaining).count();
+}
+
+ScopedExecutionLimits::ScopedExecutionLimits(const ExecutionLimits limits) : previous_(active_limits)
+{
+    active_limits = limits;
+}
+
+ScopedExecutionLimits::~ScopedExecutionLimits()
+{
+    active_limits = previous_;
+}
+
+std::optional<ExecutionLimits> current_execution_limits() noexcept
+{
+    return active_limits;
 }
 
 class Database::Impl
@@ -549,8 +691,42 @@ public:
     }
 };
 
-Database::Database(const std::filesystem::path &path) : impl_(std::make_unique<Impl>())
+Database::Database(const std::filesystem::path &path) : Database(path, DatabaseMode::read_write)
 {
+}
+
+Database::Database(const std::filesystem::path &path, const DatabaseMode mode) : impl_(std::make_unique<Impl>())
+{
+    if (mode == DatabaseMode::read_only)
+    {
+        File file(open(path.c_str(), O_RDONLY | O_NOFOLLOW | O_NONBLOCK | O_CLOEXEC));
+        struct stat info
+        {
+        };
+        if (fstat(file.get(), &info) != 0 || !S_ISREG(info.st_mode) || info.st_uid != getuid() || (info.st_mode & 0077) != 0)
+        {
+            throw Error("database", "a native state copy must be an owned private regular file");
+        }
+        unsigned char header[100]{};
+        if (pread(file.get(), header, sizeof(header), 0) != static_cast<ssize_t>(sizeof(header)) || std::memcmp(header, "SQLite format 3", 16) != 0)
+        {
+            throw Error("database", "the native state copy is not a SQLite database");
+        }
+        // Bytes 18 and 19 are 1 for rollback-journal files; write-ahead-log files would need shared-memory files to be created.
+        if (header[18] != 1 || header[19] != 1)
+        {
+            throw Error("database", "read-only native state must use rollback-journal mode, as written by a native backup");
+        }
+        database_ok(sqlite3_open_v2(path.c_str(), &impl_->database, SQLITE_OPEN_READONLY | SQLITE_OPEN_FULLMUTEX | SQLITE_NO_FOLLOW, nullptr));
+        database_ok(sqlite3_busy_timeout(impl_->database, 5000));
+        const auto version = checked_version(*this);
+        if (version == 0)
+        {
+            throw Error("database", "the native state copy is unversioned");
+        }
+        check_complete(state_tables(*this), version);
+        return;
+    }
     File file(open(path.c_str(), O_CREAT | O_RDWR | O_NOFOLLOW | O_NONBLOCK | O_CLOEXEC, 0600));
     struct stat info
     {
@@ -564,39 +740,126 @@ Database::Database(const std::filesystem::path &path) : impl_(std::make_unique<I
     execute("PRAGMA journal_mode = WAL");
     execute("PRAGMA foreign_keys = ON");
     Transaction transaction(*this);
-    const auto versions = query("PRAGMA user_version");
-    const auto version = versions.front()["user_version"].get<std::int64_t>();
-    if (version != 0 && version != 1)
+    const auto version = checked_version(*this);
+    const auto tables = state_tables(*this);
+    if (version == 0)
     {
-        throw Error("database", "native state version is unsupported; do not reuse another backend's database");
-    }
-    if (version == 0 && !query("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'").empty())
-    {
-        throw Error("database", "unversioned nonempty native state is refused rather than silently migrated");
-    }
-    if (version == 1)
-    {
-        const auto tables = query("SELECT name FROM sqlite_master WHERE type = 'table' AND name IN "
-                                  "('native_approvals', 'native_calls', 'native_events', 'native_audit')");
-        if (tables.size() != 4)
+        if (!query("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'").empty())
         {
-            throw Error("database", "native state is incomplete; restore it rather than silently recreating missing history");
+            throw Error("database", "unversioned nonempty native state is refused rather than silently migrated");
         }
+        create_core_tables(*this);
+        create_action_journal(*this);
     }
-    execute("CREATE TABLE IF NOT EXISTS native_approvals (id TEXT PRIMARY KEY, tool TEXT NOT NULL, args TEXT NOT NULL, summary TEXT NOT NULL, "
-            "status TEXT NOT NULL, created_at INTEGER NOT NULL, expires_at INTEGER NOT NULL, result TEXT, error TEXT)");
-    execute(
-        "CREATE TABLE IF NOT EXISTS native_calls (id INTEGER PRIMARY KEY AUTOINCREMENT, tool TEXT NOT NULL, state TEXT NOT NULL, created_at INTEGER NOT NULL)");
-    execute("CREATE INDEX IF NOT EXISTS native_call_budget ON native_calls(tool, state, created_at)");
-    execute("CREATE TABLE IF NOT EXISTS native_events (id INTEGER PRIMARY KEY AUTOINCREMENT, source TEXT NOT NULL, type TEXT NOT NULL, "
-            "payload TEXT NOT NULL, dedupe_key TEXT UNIQUE, created_at INTEGER NOT NULL)");
-    execute("CREATE TABLE IF NOT EXISTS native_audit (id INTEGER PRIMARY KEY AUTOINCREMENT, previous_hash TEXT NOT NULL, record TEXT NOT NULL, hash TEXT NOT "
-            "NULL)");
-    execute("PRAGMA user_version = 1");
+    else if (version == 1)
+    {
+        check_complete(tables, version);
+        if (tables.contains("native_actions"))
+        {
+            throw Error("database", "native state version 1 already contains an action journal; restore it rather than guessing its history");
+        }
+        execute("CREATE INDEX IF NOT EXISTS native_call_budget ON native_calls(tool, state, created_at)");
+        create_action_journal(*this);
+    }
+    else
+    {
+        check_complete(tables, version);
+    }
+    if (version != STATE_SCHEMA_VERSION)
+    {
+        execute("PRAGMA user_version = " + std::to_string(STATE_SCHEMA_VERSION));
+    }
     transaction.commit();
 }
 
 Database::~Database() = default;
+
+void Database::backup_to(const std::filesystem::path &destination)
+{
+    if (!destination.is_absolute() || !destination.has_filename() || destination.string().find('\0') != std::string::npos)
+    {
+        throw Error("filesystem", "the native backup destination must be an absolute file path");
+    }
+    const int descriptor = open(destination.c_str(), O_CREAT | O_EXCL | O_WRONLY | O_NOFOLLOW | O_CLOEXEC, 0600);
+    if (descriptor < 0)
+    {
+        throw Error("filesystem", errno == EEXIST ? "the native backup destination already exists; choose a new or empty directory"
+                                                  : "the native backup destination cannot be created");
+    }
+    {
+        const File created(descriptor);
+    }
+    const auto remove_partial = [&destination]() noexcept
+    {
+        try
+        {
+            for (const auto *suffix : {"", "-journal", "-wal", "-shm"})
+            {
+                std::error_code ignored;
+                std::filesystem::remove(destination.string() + suffix, ignored);
+            }
+        }
+        catch (const std::exception &)
+        {
+            std::fputs("ERROR: a partial native backup copy could not be removed\n", stderr);
+        }
+    };
+    try
+    {
+        sqlite3 *raw = nullptr;
+        const int opened = sqlite3_open_v2(destination.c_str(), &raw, SQLITE_OPEN_READWRITE | SQLITE_OPEN_FULLMUTEX | SQLITE_NO_FOLLOW, nullptr);
+        const auto close_copy = [](sqlite3 *handle)
+        {
+            if (handle != nullptr && sqlite3_close_v2(handle) != SQLITE_OK)
+            {
+                std::fputs("ERROR: closing a native backup copy failed\n", stderr);
+            }
+        };
+        std::unique_ptr<sqlite3, decltype(close_copy)> copy(raw, close_copy);
+        database_ok(opened);
+        database_ok(sqlite3_busy_timeout(copy.get(), 5000));
+        sqlite3_backup *backup = sqlite3_backup_init(copy.get(), "main", impl_->database, "main");
+        if (backup == nullptr)
+        {
+            throw Error("database", "the native backup could not start");
+        }
+        // A negative page count copies every page in one step under a single read transaction: a consistent snapshot.
+        int step = SQLITE_BUSY;
+        for (int attempt = 0; attempt < 100 && (step == SQLITE_OK || step == SQLITE_BUSY || step == SQLITE_LOCKED); ++attempt)
+        {
+            if (attempt > 0 && step != SQLITE_OK)
+            {
+                sqlite3_sleep(50);
+            }
+            step = sqlite3_backup_step(backup, -1);
+        }
+        const int finished = sqlite3_backup_finish(backup);
+        if (step != SQLITE_DONE || finished != SQLITE_OK)
+        {
+            throw Error("database", "the native backup copy did not complete");
+        }
+        {
+            Statement statement;
+            prepare(copy.get(), "PRAGMA journal_mode = DELETE", {}, statement);
+            const bool row = sqlite3_step(statement.value) == SQLITE_ROW;
+            const auto *journal = row ? reinterpret_cast<const char *>(sqlite3_column_text(statement.value, 0)) : nullptr;
+            if (journal == nullptr || std::string(journal) != "delete" || sqlite3_step(statement.value) != SQLITE_DONE)
+            {
+                throw Error("database", "the native backup copy could not leave write-ahead-log mode");
+            }
+        }
+        if (sqlite3_close(copy.get()) != SQLITE_OK)
+        {
+            throw Error("database", "the native backup copy could not be closed cleanly");
+        }
+        (void)copy.release();
+    }
+    catch (...)
+    {
+        remove_partial();
+        throw;
+    }
+}
 
 std::int64_t Database::execute(const std::string &sql, const std::vector<Json> &parameters)
 {
@@ -756,13 +1019,7 @@ std::string hash(const Json &value)
     {
         throw Error("crypto", "native configuration hashing failed");
     }
-    std::ostringstream result;
-    result << std::hex << std::setfill('0');
-    for (const auto byte : digest)
-    {
-        result << std::setw(2) << static_cast<unsigned int>(byte);
-    }
-    return result.str();
+    return hexadecimal(digest, sizeof(digest));
 }
 
 void check_schema(const Json &schema)
@@ -862,9 +1119,14 @@ std::string timestamp(const std::int64_t seconds)
     {
         throw Error("invalid", "native timestamp cannot be rendered");
     }
-    std::ostringstream result;
-    result << std::put_time(&calendar, "%Y-%m-%dT%H:%M:%SZ");
-    return result.str();
+    // strftime into a fixed buffer: a stream would hide an allocation failure behind a shortened string.
+    char text[32]{};
+    const auto size = std::strftime(text, sizeof(text), "%Y-%m-%dT%H:%M:%SZ", &calendar);
+    if (size == 0)
+    {
+        throw Error("invalid", "native timestamp cannot be rendered");
+    }
+    return std::string(text, size);
 }
 
 std::int64_t parse_timestamp(const std::string &value)
@@ -1048,5 +1310,99 @@ std::vector<std::string> private_files(const std::filesystem::path &root, const 
     }
     std::sort(result.begin(), result.end());
     return result;
+}
+
+std::string sha256_file(const std::filesystem::path &root, const std::string &filename, const std::uint64_t maximum)
+{
+    plain_filename(filename);
+    if (maximum == 0)
+    {
+        throw Error("limit", "native digest input limit is invalid");
+    }
+    File directory(open(root.c_str(), O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC));
+    directory_info(directory.get());
+    File file(openat(directory.get(), filename.c_str(), O_RDONLY | O_NOFOLLOW | O_NONBLOCK | O_CLOEXEC));
+    struct stat info
+    {
+    };
+    if (fstat(file.get(), &info) != 0 || !S_ISREG(info.st_mode) || info.st_uid != getuid() || (info.st_mode & 0077) != 0 || info.st_size < 0 ||
+        static_cast<std::uint64_t>(info.st_size) > maximum)
+    {
+        throw Error("filesystem", "native digest input must be an owned, private, bounded regular file");
+    }
+    const std::unique_ptr<EVP_MD_CTX, decltype(&EVP_MD_CTX_free)> context(EVP_MD_CTX_new(), EVP_MD_CTX_free);
+    if (!context || EVP_DigestInit_ex(context.get(), EVP_sha256(), nullptr) != 1)
+    {
+        throw Error("crypto", "native file digest could not start");
+    }
+    std::vector<char> buffer(65536);
+    std::uint64_t total = 0;
+    for (;;)
+    {
+        const auto count = read(file.get(), buffer.data(), buffer.size());
+        if (count < 0)
+        {
+            if (errno == EINTR)
+            {
+                continue;
+            }
+            throw Error("filesystem", "native digest input could not be read");
+        }
+        if (count == 0)
+        {
+            break;
+        }
+        total += static_cast<std::uint64_t>(count);
+        if (total > maximum)
+        {
+            throw Error("limit", "native digest input exceeds its byte limit");
+        }
+        if (EVP_DigestUpdate(context.get(), buffer.data(), static_cast<std::size_t>(count)) != 1)
+        {
+            throw Error("crypto", "native file digest failed");
+        }
+    }
+    unsigned char digest[EVP_MAX_MD_SIZE]{};
+    unsigned int length = 0;
+    if (EVP_DigestFinal_ex(context.get(), digest, &length) != 1 || length != SHA256_DIGEST_LENGTH)
+    {
+        throw Error("crypto", "native file digest failed");
+    }
+    return hexadecimal(digest, length);
+}
+
+void write_private_file(const std::filesystem::path &root, const std::string &filename, const std::string &content)
+{
+    plain_filename(filename);
+    if (content.size() > MAX_REQUEST_BYTES)
+    {
+        throw Error("limit", "native private output exceeds its byte limit");
+    }
+    File directory(open(root.c_str(), O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC));
+    directory_info(directory.get());
+    const int descriptor = openat(directory.get(), filename.c_str(), O_CREAT | O_EXCL | O_WRONLY | O_NOFOLLOW | O_CLOEXEC, 0600);
+    if (descriptor < 0)
+    {
+        throw Error("filesystem", errno == EEXIST ? "native private output already exists" : "native private output cannot be created");
+    }
+    File file(descriptor);
+    std::size_t written = 0;
+    while (written < content.size())
+    {
+        const auto count = write(file.get(), content.data() + written, content.size() - written);
+        if (count < 0)
+        {
+            if (errno == EINTR)
+            {
+                continue;
+            }
+            throw Error("filesystem", "native private output could not be written");
+        }
+        written += static_cast<std::size_t>(count);
+    }
+    if (fsync(file.get()) != 0 || fsync(directory.get()) != 0)
+    {
+        throw Error("filesystem", "native private output could not be synchronized to storage");
+    }
 }
 }  // namespace switchboard

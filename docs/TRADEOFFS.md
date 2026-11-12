@@ -160,16 +160,21 @@ Structured-data and cryptographic libraries add build/deployment dependencies. N
 automation-rule parity are not claimed. Neither compiler checks nor shared interfaces prove runtime or
 hardware compatibility; see [native coverage and build limits](../native/README.md).
 
-| Choice                         | Benefit                                                            | Cost                                                                                                 |
-| ------------------------------ | ------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------- |
-| Standard library only          | No third-party Python runtime dependency tree                      | Hand-written parsers; still maintain Python, system libraries, and development dependencies          |
-| MCP over standard input/output | No listening port; the assistant starts and stops the server       | One process per assistant; calls are handled one at a time                                           |
-| Dual-era MCP                   | Targets `2026-07-28`, `2025-11-25`, `2025-06-18`, and `2025-03-26` | Two paths to maintain; real-client conformance is untested                                           |
-| One SQLite file                | Simple backups; write-ahead logging lets processes share it        | Events are not claimed across processes; a lock file allows one `switchboard run` per data directory |
-| Approvals in the terminal      | Nothing new to expose; exact arguments are bound                   | You must be at a terminal; phone approvals are future work and need careful design                   |
-| Hash-chained audit log         | Edits, interior deletions, and reordering can be detected          | Valid tail truncation needs an independent head hash; a complete rewrite is still possible           |
-| Polling with long intervals    | Polite to providers; no public endpoint                            | Minutes of delay instead of seconds                                                                  |
-| Python 3.11+ on Linux or macOS | `tomllib`, `zoneinfo`, and `fcntl` in the standard library         | Windows is untested                                                                                  |
+| Choice                         | Benefit                                                            | Cost                                                                                                  |
+| ------------------------------ | ------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------- |
+| Standard library only          | No third-party Python runtime dependency tree                      | Hand-written parsers; still maintain Python, system libraries, and development dependencies           |
+| MCP over standard input/output | No listening port; the assistant starts and stops the server       | One process per assistant; calls are handled one at a time                                            |
+| Dual-era MCP                   | Targets `2026-07-28`, `2025-11-25`, `2025-06-18`, and `2025-03-26` | Two paths to maintain; real-client conformance is untested                                            |
+| One SQLite file                | Simple backups; write-ahead logging lets processes share it        | Events are not claimed across processes; a lock file allows one `switchboard run` per data directory  |
+| Approvals in the terminal      | Nothing new to expose; exact arguments are bound                   | You must be at a terminal; phone approvals are future work and need careful design                    |
+| Hash-chained audit log         | Edits, interior deletions, and reordering can be detected          | Valid tail truncation needs an independent head hash; a complete rewrite is still possible            |
+| Polling with long intervals    | Polite to providers; no public endpoint                            | Minutes of delay instead of seconds                                                                   |
+| Python 3.11+ on Linux or macOS | `tomllib`, `zoneinfo`, and `fcntl` in the standard library         | Windows is untested                                                                                   |
+| Unknown outcomes stay unknown  | A possibly delivered write is never repeated blindly               | A dropped connection or 5xx reply blocks an identical request until you check and reconcile it        |
+| Deadlines in the web client    | Calls and job runs stop waiting on a slow provider                 | Other handler code cannot be interrupted; a stuck job holds its connector's lane until it returns     |
+| Worker lanes per connector     | One slow connector no longer delays every other job                | Services shared between connectors must be thread-safe; separate processes are not serialized         |
+| Optional broker                | An assistant's shell cannot read credentials or approve itself     | A service account, groups, sockets, and units to maintain; one operation at a time; untested          |
+| Online backups with a manifest | Consistent copies while the runner keeps working                   | Audit appends, and so tool calls, pause during the copy; copies are clear text until you encrypt them |
 
 ## What this version cannot do
 
@@ -180,13 +185,16 @@ hardware compatibility; see [native coverage and build limits](../native/README.
   make the assistant immune.
 * Read prices that appear only after JavaScript runs.
 * Claim events across several runner processes, or approve actions from a phone.
-* Sandbox an assistant that has the same user's shell and file access.
-* Guarantee exactly-once delivery of external effects across crashes, or automatically replay failed events safely.
+* Sandbox an assistant that has the same user's shell and file access. The optional broker separates
+  accounts instead, but it has not been run on any host.
+* Guarantee exactly-once delivery of external effects across crashes, or automatically replay failed events
+  safely. The action journal refuses blind repeats and records your reconciliation; it does not deduplicate
+  at the provider.
 * Create and renew Microsoft Graph subscriptions or Google Calendar watch channels. The receiver accepts
   notifications; it does not provision subscriptions, renew them, or automatically fetch the changed resource.
-* Enforce a whole-request deadline or interrupt an already running tool on cancellation. Web requests have
-  per-socket timeouts, not a bounded name-resolution and total-transfer deadline, and the tool server handles
-  one request at a time.
+* Interrupt a running tool or job. Deadlines clamp web requests and refuse new ones once they pass, but they
+  do not bound ordinary name lookups, a single receive call, the mail libraries, or other handler code. The
+  tool server and the broker handle one request at a time.
 * Validate arbitrary third-party schemas with a complete schema engine. The handwritten validator implements
   only the keywords used by the bundled tools, not general schema conformance under the 2020-12 draft.
 
@@ -197,19 +205,18 @@ Protocol references (checked 2026-11-11):
 
 ## Highest-value next work
 
-1. **Run before connecting accounts.** Exercise the written unit and integration suites on a personal
-   machine, then build a platform and Python-version matrix. Fake responses and type checks cannot prove
-   protocol behavior against an actual provider.
-2. **Durable per-action delivery.** Add an outbox with provider-supported idempotency keys, explicit retry
-   policies, and operator-controlled recovery. Avoid promising exactly-once execution where a provider has
-   no such guarantee.
+1. **Run before connecting accounts.** Exercise the written unit, integration, contract, fault, and fuzz
+   suites on a personal machine with [the validation pipeline](./VALIDATION.md). Fake responses and type
+   checks cannot prove protocol behavior against an actual provider.
+2. **Provider idempotency.** The action journal now stops blind repeats and records reconciliation. Next, send
+   provider-supported idempotency keys where they exist, so a deliberate retry after an unknown outcome cannot
+   duplicate. Avoid promising exactly-once execution where a provider has no such guarantee.
 3. **Provider lifecycle support.** Register and renew notification subscriptions, persist change cursors,
    and recover missed notifications before calling push integration complete.
-4. **Stronger isolation.** Separate assistant execution from credentials and approvals, rather than relying
-   on the same local user's command line as a human identity check.
-5. **Explicit deletion and reproducibility.** Add component-specific retention and export controls, a
-   repeatable dependency lock and test environment, restore tests, and an automated test pipeline. Choose a
-   license and confirm ownership before publication.
+4. **Exercise the isolation.** Install the broker units on a test host, confirm the peer checks and socket
+   permissions, and only then design a phone approval path that keeps the account separation.
+5. **Publication.** Choose a license and confirm ownership before publishing; add restore drills against real
+   backups to the routine.
 
 ## Testing status
 

@@ -73,5 +73,5 @@ send_enabled = false          # mail_send refuses this account until true
 #
 # Drafts are safe to allow (they only land in your Drafts mailbox); to hide sending from assistants
 # entirely, leave mail_send out of [mcp] expose:
-# expose = ["switchboard_status", "approvals_*", "mail_accounts", "mail_mailboxes", "mail_search",
-#           "mail_read", "mail_draft"]
+# expose = ["switchboard_status", "approvals_*", "actions_recent", "mail_accounts", "mail_mailboxes",
+#           "mail_search", "mail_read", "mail_draft"]

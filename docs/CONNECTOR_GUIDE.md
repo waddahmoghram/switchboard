@@ -16,6 +16,7 @@ Query Language (SQL). Here, tier names such as `READ` and `ACT` are literal poli
 | `register(ctx, registry) -> None` | Yes      | Add tools, subscribe to events, schedule jobs, provide services. **No network activity here.** |
 | `doctor(ctx) -> list[str]`        | No       | Human-readable problems, for example a secret reference that does not resolve. Never secrets.  |
 | `add_cli(subparsers) -> None`     | No       | Extra subcommands; set `set_defaults(app_handler=fn)` where `fn(args, app) -> int`.            |
+| `retention` submodule             | No       | `<name>/retention.py` with `purge(...)` and optional `EXPORT_TABLES`; see the retention hooks. |
 
 `register` runs on every command, so it must be fast and offline. Resolve secrets lazily inside
 handlers and jobs with `ctx.secret(reference)`. Read settings with `ctx.connector_config(NAME)`, which
@@ -53,8 +54,17 @@ registry.add(Tool(
   Money-related tools set `amount=lambda args: Decimal(...)` so `max_amount` works.
 * ACT and SPEND tools set `summarize=lambda args: "..."`, one line a human can judge at approval time:
   who, what, when, how much.
-* Raise `switchboard.errors.ToolError("short reason")` for expected failures. Messages must not contain
-  secrets, full message bodies, or account numbers. Any other exception is reported by type only.
+* Raise `switchboard.errors.ToolError("short reason")` only when the requested effect **did not happen**:
+  invalid input, a refusal by the provider or device, or a failure before anything was sent. Messages must
+  not contain secrets, full message bodies, or account numbers.
+* When a write may have reached the provider anyway, raise `switchboard.errors.UncertainOutcomeError`, or
+  return a report with a top-level `"effect_unknown": true`. Typical cases are a connection that drops or
+  times out after sending, an HTTP 408 or 5xx reply, and a success reply you cannot read. The action journal
+  then records the call as `uncertain` and refuses an identical repeat until the operator reconciles it.
+  Never retry a write yourself. Any other exception is reported by type only and is also recorded as
+  `uncertain`. The rules are in [the contract](../contracts/README.md#classifying-a-result).
+* Tools that read back state after a write report a boolean `confirmed`: `true` only when the readback
+  matched the request. A readback is not proof of a physical effect; say so in the report.
 * Minimize returned data: cap bodies (for example, 4,000 characters) and say when you truncated.
 
 ### Worked mistake: an unenforced length limit
@@ -182,6 +192,12 @@ Services are trusted internal calls, not separately dispatched tools. Their call
 appropriate policy and account restrictions; setting a policy on `mail_send` alone does not gate every
 internal use of `mail.sender`.
 
+`mail.sender.send` and `mail.drafts.save_draft` raise `UncertainOutcomeError` when the connection fails
+during submission. Let it propagate, or report your own unknown outcome; never turn it into a definite
+failure. `notify.send` returns only the channels that accepted the note; channels whose outcome is unknown
+are logged and left out, and nothing is resent. A service can be called from another connector's job or
+tool, so it must not rely on its own connector's lane for mutual exclusion.
+
 ## Storage, web requests, and scheduling
 
 * `with ctx.db.session() as conn:` gives an autocommit connection; wrap multi-statement writes in
@@ -196,14 +212,30 @@ internal use of `mail.sender`.
 * `ctx.db.kv_get(NAME, key)` / `ctx.db.kv_set(NAME, key, value)` store cursors such as mail message identifiers.
 * `ctx.http.request(method, url, headers=..., body=..., allow_http=False)` returns an
   `HttpResponse` with `status`, `url`, lowercase `headers`, `body`, `.ok`, `.text()`, and `.json()`.
-  Non-2xx statuses are returned; network failures raise `HttpError`. Only pass `allow_http=True` from
+  Non-2xx statuses are returned; network failures raise `HttpError` (`TransientHttpError` when repeating
+  might help). Only pass `allow_http=True` from
   an explicit configuration flag (for example a Home Assistant server on your own network).
+* Inside a tool call or a job run, `ctx.http` clamps each request to the time left before the deadline
+  (`tool_timeout_seconds` or `job_timeout_seconds`) and sends nothing once it has passed. Other code is not
+  interrupted: check `switchboard.execution.remaining()` before starting long local work.
+* A read can repeat transient failures with `request_with_retries(ctx.http, "GET", url, retries=2)` from
+  `switchboard.httpclient` (1 to 3 retries; GET and HEAD only). It repeats network failures and HTTP 408,
+  429, 502, 503, and 504 with a jittered backoff, honors a short `Retry-After`, and works with test fakes.
+  Other methods are refused, because repeating a write could apply it twice.
 * When an assistant or a web page chose the address, pass `public_only=True`: the host must resolve only
   to public addresses and the connection pins those numeric addresses without resolving again. It bypasses
   environment proxies, retains certificate checks for the original host, and returns redirects for vetting
   (`connectors/shopping/fetch.py` shows the pattern). Fakes record the flag, so tests can assert it.
 * `ctx.scheduler.add("<name>.<job>", interval_seconds, func)`: at least 30 seconds. Jobs must catch
   per-account failures so one broken account does not stop the rest.
+* Jobs run on worker threads, up to `job_workers` at once. A job holds its *lane*, by default the job name
+  before the first dot, so it never runs alongside another job or a rule-triggered tool of the same
+  connector; jobs of different connectors do run concurrently. Open a database session per call rather than
+  sharing a connection between threads.
+* Retention hooks are opt-in: `<name>/retention.py` provides
+  `purge(ctx, *, older_than, dry_run) -> dict[str, int]` and may list its own tables in `EXPORT_TABLES` for
+  `switchboard data export`. A hook runs offline, leaves open work alone, and changes nothing on a dry run.
+  See [writing a retention hook](./DATA_LIFECYCLE.md#writing-a-retention-hook).
 
 ## Security rules
 

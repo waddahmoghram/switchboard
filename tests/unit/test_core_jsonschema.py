@@ -86,6 +86,8 @@ def test_non_finite_numbers_cannot_bypass_bounds(value: float) -> None:
         {"type": "object", "items": []},
         {"type": "object", "propertyNames": False},
         {"type": "object", "pattern": "["},
+        {"type": "object", "pattern": "a{99999999999999999999}"},
+        {"type": "object", "pattern": "(" * 5000 + ")" * 5000},
         {"type": "object", "minProperties": True},
         {"type": "object", "maximum": float("inf")},
         {"type": "object", "enum": []},

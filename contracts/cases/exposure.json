@@ -1,0 +1,163 @@
+{
+  "format": "switchboard-contract-cases",
+  "version": 1,
+  "contract_revision": 1,
+  "area": "exposure",
+  "summary": "What an assistant can reach through each engine's protocol layer: the configured exposure filters both the tool listing and tool calls, and exposed calls go through the same gate as any other call. Requests use the modern protocol version, so no initialize handshake is needed.",
+  "cases": [
+    {
+      "id": "exposure-patterns-filter-listing-and-calls",
+      "summary": "Exposure patterns are case-insensitive globs; an unexposed or unknown tool is a protocol error and never runs.",
+      "config": {"mcp": {"expose": ["contract_r*", "SWITCHBOARD_STATUS"]}},
+      "steps": [
+        {
+          "op": "rpc",
+          "method": "tools/list",
+          "expect": {
+            "listed": ["contract_read", "switchboard_status"],
+            "not_listed": ["contract_draft", "contract_act", "contract_spend", "approvals_pending", "approvals_status", "actions_recent"],
+            "listed_count": 2
+          }
+        },
+        {
+          "op": "rpc",
+          "method": "tools/call",
+          "params": {"name": "contract_read", "arguments": {"mode": "ok"}},
+          "expect": {"is_error": false, "outcome": {"status": "ok", "tool": "contract_read", "action": null, "data": {"handled": true}}}
+        },
+        {"op": "rpc", "method": "tools/call", "params": {"name": "contract_draft", "arguments": {"mode": "ok"}}, "expect": {"error_code": -32602}},
+        {"op": "rpc", "method": "tools/call", "params": {"name": "contract_missing", "arguments": {}}, "expect": {"error_code": -32602}},
+        {"op": "rpc", "method": "tools/call", "params": {"name": "switchboard_status", "arguments": {}}, "expect": {"is_error": false, "outcome": {"status": "ok"}}},
+        {"op": "handler_calls", "expect": {"contract_read": 1, "contract_draft": 0}}
+      ]
+    },
+    {
+      "id": "empty-exposure-hides-every-tool",
+      "summary": "An explicitly empty exposure list exposes nothing.",
+      "config": {"mcp": {"expose": []}},
+      "steps": [
+        {"op": "rpc", "method": "tools/list", "expect": {"listed_count": 0}},
+        {"op": "rpc", "method": "tools/call", "params": {"name": "switchboard_status", "arguments": {}}, "expect": {"error_code": -32602}},
+        {"op": "rpc", "method": "tools/call", "params": {"name": "contract_read", "arguments": {"mode": "ok"}}, "expect": {"error_code": -32602}},
+        {"op": "handler_calls", "expect": {"contract_read": 0}}
+      ]
+    },
+    {
+      "id": "absent-exposure-lists-every-tool-but-no-operator-action",
+      "summary": "Without an exposure list every registered tool is listed, and none of them approves, denies, reconciles or toggles the kill switch.",
+      "steps": [
+        {
+          "op": "rpc",
+          "method": "tools/list",
+          "expect": {
+            "listed": [
+              "switchboard_status",
+              "approvals_pending",
+              "approvals_status",
+              "actions_recent",
+              "contract_read",
+              "contract_draft",
+              "contract_act",
+              "contract_spend"
+            ],
+            "none_listed_match": ["*approve*", "*deny*", "*reconcile*", "*resolve*", "*kill*"]
+          }
+        }
+      ]
+    },
+    {
+      "id": "protocol-calls-pass-the-same-gate",
+      "summary": "A protocol call has the assistant origin: act waits for approval, spend is denied, bad arguments are invalid, and failures are flagged as errors.",
+      "steps": [
+        {
+          "op": "rpc",
+          "method": "tools/call",
+          "params": {"name": "contract_act", "arguments": {"mode": "ok"}},
+          "expect": {"is_error": false, "outcome": {"status": "pending", "tool": "contract_act", "approval_id": true, "action": null}}
+        },
+        {
+          "op": "rpc",
+          "method": "tools/call",
+          "params": {"name": "contract_spend", "arguments": {"mode": "ok"}},
+          "expect": {"is_error": true, "outcome": {"status": "denied", "action": null}}
+        },
+        {
+          "op": "rpc",
+          "method": "tools/call",
+          "params": {"name": "contract_draft", "arguments": {"mode": "bogus"}},
+          "expect": {"is_error": true, "outcome": {"status": "invalid", "action": null}}
+        },
+        {
+          "op": "rpc",
+          "method": "tools/call",
+          "params": {"name": "contract_draft", "arguments": {"mode": "fail"}},
+          "expect": {"is_error": true, "outcome": {"status": "error", "action": "failed"}}
+        },
+        {
+          "op": "rpc",
+          "method": "tools/call",
+          "params": {"name": "contract_draft", "arguments": {"mode": "confirmed"}},
+          "expect": {"is_error": false, "outcome": {"status": "ok", "action": "succeeded", "data": {"confirmed": true}}}
+        },
+        {"op": "call", "tool": "approvals_pending", "expect": {"status": "ok", "data": [{"tool": "contract_act"}]}},
+        {"op": "handler_calls", "expect": {"contract_act": 0, "contract_spend": 0, "contract_draft": 2}}
+      ]
+    },
+    {
+      "id": "protocol-error-flag-for-an-unknown-effect",
+      "summary": "A returned report that declares its effect unknown is ok with an uncertain action; the protocol error flag differs.",
+      "steps": [
+        {
+          "op": "rpc",
+          "method": "tools/call",
+          "params": {"name": "contract_draft", "arguments": {"mode": "effect_unknown"}},
+          "expect": {"outcome": {"status": "ok", "action": "uncertain"}},
+          "divergence": {
+            "topic": "Protocol error flag",
+            "reason": "Python sets isError only for denied, error and invalid outcomes; the native protocol also sets it when the action state is not succeeded.",
+            "python": {"is_error": false},
+            "native": {"is_error": true}
+          }
+        }
+      ]
+    },
+    {
+      "id": "protocol-structured-content",
+      "summary": "Both engines put the outcome envelope in the text content; only one also sends structured content.",
+      "steps": [
+        {
+          "op": "rpc",
+          "method": "tools/call",
+          "params": {"name": "contract_read", "arguments": {"mode": "ok"}},
+          "expect": {"is_error": false, "outcome": {"status": "ok"}},
+          "divergence": {
+            "topic": "Protocol structured content",
+            "reason": "The Python server returns the envelope as structuredContent as well as text; the native server returns text content only.",
+            "python": {"structured_content": true},
+            "native": {"structured_content": false}
+          }
+        }
+      ]
+    },
+    {
+      "id": "exposure-and-direct-engine-calls",
+      "summary": "The protocol hides an unexposed tool in both engines; a direct in-process call with the assistant origin differs.",
+      "config": {"mcp": {"expose": ["switchboard_status"]}},
+      "steps": [
+        {"op": "rpc", "method": "tools/call", "params": {"name": "contract_read", "arguments": {"mode": "ok"}}, "expect": {"error_code": -32602}},
+        {
+          "op": "call",
+          "tool": "contract_read",
+          "args": {"mode": "ok"},
+          "expect": {"action": null},
+          "divergence": {
+            "topic": "Exposure enforcement",
+            "reason": "Python enforces the exposure list in its protocol layers (the protocol server and the broker client socket), not in Dispatcher.call; the native Runtime::call also refuses an unexposed tool for the assistant origin.",
+            "python": {"status": "ok"},
+            "native": {"status": "invalid"}
+          }
+        }
+      ]
+    }
+  ]
+}

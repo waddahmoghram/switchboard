@@ -10,7 +10,7 @@ from switchboard.connectors._archive import archive_migrations
 from switchboard.connectors.linkedin.settings import NAME
 from switchboard.context import AppContext
 from switchboard.db import Migration, transaction
-from switchboard.errors import ToolError
+from switchboard.errors import ToolError, UncertainOutcomeError
 from switchboard.util import canonical_json, now_iso, sha256_hex, truncate
 
 PublishState = Literal["PUBLISHED", "REFUSED", "UNKNOWN"]
@@ -177,6 +177,7 @@ class DraftStore:
         post_urn: str | None = None,
         reason: str | None = None,
     ) -> None:
+        """Record the outcome of a claimed attempt; called only after the request may have been sent."""
         with self.ctx.db.session() as conn, transaction(conn):
             cursor = conn.execute(
                 "UPDATE linkedin_publish_attempts SET state = ?, finished_at = ?, http_status = ?, "
@@ -184,11 +185,15 @@ class DraftStore:
                 (state, now_iso(), http_status, post_urn, reason, draft_id),
             )
             if cursor.rowcount != 1:
-                raise ToolError("the LinkedIn publication claim is unavailable; reconcile delivery manually")
+                raise UncertainOutcomeError(
+                    "the LinkedIn publication claim is unavailable; reconcile delivery manually"
+                )
             if state == "PUBLISHED":
                 row = conn.execute("SELECT * FROM linkedin_drafts WHERE id = ?", (draft_id,)).fetchone()
                 if row is None:
-                    raise ToolError("the LinkedIn draft is unavailable; reconcile delivery manually")
+                    raise UncertainOutcomeError(
+                        "the LinkedIn draft is unavailable; reconcile delivery manually"
+                    )
                 self.ctx.events.emit(
                     NAME,
                     "linkedin.post_published",

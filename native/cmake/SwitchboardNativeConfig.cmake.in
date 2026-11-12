@@ -1,0 +1,12 @@
+# CMake package configuration for the Switchboard native engine.
+# Imported target: switchboard::native (shared library; C interface in switchboard/switchboard.h,
+# C++ interface in switchboard/native.hpp). The C++ header includes nlohmann/json.hpp, so consumers
+# need nlohmann_json; the other dependencies are private to the shared library.
+
+@PACKAGE_INIT@
+
+include(CMakeFindDependencyMacro)
+find_dependency(nlohmann_json 3.10)
+
+include("${CMAKE_CURRENT_LIST_DIR}/SwitchboardNativeTargets.cmake")
+check_required_components(SwitchboardNative)

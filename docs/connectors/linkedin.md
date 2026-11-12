@@ -206,7 +206,9 @@ processes using the same database. Two approvals cannot create two sends. Claims
 
 Missing confirmation is never success. Every claimed draft is permanently consumed, even after an explicit
 refusal. Unknown delivery must be checked manually in your own profile; do not automatically copy and republish
-its content. This connector intentionally has no live read-back, automatic retry, or reconciliation command.
+its content. This connector intentionally has no live read-back, automatic retry, or reconciliation command of
+its own. The core action journal records an unknown publication as `uncertain`; `switchboard actions resolve`
+records what you found there, but it does not change the draft's state or publish anything.
 An interrupted process may leave `IN_FLIGHT` behind; treat that as uncertain delivery too. It blocks other
 publication attempts until deliberate operator reconciliation, not merely a restart. Local reading, imports,
 and draft creation remain available. No other process should still be publishing when operator maintenance

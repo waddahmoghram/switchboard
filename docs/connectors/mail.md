@@ -50,6 +50,13 @@ A server may accept a message for some recipients and refuse others. `mail_send`
 refused ones in `refused`; the audit log records both lists. When the server refuses every recipient,
 the call fails and nothing is sent.
 
+A server reply that refuses the message, or a failure while connecting or signing in, is a definite failure.
+A connection that drops or times out while the message is being submitted is not: the server may already have
+accepted it. The call then reports an error whose action is `uncertain`, and an identical send is refused until
+you check the Sent folder or a recipient and record the result with `switchboard actions resolve`. Nothing is
+resent. `mail_draft` follows the same rule when the connection fails during `APPEND`. Other connectors that
+send through `mail.sender`, such as calendar invitations and email notifications, pass the unknown outcome on.
+
 ## Events
 
 `mail.received` is emitted by the `mail.poll` job for each new message in a watched mailbox.

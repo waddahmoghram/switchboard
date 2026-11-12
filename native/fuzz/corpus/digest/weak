@@ -1,0 +1,2 @@
+device
+Digest realm="device", qop="auth", algorithm=MD5, nonce="abc"

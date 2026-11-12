@@ -1,6 +1,9 @@
 #include "support.hpp"
 
 #include <algorithm>
+#include <atomic>
+#include <chrono>
+#include <cstdint>
 #include <cstdlib>
 #include <filesystem>
 #include <functional>
@@ -16,6 +19,7 @@ namespace
 // Authored UNRUN. These fixtures never use accounts or real transports.
 constexpr const char *TOKEN_NAME = "SWITCHBOARD_NATIVE_HOME_TEST_TOKEN";
 constexpr const char *BASE_URL = "https://ha.example";
+constexpr std::int64_t BASE_TIME = 1794433200LL;
 
 class HomeDirectory
 {
@@ -126,14 +130,15 @@ struct Fixture
     Json config;
     Database database;
     HomeHttp http;
+    std::int64_t now = BASE_TIME;
     Context context;
     Registry registry;
 
     explicit Fixture(const Json &settings = home_settings(), const bool enabled = true)
         : config(home_configuration(directory, settings, enabled)), database(directory.path / "state.sqlite3"), context(config, directory.path, database, http,
-                                                                                                                        []()
+                                                                                                                        [this]()
                                                                                                                         {
-                                                                                                                            return 1794433200LL;
+                                                                                                                            return now;
                                                                                                                         })
     {
         register_home(context, registry);
@@ -167,9 +172,37 @@ struct Fixture
         http.fake.add("GET", std::string(BASE_URL) + "/api/states/" + state.at("entity_id").get<std::string>(), state);
     }
 
+    void states_route(const Json &states, const long status = 200)
+    {
+        http.fake.add("GET", std::string(BASE_URL) + "/api/states", states, status);
+    }
+
     void service_route(const std::string &service, const long status = 200)
     {
         http.fake.add("POST", std::string(BASE_URL) + "/api/services/" + service, Json::array(), status);
+    }
+
+    [[nodiscard]] std::int64_t count(const std::string &table)
+    {
+        expect(table == "native_home_snapshots" || table == "native_home_poll_status" || table == "native_events", "test table must be fixed");
+        return database.query("SELECT COUNT(*) AS n FROM " + table).front().at("n").get<std::int64_t>();
+    }
+
+    [[nodiscard]] std::vector<Json> events()
+    {
+        return database.query("SELECT type, payload, dedupe_key FROM native_events WHERE source = ? ORDER BY id", {"home"});
+    }
+
+    [[nodiscard]] Json payload(const std::size_t index)
+    {
+        return Json::parse(events().at(index).at("payload").get<std::string>());
+    }
+
+    [[nodiscard]] Json snapshot_row(const std::string &identifier)
+    {
+        const auto rows = database.query("SELECT source, snapshot_json, observed_at, revision FROM native_home_snapshots WHERE entity_id = ?", {identifier});
+        expect(rows.size() == 1, "expected exactly one stored home snapshot");
+        return rows.front();
     }
 };
 
@@ -233,6 +266,81 @@ Json media(const std::string &state = "paused", const double volume = 0.3)
                      {{"volume_level", volume}, {"is_volume_muted", false}, {"supported_features", 20493}, {"group_members", {"media_player.room"}}});
 }
 
+std::string degrees(const std::string &unit)
+{
+    return std::string("\xc2\xb0") + unit;
+}
+
+Json room_sensor(const std::string &state)
+{
+    return raw_state("sensor.room", state, {{"device_class", "temperature"}, {"unit_of_measurement", degrees("C")}, {"friendly_name", "Room"}});
+}
+
+Json sensor(const std::string &identifier, const std::string &state, const std::string &device_class, const std::string &unit = "")
+{
+    Json attributes = {{"device_class", device_class}};
+    if (!unit.empty())
+    {
+        attributes["unit_of_measurement"] = unit;
+    }
+    return raw_state(identifier, state, attributes);
+}
+
+Json polling_settings()
+{
+    auto settings = home_settings();
+    settings["poll"] = {{"enabled", true}, {"entities", {"sensor.room", "light.a"}}, {"interval_seconds", 60}, {"stale_after_seconds", 300}};
+    return settings;
+}
+
+Json preset_settings()
+{
+    auto settings = home_settings();
+    Json evening = Json::object();
+    evening["light.a"] = {{"state", "on"}, {"brightness_pct", 40}, {"color_temp_kelvin", 3000}};
+    evening["light.b"] = {{"state", "off"}};
+    Json away = Json::object();
+    away["light.b"] = {{"state", "on"}, {"rgb_color", {255, 128, 0}}};
+    settings["lighting_presets"] = Json::object();
+    settings["lighting_presets"]["evening"] = {{"targets", evening}};
+    settings["lighting_presets"]["away"] = {{"targets", away}};
+    return settings;
+}
+
+Json evening_light()
+{
+    auto result = light();
+    result["attributes"]["brightness"] = 102;
+    result["attributes"]["color_mode"] = "color_temp";
+    return result;
+}
+
+Json summary_settings()
+{
+    auto settings = home_settings();
+    for (const auto *identifier :
+         {"sensor.temperature", "sensor.fahrenheit", "sensor.humidity", "sensor.battery", "sensor.power", "sensor.energy", "sensor.odd_unit",
+          "sensor.unclassified", "binary_sensor.motion", "binary_sensor.occupancy", "binary_sensor.leak", "binary_sensor.battery_low", "binary_sensor.door"})
+    {
+        settings["expose"].push_back(identifier);
+    }
+    settings["rooms"]["utility"] = {"sensor.power", "sensor.energy", "binary_sensor.leak"};
+    return settings;
+}
+
+Json summary_states()
+{
+    auto energy = sensor("sensor.energy", "3.25", "energy", "kWh");
+    energy["attributes"]["state_class"] = "total_increasing";
+    return Json::array({sensor("sensor.temperature", "21.5", "temperature", degrees("C")), sensor("sensor.fahrenheit", "70.7", "temperature", degrees("F")),
+                        sensor("sensor.humidity", "120", "humidity", "%"), sensor("sensor.battery", "unavailable", "battery", "%"),
+                        sensor("sensor.power", "1250.5", "power", "W"), energy, sensor("sensor.odd_unit", "21", "temperature", "degC"),
+                        raw_state("sensor.unclassified", "5"), sensor("binary_sensor.motion", "on", "motion"),
+                        sensor("binary_sensor.occupancy", "off", "occupancy"), sensor("binary_sensor.leak", "on", "moisture"),
+                        sensor("binary_sensor.battery_low", "unknown", "battery"), sensor("binary_sensor.door", "on", "door"), light(),
+                        sensor("sensor.hidden", "30", "temperature", degrees("C"))});
+}
+
 void check_post(const Fixture &fixture, const std::size_t index, const std::string &service, const Json &body)
 {
     const auto &request = fixture.http.fake.requests.at(index);
@@ -250,6 +358,7 @@ void check_observed(const Json &result)
 {
     expect(result.at("request_status") == "accepted" && result.at("status") == "observed" && result.at("confirmed") == true,
            "expected independently observed requested state");
+    expect(!result.contains("effect_unknown"), "an accepted submission must not declare an unknown effect");
     expect(result.at("physical_delivery_verified") == false && result.at("retry_safe") == false, "readback must never claim physical delivery or retry safety");
 }
 
@@ -266,42 +375,65 @@ void test_disabled_and_offline_registration()
 {
     Fixture disabled(Json::object(), false);
     expect(disabled.registry.tools().empty() && disabled.http.fake.requests.empty(), "disabled home must not inspect settings or register tools");
+    expect(disabled.database.query("SELECT name FROM sqlite_master WHERE type = 'table' AND name GLOB 'native_home_*'").empty(),
+           "a disabled adapter must not create home tables");
     auto settings = home_settings();
     settings["token"] = "env:SWITCHBOARD_NATIVE_HOME_INTENTIONALLY_UNRESOLVED";
     Fixture fixture(settings);
-    expect(fixture.registry.tools().size() == 7, "expected exactly seven native home tools");
-    for (const auto &name : {"home_targets", "home_states", "home_capabilities"})
+    expect(fixture.registry.tools().size() == 11, "expected exactly eleven native home tools");
+    for (const auto &name : {"home_targets", "home_states", "home_capabilities", "home_sensor_summary", "home_poll_status", "home_poll"})
     {
         expect(fixture.tool(name).tier == Tier::read, "read tool tier changed");
     }
-    for (const auto &name : {"home_lights", "home_climate", "home_fan", "home_media"})
+    for (const auto &name : {"home_lights", "home_climate", "home_fan", "home_media", "home_lighting_preset"})
     {
         expect(fixture.tool(name).tier == Tier::act, "device effects must retain the act tier");
     }
     const auto targets = fixture.call("home_targets");
-    expect(targets.at("binding").get<std::string>().size() == 64 && !targets.contains("token") && !targets.contains("base_url"),
-           "offline targets must not expose credentials or addresses");
+    expect(targets.at("binding").get<std::string>().size() == 64 && !targets.contains("token") && !targets.contains("base_url") &&
+               targets.at("lighting_presets").empty() && !targets.contains("poll"),
+           "offline targets must not expose credentials, addresses or polling settings");
     expect(fixture.http.fake.requests.empty() && fixture.context.jobs.empty(), "registration and targets must do no provider work and add no jobs");
-    expect(fixture.database.query("SELECT name FROM sqlite_master WHERE type = 'table' AND name GLOB 'native_home_*'").empty(),
-           "the stateless native adapter must not create home tables");
-    for (const auto &name : {"home_call_service", "home_poll", "home_poll_status", "home_sensor_summary", "home_announce", "home_lighting_preset"})
+    const auto tables = fixture.database.query("SELECT name FROM sqlite_master WHERE type = 'table' AND name GLOB 'native_home_*' ORDER BY name");
+    expect(tables.size() == 2 && tables.front().at("name") == "native_home_poll_status" && tables.back().at("name") == "native_home_snapshots",
+           "registration must create exactly the two home tables");
+    expect(fixture.count("native_home_snapshots") == 0 && fixture.count("native_home_poll_status") == 0 && fixture.count("native_events") == 0,
+           "registration must not record snapshots, health or events");
+    for (const auto &name : {"home_call_service", "home_announce"})
     {
         expect(fixture.registry.find(name) == nullptr, "unsupported tool must not be a placeholder");
     }
+    const auto status = fixture.call("home_poll_status");
+    expect(status.at("enabled") == false && status.at("entities").empty() && status.at("stale") == true && status.at("succeeded_at").is_null(),
+           "disabled polling status must be an offline report");
+    expect_home_error(
+        [&]()
+        {
+            static_cast<void>(fixture.call("home_poll"));
+        },
+        "home_poll must refuse while polling is disabled");
+    expect(fixture.http.fake.requests.empty() && fixture.count("native_home_poll_status") == 0,
+           "a refused poll must not contact the provider or record health");
     Fixture empty({{"base_url", BASE_URL}, {"token", "env:SWITCHBOARD_NATIVE_HOME_INTENTIONALLY_UNRESOLVED"}});
-    expect(empty.registry.tools().size() == 7, "empty allowlists must register valid, unusable action schemas");
+    expect(empty.registry.tools().size() == 11, "empty allowlists must register valid, unusable action schemas");
     expect_home_error(
         [&]()
         {
             static_cast<void>(empty.call("home_fan", empty.bound({{"entity_id", "fan.room"}, {"percentage", 10}})));
         },
         "an empty profile must fail before approval or provider work");
+    expect_home_error(
+        [&]()
+        {
+            validate(empty.bound({{"name", "evening"}, {"fingerprint", std::string(64, 'a')}}), empty.tool("home_lighting_preset").schema);
+        },
+        "an empty preset table must admit no preset request");
     expect(empty.http.fake.requests.empty(), "empty allowlists must not contact the provider");
 }
 
 void test_settings_reject_unsupported_and_unsafe_scope()
 {
-    for (const auto &key : {"poll", "speech", "quiet_hours", "lighting_presets", "timezone", "retry"})
+    for (const auto &key : {"speech", "quiet_hours", "timezone", "retry"})
     {
         auto settings = home_settings();
         settings[key] = {{"enabled", false}};
@@ -491,8 +623,9 @@ void test_canonical_binding_and_reload()
     std::reverse(equivalent["climate"]["climate.room"]["modes"].begin(), equivalent["climate"]["climate.room"]["modes"].end());
     equivalent["climate"]["climate.room"]["minimum"] = 16.0;
     equivalent["media_players"]["media_player.room"]["minimum"] = -0.0;
+    equivalent["poll"] = {{"enabled", false}, {"entities", {"sensor.room"}}, {"interval_seconds", 120}};
     Fixture normalized(equivalent);
-    expect(original.binding() == normalized.binding(), "binding must normalize sets, defaults, numbers and origin");
+    expect(original.binding() == normalized.binding(), "binding must normalize sets, defaults, numbers and origin, and exclude read-only polling");
     const auto original_binding = original.binding();
     const std::vector<std::function<void(Json &)>> changes{[](Json &settings)
                                                            {
@@ -529,6 +662,10 @@ void test_canonical_binding_and_reload()
                                                            [](Json &settings)
                                                            {
                                                                settings["media_players"]["media_player.room"]["maximum"] = 0.35;
+                                                           },
+                                                           [](Json &settings)
+                                                           {
+                                                               settings["lighting_presets"] = {{"evening", {{"targets", {{"light.a", {{"state", "off"}}}}}}}};
                                                            }};
     for (const auto &change : changes)
     {
@@ -1227,8 +1364,16 @@ void test_submission_unknown_and_rejected_without_retry()
             fixture.state_route(fan(60));
         }
         const auto result = fixture.call("home_fan", fixture.bound({{"entity_id", "fan.room"}, {"percentage", 60}}));
-        expect(result.at("request_status") == (rejected ? "rejected" : "unknown") && result.at("confirmed") == false,
-               "ambiguous or refused submission falsely confirmed");
+        if (rejected)
+        {
+            expect(result.at("request_status") == "rejected" && !result.contains("confirmed") && !result.contains("effect_unknown"),
+                   "a refusal runs no readback, so it carries no confirmed field and no unknown effect");
+        }
+        else
+        {
+            expect(result.at("request_status") == "unknown" && result.at("confirmed") == false && result.at("effect_unknown") == true,
+                   "an ambiguous submission must stay unconfirmed and declare its effect unknown even when readback matches");
+        }
         expect(result.at("status") == (rejected ? "rejected" : "requested_unconfirmed") && fixture.http.fake.requests.size() == (rejected ? 2 : 3) &&
                    post_count(fixture) == 1,
                "redirects and refusals must not retry; ambiguity permits only one readback");
@@ -1238,7 +1383,7 @@ void test_submission_unknown_and_rejected_without_retry()
     transport.state_route(fan());
     transport.state_route(fan(60));
     const auto result = transport.call("home_fan", transport.bound({{"entity_id", "fan.room"}, {"percentage", 60}}));
-    expect(result.at("request_status") == "unknown" && result.at("confirmed") == false && post_count(transport) == 1,
+    expect(result.at("request_status") == "unknown" && result.at("confirmed") == false && result.at("effect_unknown") == true && post_count(transport) == 1,
            "transport exception must remain ambiguous without resend");
     expect(result.dump().find("fake-private-value") == std::string::npos, "transport exception text leaked");
 }
@@ -1250,7 +1395,7 @@ void test_post_body_is_not_confirmation()
     misleading.http.fake.add("POST", std::string(BASE_URL) + "/api/services/fan/set_percentage", Json::array({fan(60)}));
     misleading.state_route(fan());
     const auto mismatch = misleading.call("home_fan", misleading.bound({{"entity_id", "fan.room"}, {"percentage", 60}}));
-    expect(mismatch.at("confirmed") == false, "provider changed-state list must not replace independent readback");
+    expect(mismatch.at("confirmed") == false && !mismatch.contains("effect_unknown"), "provider changed-state list must not replace independent readback");
     Fixture unreadable;
     unreadable.state_route(fan());
     unreadable.http.fake.routes.push_back({"POST", std::string(BASE_URL) + "/api/services/fan/set_percentage", {200, {}, "not JSON"}});
@@ -1261,7 +1406,7 @@ void test_post_body_is_not_confirmation()
     capped.http.fake.routes.push_back({"POST", std::string(BASE_URL) + "/api/services/fan/set_percentage", {200, {}, std::string(65537, 'x')}});
     capped.state_route(fan(60));
     const auto result = capped.call("home_fan", capped.bound({{"entity_id", "fan.room"}, {"percentage", 60}}));
-    expect(result.at("request_status") == "unknown" && result.at("confirmed") == false,
+    expect(result.at("request_status") == "unknown" && result.at("confirmed") == false && result.at("effect_unknown") == true,
            "over-cap submission response must remain ambiguous even if readback matches");
 }
 
@@ -1278,7 +1423,7 @@ void test_readback_failure_is_reported_without_resend()
         fixture.http.fake.routes.push_back({"GET", std::string(BASE_URL) + "/api/states/fan.room", response});
         const auto result = fixture.call("home_fan", fixture.bound({{"entity_id", "fan.room"}, {"percentage", 60}}));
         expect(result.at("request_status") == "accepted" && result.at("confirmed") == false && result.at("readback_errors").size() == 1 &&
-                   result.at("observations").empty(),
+                   result.at("observations").empty() && !result.contains("effect_unknown"),
                "readback failure must be returned as an unconfirmed receipt, not thrown after the effect");
         expect(fixture.http.fake.requests.size() == 3 && post_count(fixture) == 1, "readback failure must not retry or compensate");
     }
@@ -1433,6 +1578,694 @@ void test_runtime_policy_rechecked_on_approval_and_human_calls()
     expect(reloaded.call("home_fan", arguments, Origin::human).at("status") == "denied" && fake->fake.requests.empty(),
            "human origin must not bypass configured denial");
 }
+
+Json with_preset(Json settings, const std::string &identifier, const Json &state)
+{
+    Json targets = Json::object();
+    targets[identifier] = state;
+    settings["lighting_presets"] = Json::object();
+    settings["lighting_presets"]["evening"] = {{"targets", targets}};
+    return settings;
+}
+
+void test_poll_and_preset_settings_are_strict()
+{
+    const auto polled = [](Json poll)
+    {
+        auto settings = home_settings();
+        settings["poll"] = std::move(poll);
+        return settings;
+    };
+    const auto preset = [](const std::string &identifier, const Json &state)
+    {
+        return with_preset(home_settings(), identifier, state);
+    };
+    std::vector<Json> invalid{polled(true),
+                              polled({{"enabled", 1}, {"entities", {"sensor.room"}}}),
+                              polled({{"enabled", true}}),
+                              polled({{"enabled", true}, {"entities", Json::array()}}),
+                              polled({{"enabled", true}, {"entities", {"sensor.hidden"}}}),
+                              polled({{"enabled", false}, {"entities", {"sensor.*"}}}),
+                              polled({{"enabled", true}, {"entities", {"sensor.room", "sensor.room"}}}),
+                              polled({{"enabled", true}, {"entities", {"sensor.room"}}, {"interval_seconds", 29}}),
+                              polled({{"enabled", true}, {"entities", {"sensor.room"}}, {"interval_seconds", 86401}}),
+                              polled({{"enabled", true}, {"entities", {"sensor.room"}}, {"interval_seconds", 60.0}}),
+                              polled({{"enabled", true}, {"entities", {"sensor.room"}}, {"interval_seconds", 600}, {"stale_after_seconds", 599}}),
+                              polled({{"enabled", true}, {"entities", {"sensor.room"}}, {"stale_after_seconds", 259201}}),
+                              polled({{"enabled", true}, {"entities", {"sensor.room"}}, {"history", true}}),
+                              preset("light.hidden", {{"state", "on"}}),
+                              preset("sensor.room", {{"state", "on"}}),
+                              preset("light.a", Json::object()),
+                              preset("light.a", {{"state", "dim"}}),
+                              preset("light.a", {{"state", "off"}, {"brightness_pct", 10}}),
+                              preset("light.a", {{"state", "on"}, {"brightness_pct", 0}}),
+                              preset("light.a", {{"state", "on"}, {"brightness_pct", 101}}),
+                              preset("light.a", {{"state", "on"}, {"brightness_pct", 50.5}}),
+                              preset("light.a", {{"state", "on"}, {"brightness_pct", true}}),
+                              preset("light.a", {{"state", "on"}, {"rgb_color", {1, 2}}}),
+                              preset("light.a", {{"state", "on"}, {"rgb_color", {1, 2, 256}}}),
+                              preset("light.a", {{"state", "on"}, {"rgb_color", {1, 2, 3.5}}}),
+                              preset("light.a", {{"state", "on"}, {"rgb_color", {1, 2, 3}}, {"color_temp_kelvin", 3000}}),
+                              preset("light.a", {{"state", "on"}, {"color_temp_kelvin", 999}}),
+                              preset("light.a", {{"state", "on"}, {"transition", 2}}),
+                              preset("light.a", {{"state", "on"}, {"service", "scene.turn_on"}})};
+    auto denied = polled({{"enabled", true}, {"entities", {"sensor.room"}}});
+    denied["rooms"]["living"] = {"light.a"};
+    denied["deny_domains"] = {"sensor"};
+    invalid.push_back(denied);
+    auto unreviewed = preset("light.b", {{"state", "on"}});
+    unreviewed["lights"] = {"light.a"};
+    invalid.push_back(unreviewed);
+    auto renamed = preset("light.a", {{"state", "on"}});
+    renamed["lighting_presets"]["Bad Name"] = renamed["lighting_presets"]["evening"];
+    invalid.push_back(renamed);
+    auto scene = preset("light.a", {{"state", "on"}});
+    scene["lighting_presets"]["evening"]["scene"] = "scene.evening";
+    invalid.push_back(scene);
+    auto actions = home_settings();
+    actions["lighting_presets"] = {{"evening", {{"actions", Json::array()}}}};
+    invalid.push_back(actions);
+    auto empty = home_settings();
+    empty["lighting_presets"] = {{"evening", {{"targets", Json::object()}}}};
+    invalid.push_back(empty);
+    auto listed = home_settings();
+    listed["lighting_presets"] = Json::array();
+    invalid.push_back(listed);
+    auto crowded = home_settings();
+    Json many = Json::object();
+    for (int index = 0; index < 17; ++index)
+    {
+        const auto identifier = "light.l" + std::to_string(index);
+        crowded["expose"].push_back(identifier);
+        crowded["lights"].push_back(identifier);
+        many[identifier] = {{"state", "on"}};
+    }
+    crowded["lighting_presets"] = {{"evening", {{"targets", many}}}};
+    invalid.push_back(crowded);
+    for (const auto &settings : invalid)
+    {
+        expect_home_error(
+            [&]()
+            {
+                Fixture fixture(settings);
+            },
+            "unsafe polling or preset configuration accepted");
+    }
+    Fixture slowest(polled({{"enabled", true}, {"entities", {"sensor.room"}}, {"interval_seconds", 86400}}));
+    expect(slowest.call("home_poll_status").at("stale_after_seconds") == 259200 && slowest.context.jobs.front().interval_seconds == 86400,
+           "the default staleness must fit the slowest interval");
+    auto sixteen = crowded;
+    sixteen["lighting_presets"]["evening"]["targets"].erase("light.l16");
+    Fixture largest(sixteen);
+    expect(largest.call("home_targets").at("lighting_presets").at("evening").at("targets").size() == 16, "sixteen preset targets must be accepted");
+    expect(slowest.http.fake.requests.empty() && largest.http.fake.requests.empty(), "configuration checks must stay offline");
+}
+
+void test_poll_registration_job_and_status_before_baseline()
+{
+    Fixture fixture(polling_settings());
+    expect(fixture.context.jobs.size() == 1 && fixture.context.jobs.front().name == "home.poll" && fixture.context.jobs.front().interval_seconds == 60,
+           "enabled polling must schedule exactly one home.poll job at its interval");
+    expect(fixture.http.fake.requests.empty() && fixture.count("native_home_snapshots") == 0 && fixture.count("native_home_poll_status") == 0 &&
+               fixture.count("native_events") == 0,
+           "scheduling the job must not sample, record health or emit");
+    const auto status = fixture.call("home_poll_status");
+    expect(status.at("enabled") == true && status.at("interval_seconds") == 60 && status.at("stale_after_seconds") == 300 &&
+               status.at("attempted_at").is_null() && status.at("succeeded_at").is_null() && status.at("error").is_null() &&
+               status.at("consecutive_failures") == 0 && status.at("stale") == true && status.at("history_complete") == false,
+           "status before any sample must be explicit about missing observations");
+    const auto source = status.at("source").get<std::string>();
+    expect(source.size() == 64 && status.dump().find("ha.example") == std::string::npos, "the source must be an opaque digest, not the server address");
+    expect(status.at("entities") == Json::array({Json{{"entity_id", "light.a"}, {"availability", "not_observed"}, {"revision", 0}, {"stale", true}},
+                                                 Json{{"entity_id", "sensor.room"}, {"availability", "not_observed"}, {"revision", 0}, {"stale", true}}}),
+           "configured entities must be listed as not observed before a baseline");
+    Fixture plain;
+    expect(plain.binding() == fixture.binding(), "read-only polling settings must not change the action binding");
+    auto slow = polling_settings();
+    slow["poll"].erase("stale_after_seconds");
+    slow["poll"]["interval_seconds"] = 600;
+    Fixture defaults(slow);
+    expect(defaults.context.jobs.front().interval_seconds == 600 && defaults.call("home_poll_status").at("stale_after_seconds") == 1800,
+           "default staleness must be three intervals but at least 300 seconds");
+    expect(fixture.http.fake.requests.empty() && defaults.http.fake.requests.empty(), "status reads must stay offline");
+}
+
+void test_poll_silent_baseline_and_change_events()
+{
+    Fixture fixture(polling_settings());
+    fixture.states_route(Json::array({light(), room_sensor("21.5"), raw_state("lock.front", "locked")}));
+    const auto first = fixture.call("home_poll");
+    expect(first.at("entities") == 2 && first.at("baselined") == 2 && first.at("changed") == 0 && first.at("ignored_older_sample") == false &&
+               first.at("history_complete") == false,
+           "the first sample of every entity must be a silent baseline");
+    expect(fixture.events().empty() && fixture.count("native_home_snapshots") == 2, "baselines must record snapshots without events");
+    fixture.now += 60;
+    auto touched = room_sensor("21.5");
+    touched["last_changed"] = "2026-11-11T21:41:00+00:00";
+    touched["last_updated"] = "2026-11-11T21:41:00+00:00";
+    fixture.states_route(Json::array({light(), touched}));
+    const auto second = fixture.call("home_poll");
+    expect(second.at("baselined") == 0 && second.at("changed") == 0 && fixture.events().empty(), "provider timestamps alone are not a state change");
+    expect(fixture.snapshot_row("sensor.room").at("revision") == 1 && fixture.snapshot_row("sensor.room").at("observed_at") == BASE_TIME + 60,
+           "an unchanged sample must refresh the observation time without a new revision");
+    fixture.now += 60;
+    fixture.states_route(Json::array({light(), room_sensor("22.0")}));
+    expect(fixture.call("home_poll").at("changed") == 1 && fixture.events().size() == 1, "a changed state must queue exactly one event");
+    const auto event = fixture.events().front();
+    const auto payload = fixture.payload(0);
+    const auto source = fixture.call("home_poll_status").at("source").get<std::string>();
+    expect(event.at("type") == "home.state_changed" && event.at("dedupe_key") == "native:home:" + source + ":sensor.room:2",
+           "the event type and deduplication key must name the source, entity and revision");
+    expect(payload.at("entity_id") == "sensor.room" && payload.at("revision") == 2 && payload.at("source") == source &&
+               payload.at("history_complete") == false && payload.at("observed_at") == timestamp(BASE_TIME + 120),
+           "the payload must carry the documented envelope");
+    expect(payload.at("previous").at("state") == "21.5" && payload.at("previous").at("observed_at") == timestamp(BASE_TIME + 60) &&
+               payload.at("current").at("state") == "22.0" && payload.at("current").at("attributes").at("unit_of_measurement") == degrees("C"),
+           "previous must be the last stored snapshot and current the new minimized observation");
+    const auto row = fixture.snapshot_row("sensor.room");
+    expect(row.at("revision") == 2 && Json::parse(row.at("snapshot_json").get<std::string>()) == payload.at("current") && row.at("observed_at") == fixture.now,
+           "the committed snapshot must equal the event's current observation");
+    expect(fixture.snapshot_row("light.a").at("revision") == 1, "unchanged entities must keep their revision");
+    fixture.now += 60;
+    fixture.states_route(Json::array({room_sensor("22.0")}));
+    expect(fixture.call("home_poll").at("changed") == 1, "a disappearing entity must be a sampled transition");
+    const auto missing = fixture.payload(1);
+    expect(missing.at("entity_id") == "light.a" && missing.at("revision") == 2 && missing.at("previous").at("availability") == "available" &&
+               missing.at("current").at("availability") == "missing" && missing.at("current").at("state").is_null(),
+           "missing entities must be reported, not silently dropped");
+    fixture.now += 60;
+    fixture.states_route(Json::array({light("light.a", "unavailable"), room_sensor("22.0")}));
+    fixture.context.jobs.front().handler();
+    expect(fixture.events().size() == 3 && fixture.payload(2).at("current").at("availability") == "unavailable",
+           "the scheduled job must use the same transactional sampling path");
+    fixture.now += 60;
+    fixture.states_route(Json::array({light("light.a", "unavailable"), room_sensor("22.0")}));
+    fixture.context.jobs.front().handler();
+    expect(fixture.events().size() == 3, "an identical repeated sample must not queue another event");
+    expect(fixture.http.fake.requests.size() == 6 && post_count(fixture) == 0, "each sample must make one state-list read and never act");
+    for (const auto &request : fixture.http.fake.requests)
+    {
+        expect(request.method == "GET" && request.url == std::string(BASE_URL) + "/api/states", "polling must read only the state list");
+    }
+}
+
+void test_poll_change_event_is_atomic_with_snapshot()
+{
+    Fixture fixture(polling_settings());
+    fixture.states_route(Json::array({light(), room_sensor("21.5")}));
+    static_cast<void>(fixture.call("home_poll"));
+    const auto light_baseline = fixture.snapshot_row("light.a");
+    const auto sensor_baseline = fixture.snapshot_row("sensor.room");
+    fixture.database.execute("CREATE TRIGGER native_home_test_refuse_sensor BEFORE INSERT ON native_home_snapshots "
+                             "WHEN NEW.entity_id = 'sensor.room' BEGIN SELECT RAISE(ABORT, 'synthetic snapshot refusal'); END");
+    fixture.now += 60;
+    fixture.states_route(Json::array({light("light.a", "off"), room_sensor("23.0")}));
+    expect_home_error(
+        [&]()
+        {
+            static_cast<void>(fixture.call("home_poll"));
+        },
+        "a refused snapshot write must fail the whole sample");
+    expect(fixture.snapshot_row("light.a") == light_baseline && fixture.snapshot_row("sensor.room") == sensor_baseline && fixture.events().empty(),
+           "an event queued earlier in a failed sample must roll back with every snapshot");
+    const auto failed = fixture.call("home_poll_status");
+    expect(failed.at("error") == "database" && failed.at("consecutive_failures") == 1 && failed.at("attempted_at") == timestamp(BASE_TIME + 60) &&
+               failed.at("succeeded_at") == timestamp(BASE_TIME),
+           "only failure health may be recorded after a rolled-back sample");
+    fixture.database.execute("DROP TRIGGER native_home_test_refuse_sensor");
+    fixture.database.execute("CREATE TRIGGER native_home_test_refuse_events BEFORE INSERT ON native_events "
+                             "BEGIN SELECT RAISE(ABORT, 'synthetic event refusal'); END");
+    fixture.now += 60;
+    fixture.states_route(Json::array({light("light.a", "off"), room_sensor("23.0")}));
+    expect_home_error(
+        [&]()
+        {
+            static_cast<void>(fixture.call("home_poll"));
+        },
+        "a refused event insert must fail the whole sample");
+    expect(fixture.snapshot_row("light.a") == light_baseline && fixture.snapshot_row("sensor.room") == sensor_baseline &&
+               fixture.call("home_poll_status").at("consecutive_failures") == 2,
+           "snapshots must not advance without their events");
+    fixture.database.execute("DROP TRIGGER native_home_test_refuse_events");
+    fixture.now += 60;
+    fixture.states_route(Json::array({light("light.a", "off"), room_sensor("23.0")}));
+    expect(fixture.call("home_poll").at("changed") == 2 && fixture.events().size() == 2, "the next good sample must queue each change once");
+    for (std::size_t index = 0; index < 2; ++index)
+    {
+        const auto payload = fixture.payload(index);
+        const auto row = fixture.snapshot_row(payload.at("entity_id").get<std::string>());
+        expect(payload.at("revision") == 2 && row.at("revision") == 2 && Json::parse(row.at("snapshot_json").get<std::string>()) == payload.at("current"),
+               "each committed event must match its committed snapshot");
+    }
+    const auto healthy = fixture.call("home_poll_status");
+    expect(healthy.at("error").is_null() && healthy.at("consecutive_failures") == 0 && healthy.at("succeeded_at") == timestamp(fixture.now),
+           "a good sample must clear failure health");
+}
+
+void test_poll_failure_staleness_and_status()
+{
+    Fixture fixture(polling_settings());
+    fixture.states_route(Json::array({light(), room_sensor("21.5")}));
+    static_cast<void>(fixture.call("home_poll"));
+    fixture.now += 300;
+    auto status = fixture.call("home_poll_status");
+    expect(status.at("stale") == false && status.at("entities").at(1).at("stale") == false && status.at("entities").at(1).at("revision") == 1,
+           "an observation exactly at the threshold must still be fresh");
+    fixture.now += 1;
+    status = fixture.call("home_poll_status");
+    expect(status.at("stale") == true && status.at("entities").at(0).at("stale") == true && status.at("entities").at(1).at("stale") == true &&
+               status.at("entities").at(1).at("state") == "21.5",
+           "older observations must be flagged stale without inventing a transition");
+    expect(fixture.events().empty(), "staleness must be a read-time flag, not an event");
+    fixture.states_route(Json{{"message", "fake-private-value"}}, 500);
+    try
+    {
+        static_cast<void>(fixture.call("home_poll"));
+        expect(false, "a refused state list must fail the sample");
+    }
+    catch (const Error &error)
+    {
+        expect(error.code() == "home_poll" && std::string(error.what()).find("fake-private-value") == std::string::npos,
+               "poll failures must be safe and specific");
+    }
+    status = fixture.call("home_poll_status");
+    expect(status.at("error") == "home_http" && status.at("consecutive_failures") == 1 && status.at("attempted_at") == timestamp(BASE_TIME + 301) &&
+               status.at("succeeded_at") == timestamp(BASE_TIME) && status.at("entities").at(1).at("state") == "21.5",
+           "a failed sample must record health and retain cached snapshots");
+    expect(status.dump().find("fake-private-value") == std::string::npos, "provider error bodies must never be stored");
+    fixture.now += 60;
+    fixture.states_route(Json::array({light(), light()}));
+    bool failed = false;
+    try
+    {
+        fixture.context.jobs.front().handler();
+    }
+    catch (const Error &error)
+    {
+        failed = error.code() == "home_poll";
+    }
+    status = fixture.call("home_poll_status");
+    expect(failed && status.at("error") == "home" && status.at("consecutive_failures") == 2, "a malformed state list must fail the job and count failures");
+    fixture.now += 60;
+    fixture.states_route(Json::array({light(), room_sensor("21.5")}));
+    static_cast<void>(fixture.call("home_poll"));
+    status = fixture.call("home_poll_status");
+    expect(status.at("error").is_null() && status.at("consecutive_failures") == 0 && status.at("stale") == false && fixture.events().empty(),
+           "recovery must clear health without inventing a change");
+    fixture.now -= 120;
+    fixture.states_route(Json::array({light("light.a", "off"), room_sensor("30.0")}));
+    const auto older = fixture.call("home_poll");
+    expect(older.at("ignored_older_sample") == true && older.at("changed") == 0 && fixture.events().empty() &&
+               fixture.snapshot_row("sensor.room").at("revision") == 1,
+           "a sample older than the recorded attempt must not overwrite newer state");
+    expect(fixture.call("home_poll_status").at("stale") == true, "an observation time in the local future must be treated as stale");
+}
+
+void test_poll_minimized_observations_and_source_namespace()
+{
+    Fixture fixture(polling_settings());
+    auto noisy = room_sensor("21.5");
+    noisy["attributes"]["access_token"] = "fake-private-value";
+    noisy["attributes"]["entity_picture"] = "/api/camera_proxy/fake-private-value";
+    noisy["context"] = {{"user_id", "fake-private-value"}};
+    fixture.states_route(Json::array({light(), noisy}));
+    static_cast<void>(fixture.call("home_poll"));
+    auto oversized = noisy;
+    for (const auto *name : {"friendly_name",
+                             "device_class",
+                             "unit_of_measurement",
+                             "state_class",
+                             "temperature_unit",
+                             "hvac_action",
+                             "color_mode",
+                             "current_temperature",
+                             "temperature",
+                             "target_temp_low",
+                             "target_temp_high",
+                             "min_temp",
+                             "max_temp",
+                             "target_temp_step",
+                             "current_humidity",
+                             "humidity",
+                             "brightness",
+                             "color_temp_kelvin",
+                             "min_color_temp_kelvin",
+                             "max_color_temp_kelvin",
+                             "percentage",
+                             "percentage_step",
+                             "volume_level"})
+    {
+        oversized["attributes"][name] = std::string(200, '\x01');
+    }
+    fixture.now += 60;
+    fixture.states_route(Json::array({light(), oversized}));
+    static_cast<void>(fixture.call("home_poll"));
+    const auto payload = fixture.payload(0);
+    expect(payload.at("previous").at("attributes").at("friendly_name") == "Room" && payload.at("current").at("attributes").empty() &&
+               payload.at("current").at("attributes_omitted") == true && payload.dump().size() <= 20000,
+           "an oversized attribute set must be omitted so the event stays within its payload bound");
+    for (const auto &row : fixture.database.query("SELECT snapshot_json FROM native_home_snapshots"))
+    {
+        const auto text = row.at("snapshot_json").get<std::string>();
+        expect(text.find("fake-private-value") == std::string::npos && text.find("entity_picture") == std::string::npos &&
+                   text.find("context") == std::string::npos && text.size() <= 8192,
+               "stored snapshots must keep only bounded allowlisted attributes");
+    }
+    expect(fixture.events().front().at("payload").get<std::string>().find("fake-private-value") == std::string::npos,
+           "events must not carry unlisted attributes");
+    const auto original_source = fixture.call("home_poll_status").at("source").get<std::string>();
+    auto moved = polling_settings();
+    moved["base_url"] = "https://other.example";
+    const auto moved_configuration = home_configuration(fixture.directory, moved);
+    Context other(moved_configuration, fixture.directory.path, fixture.database, fixture.http,
+                  [&fixture]()
+                  {
+                      return fixture.now;
+                  });
+    Registry registry;
+    register_home(other, registry);
+    fixture.http.fake.add("GET", "https://other.example/api/states", Json::array({light("light.a", "off"), room_sensor("30.0")}));
+    const auto first = registry.find("home_poll")->handler(Json::object());
+    expect(first.at("source") != original_source && first.at("baselined") == 2 && first.at("changed") == 0 && fixture.events().size() == 1,
+           "a different server must get a separate namespace with fresh silent baselines");
+    expect(fixture.database.query("SELECT entity_id FROM native_home_snapshots WHERE source = ?", {original_source}).size() == 2,
+           "the original server's snapshots must be retained");
+}
+
+void test_lighting_preset_binding_and_stale_configuration()
+{
+    Fixture fixture(preset_settings());
+    const auto presets = fixture.call("home_targets").at("lighting_presets");
+    const auto fingerprint = presets.at("evening").at("fingerprint").get<std::string>();
+    const auto away = presets.at("away").at("fingerprint").get<std::string>();
+    expect(fingerprint.size() == 64 && away.size() == 64 && fingerprint != away &&
+               presets.at("evening").at("targets").at("light.a") == Json{{"state", "on"}, {"brightness_pct", 40}, {"color_temp_kelvin", 3000}},
+           "targets must show each reviewed preset's content and fingerprint");
+    const auto &schema = fixture.tool("home_lighting_preset").schema;
+    expect(schema.at("properties").at("name").at("enum") == Json::array({"away", "evening"}) &&
+               schema.at("properties").at("binding").at("enum") == Json::array({fixture.binding()}) &&
+               schema.at("required") == Json::array({"binding", "name", "fingerprint"}),
+           "the catalog must pin the binding, preset names and fingerprints");
+    auto brighter = preset_settings();
+    brighter["lighting_presets"]["evening"]["targets"]["light.a"]["brightness_pct"] = 60;
+    Fixture changed(brighter);
+    const auto changed_presets = changed.call("home_targets").at("lighting_presets");
+    expect(changed_presets.at("evening").at("fingerprint") != fingerprint && changed_presets.at("away").at("fingerprint") == away &&
+               changed.binding() != fixture.binding(),
+           "changing preset content must change that preset's fingerprint and the binding");
+    const Json old_binding = {{"binding", fixture.binding()}, {"name", "evening"}, {"fingerprint", fingerprint}};
+    expect_home_error(
+        [&]()
+        {
+            validate(old_binding, changed.tool("home_lighting_preset").schema);
+        },
+        "a reloaded schema must reject queued stale preset arguments");
+    const auto refusal = [](const Fixture &target, const Json &arguments)
+    {
+        try
+        {
+            static_cast<void>(target.call("home_lighting_preset", arguments));
+        }
+        catch (const Error &error)
+        {
+            return error.code();
+        }
+        return std::string("accepted");
+    };
+    expect(refusal(changed, old_binding) == "home_binding", "a stale binding must be refused specifically");
+    expect(refusal(changed, changed.bound({{"name", "evening"}, {"fingerprint", fingerprint}})) == "home_preset",
+           "a stale fingerprint must be refused even with a current binding");
+    expect(refusal(fixture, fixture.bound({{"name", "evening"}, {"fingerprint", away}})) == "home_preset",
+           "another preset's fingerprint must not authorize this preset");
+    expect(refusal(fixture, fixture.bound({{"name", "party"}, {"fingerprint", fingerprint}})) == "home_preset", "an unknown preset must be refused");
+    expect(refusal(fixture, fixture.bound({{"name", "evening"}, {"fingerprint", fingerprint}, {"entity_ids", {"light.a"}}})) == "invalid",
+           "presets must accept no override fields");
+    expect(refusal(fixture, fixture.bound({{"name", "evening"}})) == "invalid", "a fingerprint must be required");
+    expect(fixture.http.fake.requests.empty() && changed.http.fake.requests.empty(), "refused presets must fail before secret or network access");
+}
+
+void test_lighting_preset_individual_submissions_and_readback()
+{
+    Fixture fixture(preset_settings());
+    const auto fingerprint = fixture.call("home_targets").at("lighting_presets").at("evening").at("fingerprint");
+    fixture.state_route(light("light.a", "off"));
+    fixture.state_route(light("light.b"));
+    fixture.service_route("light/turn_on");
+    fixture.state_route(evening_light());
+    fixture.service_route("light/turn_off");
+    fixture.state_route(light("light.b", "off"));
+    const auto result = fixture.call("home_lighting_preset", fixture.bound({{"name", "evening"}, {"fingerprint", fingerprint}}));
+    expect(result.at("status") == "observed" && result.at("confirmed") == true && !result.contains("effect_unknown") && result.at("partial") == false &&
+               result.at("not_attempted").empty() && result.at("stop_reason").is_null() && result.at("atomic") == false &&
+               result.at("physical_delivery_verified") == false && result.at("retry_safe") == false,
+           "a fully observed preset must report confirmation without claiming atomicity or physical delivery");
+    expect(result.at("results").size() == 2, "each target must have its own receipt");
+    check_observed(result.at("results").at(0));
+    check_observed(result.at("results").at(1));
+    expect(result.at("results").at(0).at("called") == "light.turn_on" && result.at("results").at(1).at("called") == "light.turn_off",
+           "each target must use only its own light action");
+    check_post(fixture, 2, "light/turn_on", {{"entity_id", "light.a"}, {"brightness_pct", 40}, {"color_temp_kelvin", 3000}});
+    check_post(fixture, 4, "light/turn_off", {{"entity_id", "light.b"}});
+    expect(fixture.http.fake.requests.size() == 6 && post_count(fixture) == 2,
+           "every target must be preflighted before one submission and readback per target");
+    for (const auto &request : fixture.http.fake.requests)
+    {
+        expect(request.url.find("/api/services/scene") == std::string::npos && request.url.find("/api/services/script") == std::string::npos,
+               "presets must never call Home Assistant scenes or scripts");
+    }
+    Fixture unavailable(preset_settings());
+    unavailable.state_route(light("light.a", "off"));
+    unavailable.state_route(light("light.b", "unavailable"));
+    expect_home_error(
+        [&]()
+        {
+            static_cast<void>(unavailable.call("home_lighting_preset", unavailable.bound({{"name", "evening"}, {"fingerprint", fingerprint}})));
+        },
+        "a failed preflight of any preset target must prevent every submission");
+    expect(post_count(unavailable) == 0, "preflight failure must not partially apply a preset");
+    Fixture incapable(preset_settings());
+    auto basic = light("light.a", "off");
+    basic["attributes"]["supported_color_modes"] = {"brightness"};
+    incapable.state_route(basic);
+    expect_home_error(
+        [&]()
+        {
+            static_cast<void>(incapable.call("home_lighting_preset", incapable.bound({{"name", "evening"}, {"fingerprint", fingerprint}})));
+        },
+        "a preset must recheck live capabilities like home_lights");
+    expect(post_count(incapable) == 0, "a missing capability must prevent every submission");
+}
+
+void test_lighting_preset_partial_results_and_effect_unknown()
+{
+    Fixture partial(preset_settings());
+    const auto arguments =
+        partial.bound({{"name", "evening"}, {"fingerprint", partial.call("home_targets").at("lighting_presets").at("evening").at("fingerprint")}});
+    partial.state_route(light("light.a", "off"));
+    partial.state_route(light("light.b"));
+    partial.service_route("light/turn_on");
+    partial.state_route(evening_light());
+    partial.service_route("light/turn_off", 403);
+    const auto second_refused = partial.call("home_lighting_preset", arguments);
+    expect(second_refused.at("status") == "requested_unconfirmed" && second_refused.at("partial") == true && second_refused.at("confirmed") == false &&
+               !second_refused.contains("effect_unknown") && second_refused.at("stop_reason") == "rejected" && second_refused.at("not_attempted").empty(),
+           "a later refusal must be reported as a partial result");
+    expect(second_refused.at("results").size() == 2 && second_refused.at("results").at(0).at("confirmed") == true &&
+               second_refused.at("results").at(1).at("status") == "rejected" && !second_refused.at("results").at(1).contains("confirmed"),
+           "per-target receipts must keep their own confirmation fields");
+    expect(post_count(partial) == 2 && partial.http.fake.requests.size() == 5, "a refused submission must get no readback and nothing is resent");
+    Fixture ambiguous(preset_settings());
+    ambiguous.state_route(light("light.a", "off"));
+    ambiguous.state_route(light("light.b"));
+    ambiguous.service_route("light/turn_on", 503);
+    ambiguous.state_route(light("light.a", "off"));
+    const auto unknown = ambiguous.call("home_lighting_preset", arguments);
+    expect(unknown.at("effect_unknown") == true && unknown.at("confirmed") == false && unknown.at("status") == "requested_unconfirmed" &&
+               unknown.at("partial") == false && unknown.at("stop_reason") == "unknown" && unknown.at("not_attempted") == Json::array({"light.b"}) &&
+               unknown.at("results").at(0).at("effect_unknown") == true,
+           "an unknown submission must stop the preset and declare the effect unknown at the top level");
+    expect(post_count(ambiguous) == 1, "an unknown outcome must stop later submissions");
+    Fixture refused(preset_settings());
+    refused.state_route(light("light.a", "off"));
+    refused.state_route(light("light.b"));
+    refused.service_route("light/turn_on", 401);
+    const auto none = refused.call("home_lighting_preset", arguments);
+    expect(none.at("status") == "rejected" && !none.contains("confirmed") && !none.contains("effect_unknown") && none.at("partial") == false &&
+               none.at("not_attempted") == Json::array({"light.b"}) && refused.http.fake.requests.size() == 3,
+           "a refused first submission must reject the preset without readback");
+    Fixture mismatch(preset_settings());
+    mismatch.state_route(light("light.a", "off"));
+    mismatch.state_route(light("light.b"));
+    mismatch.service_route("light/turn_on");
+    mismatch.state_route(light("light.a", "off"));
+    mismatch.service_route("light/turn_off");
+    mismatch.state_route(light("light.b", "off"));
+    const auto unconfirmed = mismatch.call("home_lighting_preset", arguments);
+    expect(unconfirmed.at("status") == "requested_unconfirmed" && unconfirmed.at("confirmed") == false && unconfirmed.at("partial") == false &&
+               unconfirmed.at("results").at(0).at("confirmed") == false && unconfirmed.at("results").at(1).at("confirmed") == true && post_count(mismatch) == 2,
+           "an accepted but unconfirmed target must not stop the remaining targets");
+    for (const bool cancel : {false, true})
+    {
+        Fixture limited(preset_settings());
+        limited.state_route(light("light.a", "off"));
+        limited.state_route(light("light.b"));
+        limited.service_route("light/turn_on");
+        limited.state_route(evening_light());
+        const std::atomic<std::uint64_t> generation{cancel ? 1U : 0U};
+        const auto deadline = std::chrono::steady_clock::now() + (cancel ? std::chrono::hours(1) : -std::chrono::hours(1));
+        ScopedExecutionLimits limits(ExecutionLimits{deadline, &generation, 0});
+        const auto stopped = limited.call("home_lighting_preset", arguments);
+        expect(stopped.at("stop_reason") == (cancel ? "cancelled" : "deadline") && stopped.at("not_attempted") == Json::array({"light.b"}) &&
+                   stopped.at("partial") == true && stopped.at("confirmed") == false && !stopped.contains("effect_unknown") && post_count(limited) == 1,
+               "cancellation or an expired deadline must stop before the next submission without an unknown effect");
+    }
+}
+
+void test_sensor_summary_live_classification_and_units()
+{
+    Fixture fixture(summary_settings());
+    fixture.states_route(summary_states());
+    const auto summary = fixture.call("home_sensor_summary");
+    const auto &readings = summary.at("readings");
+    expect(summary.at("source") == "live" && summary.at("truncated") == false && summary.at("source_error").is_null() && readings.size() == 7,
+           "a live summary must group every supported kind");
+    const auto &temperatures = readings.at("temperature");
+    expect(temperatures.size() == 3 && temperatures.at(0).at("entity_id") == "sensor.fahrenheit" && temperatures.at(0).at("value") == 70.7 &&
+               temperatures.at(0).at("unit") == degrees("F") && temperatures.at(0).at("usable") == true && temperatures.at(2).at("value") == 21.5 &&
+               temperatures.at(2).at("unit") == degrees("C"),
+           "temperatures must keep their reported values and units without conversion");
+    expect(temperatures.at(1).at("entity_id") == "sensor.odd_unit" && temperatures.at(1).at("unit") == "degC" && temperatures.at(1).at("usable") == false &&
+               temperatures.at(1).at("reason") == "unit missing or unrecognized; no conversion attempted",
+           "an unrecognized unit must be reported unchanged and marked unusable");
+    expect(readings.at("humidity").at(0).at("usable") == false && readings.at("humidity").at(0).at("reason") == "reported percentage is outside 0 to 100",
+           "percentages outside 0 to 100 must not be usable");
+    const auto &batteries = readings.at("battery");
+    expect(batteries.size() == 2 && batteries.at(0).at("entity_id") == "binary_sensor.battery_low" && batteries.at(0).at("meaning") == "low_battery" &&
+               batteries.at(0).at("value").is_null() && batteries.at(0).at("unit").is_null() && batteries.at(1).at("availability") == "unavailable" &&
+               batteries.at(1).at("value").is_null() && batteries.at(1).at("usable") == false,
+           "unknown or unavailable batteries must have null values, never zero or false");
+    expect(readings.at("power").at(0).at("value") == 1250.5 && readings.at("power").at(0).at("unit") == "W" &&
+               readings.at("energy").at(0).at("value") == 3.25 && readings.at("energy").at(0).at("unit") == "kWh" &&
+               readings.at("energy").at(0).at("state_class") == "total_increasing",
+           "power and energy must keep their reported units and state class");
+    expect(readings.at("motion").size() == 2 && readings.at("motion").at(0).at("meaning") == "motion_detected" &&
+               readings.at("motion").at(0).at("value") == true && readings.at("motion").at(1).at("meaning") == "occupied" &&
+               readings.at("motion").at(1).at("value") == false && readings.at("leak").at(0).at("meaning") == "moisture_detected" &&
+               readings.at("leak").at(0).at("value") == true,
+           "motion, occupancy and moisture must be classified by device class");
+    expect(summary.at("unclassified") == Json::array({Json{{"entity_id", "binary_sensor.door"},
+                                                           {"availability", "available"},
+                                                           {"stale", false},
+                                                           {"reason", "no supported device_class was reported; no capability was inferred"}},
+                                                      Json{{"entity_id", "sensor.unclassified"},
+                                                           {"availability", "available"},
+                                                           {"stale", false},
+                                                           {"reason", "no supported device_class was reported; no capability was inferred"}}}),
+           "unsupported device classes must be reported without inference");
+    expect(summary.dump().find("sensor.hidden") == std::string::npos && summary.dump().find("light.a") == std::string::npos,
+           "the summary must include only exposed sensors");
+    fixture.states_route(summary_states());
+    const auto limited = fixture.call("home_sensor_summary", {{"kind", "motion"}, {"limit", 1}});
+    expect(limited.at("readings").at("motion").size() == 1 && limited.at("readings").at("temperature").empty() && limited.at("truncated") == true &&
+               limited.at("unclassified").empty(),
+           "kind filters and limits must cap the output");
+    fixture.states_route(summary_states());
+    const auto utility = fixture.call("home_sensor_summary", {{"room", "utility"}});
+    expect(utility.at("readings").at("power").size() == 1 && utility.at("readings").at("energy").size() == 1 && utility.at("readings").at("leak").size() == 1 &&
+               utility.at("readings").at("temperature").empty() && utility.at("unclassified").empty(),
+           "a room must restrict the summary to its members");
+    fixture.state_route(sensor("sensor.power", "10", "power", "kW"));
+    const auto single = fixture.call("home_sensor_summary", {{"entity_id", "sensor.power"}});
+    expect(single.at("readings").at("power").size() == 1 && single.at("readings").at("power").at(0).at("unit") == "kW" &&
+               single.at("readings").at("power").at(0).at("value") == 10.0,
+           "a single sensor summary must read only that entity");
+    for (const auto &arguments : std::vector<Json>{{{"entity_id", "light.a"}},
+                                                   {{"entity_id", "sensor.hidden"}},
+                                                   {{"entity_id", "sensor.temperature"}, {"room", "utility"}},
+                                                   {{"kind", "pressure"}},
+                                                   {{"source", "cached"}},
+                                                   {{"limit", 0}}})
+    {
+        expect_home_error(
+            [&]()
+            {
+                static_cast<void>(fixture.call("home_sensor_summary", arguments));
+            },
+            "invalid summary scope accepted");
+    }
+    expect(fixture.http.fake.requests.size() == 4 && post_count(fixture) == 0, "summaries must only read states and never act");
+}
+
+void test_sensor_summary_cached_staleness_and_scope()
+{
+    auto settings = summary_settings();
+    settings["poll"] = {{"enabled", true}, {"entities", {"sensor.temperature", "binary_sensor.leak", "sensor.power"}}, {"stale_after_seconds", 300}};
+    Fixture fixture(settings);
+    const auto before = fixture.call("home_sensor_summary", {{"source", "cached"}});
+    expect(before.at("source") == "cached" && before.at("unclassified").size() == 3 && before.at("unclassified").at(0).at("availability") == "not_observed" &&
+               before.at("unclassified").at(0).at("stale") == true && fixture.http.fake.requests.empty(),
+           "cached summaries must be offline and must not invent readings before a sample");
+    fixture.states_route(Json::array({sensor("sensor.temperature", "21.5", "temperature", degrees("C")), sensor("binary_sensor.leak", "off", "moisture"),
+                                      sensor("sensor.power", "5", "power", "W")}));
+    static_cast<void>(fixture.call("home_poll"));
+    const auto fresh = fixture.call("home_sensor_summary", {{"source", "cached"}});
+    expect(fresh.at("readings").at("temperature").at(0).at("usable") == true && fresh.at("readings").at("leak").at(0).at("value") == false &&
+               fresh.at("readings").at("power").at(0).at("observed_at") == timestamp(BASE_TIME) && fixture.http.fake.requests.size() == 1,
+           "cached readings must come from local snapshots");
+    fixture.now += 60;
+    fixture.states_route(Json::object(), 503);
+    expect_home_error(
+        [&]()
+        {
+            static_cast<void>(fixture.call("home_poll"));
+        },
+        "a failed sample must fail");
+    const auto degraded = fixture.call("home_sensor_summary", {{"source", "cached"}});
+    expect(degraded.at("source_error") == "home_http" && degraded.at("readings").at("temperature").at(0).at("stale") == false &&
+               degraded.at("readings").at("temperature").at(0).at("usable") == false && degraded.at("readings").at("temperature").at(0).at("value") == 21.5,
+           "a recorded poll error must make cached readings unusable even before they age");
+    fixture.now += 300;
+    const auto old = fixture.call("home_sensor_summary", {{"source", "cached"}, {"kind", "temperature"}});
+    expect(old.at("readings").at("temperature").at(0).at("stale") == true && old.at("readings").at("temperature").at(0).at("usable") == false &&
+               old.at("readings").at("power").empty(),
+           "aged cached readings must be stale and unusable");
+    expect_home_error(
+        [&]()
+        {
+            static_cast<void>(fixture.call("home_sensor_summary", {{"source", "cached"}, {"entity_id", "sensor.humidity"}}));
+        },
+        "a cached summary must not name a sensor outside the polling allowlist");
+    expect(fixture.http.fake.requests.size() == 2, "cached summaries must never contact the provider");
+}
+
+void test_runtime_unknown_submission_is_journaled_uncertain()
+{
+    HomeDirectory directory;
+    auto http = std::make_unique<HomeHttp>();
+    auto *fake = http.get();
+    Runtime runtime(home_configuration(directory), std::move(http),
+                    []()
+                    {
+                        return BASE_TIME;
+                    });
+    const auto binding = runtime.call("home_targets", Json::object()).at("data").at("binding");
+    const Json ambiguous = {{"binding", binding}, {"entity_id", "fan.room"}, {"percentage", 60}};
+    fake->fake.add("GET", std::string(BASE_URL) + "/api/states/fan.room", fan());
+    fake->fake.add("POST", std::string(BASE_URL) + "/api/services/fan/set_percentage", Json::array(), 503);
+    fake->fake.add("GET", std::string(BASE_URL) + "/api/states/fan.room", fan(60));
+    const auto uncertain = runtime.call("home_fan", ambiguous, Origin::human);
+    expect(uncertain.at("status") == "ok" && uncertain.at("data").at("effect_unknown") == true && uncertain.at("data").at("confirmed") == false,
+           "an unknown submission must return its report with a top-level unknown effect");
+    expect(uncertain.at("action").at("state") == "uncertain", "the shared journal must classify the declared unknown effect as uncertain");
+    expect(runtime.call("home_fan", ambiguous, Origin::human).at("status") == "denied" && fake->fake.requests.size() == 3,
+           "an identical request must be refused while the uncertain attempt is unreconciled");
+    fake->fake.add("GET", std::string(BASE_URL) + "/api/states/fan.room", fan());
+    fake->fake.add("POST", std::string(BASE_URL) + "/api/services/fan/set_percentage", Json::array());
+    fake->fake.add("GET", std::string(BASE_URL) + "/api/states/fan.room", fan(50));
+    const auto observed = runtime.call("home_fan", {{"binding", binding}, {"entity_id", "fan.room"}, {"percentage", 50}}, Origin::human);
+    check_observed(observed.at("data"));
+    expect(observed.at("action").at("state") == "succeeded", "an observed receipt without an unknown effect must be journaled as succeeded");
+}
 }  // namespace
 }  // namespace switchboard::test
 
@@ -1470,6 +2303,18 @@ int main()
         test_runtime_reload_rejects_stale_approval();
         test_runtime_credential_rotation_preserves_review_binding();
         test_runtime_policy_rechecked_on_approval_and_human_calls();
+        test_poll_and_preset_settings_are_strict();
+        test_poll_registration_job_and_status_before_baseline();
+        test_poll_silent_baseline_and_change_events();
+        test_poll_change_event_is_atomic_with_snapshot();
+        test_poll_failure_staleness_and_status();
+        test_poll_minimized_observations_and_source_namespace();
+        test_lighting_preset_binding_and_stale_configuration();
+        test_lighting_preset_individual_submissions_and_readback();
+        test_lighting_preset_partial_results_and_effect_unknown();
+        test_sensor_summary_live_classification_and_units();
+        test_sensor_summary_cached_staleness_and_scope();
+        test_runtime_unknown_submission_is_journaled_uncertain();
         std::cout << "native home tests passed\n";
         return 0;
     }

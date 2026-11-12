@@ -6,6 +6,9 @@ independently stored head hash to detect. Someone who can rewrite the whole file
 
 Records are redacted before writing: keys that look like credentials are replaced, and long strings
 are abbreviated with a prefix, length, and short hash. Short message bodies and prefixes remain personal data.
+
+Each append takes an exclusive ``flock`` on a freshly opened descriptor. Such locks belong to the open
+file description, so they serialize writers across threads of one process as well as across processes.
 """
 
 from __future__ import annotations
@@ -112,9 +115,14 @@ class AuditLog:
         return recent
 
     def head(self) -> str:
-        if not self.path.exists():
+        try:
+            fd = os.open(self.path, os.O_RDONLY)
+        except FileNotFoundError:
             return GENESIS
-        with self.path.open("rb") as handle:
+        with os.fdopen(fd, "rb") as handle:
+            if fcntl is not None:
+                # Appenders hold an exclusive lock: no thread or process reads a half-written line.
+                fcntl.flock(handle.fileno(), fcntl.LOCK_SH)
             last = _read_last_line(handle)
         return GENESIS if last is None else str(json.loads(last)["hash"])
 

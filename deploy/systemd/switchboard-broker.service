@@ -1,0 +1,57 @@
+# Switchboard broker: owns the configuration, credentials, database, and audit log under a dedicated
+# account. The assistant's account reaches only the client socket and your account only the operator
+# socket; see docs/ISOLATION.md for the accounts, groups, and configuration this unit expects.
+# Install as /etc/systemd/system/switchboard-broker.service. Authored, not yet started on any host.
+
+[Unit]
+Description=Switchboard broker (assistant and operator sockets)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=switchboard
+Group=switchboard
+# The broker must be a member of both socket groups to hand each socket to its group.
+SupplementaryGroups=switchboard-client switchboard-operator
+ExecStart=/opt/switchboard/.venv/bin/switchboard --config /etc/switchboard/config.toml broker serve --client-group switchboard-client --operator-group switchboard-operator
+Restart=on-failure
+RestartSec=10
+# On SIGTERM the broker lets a running tool call finish for [switchboard] tool_timeout_seconds plus 30
+# seconds (150 by default). Raise this if you raise the tool timeout.
+TimeoutStopSec=180
+Environment=SWITCHBOARD_LOG=INFO
+
+UMask=0077
+StateDirectory=switchboard
+StateDirectoryMode=0700
+# /run/switchboard: traversable, not listable; each socket is mode 660 and owned by its own group.
+RuntimeDirectory=switchboard
+RuntimeDirectoryMode=0711
+
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+ProtectProc=invisible
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+CapabilityBoundingSet=
+AmbientCapabilities=
+RemoveIPC=yes
+
+[Install]
+WantedBy=multi-user.target

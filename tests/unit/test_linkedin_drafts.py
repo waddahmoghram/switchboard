@@ -9,7 +9,7 @@ from typing import Any
 import pytest
 
 from switchboard.connectors.linkedin.drafts import MIGRATIONS, DraftStore, PublishState
-from switchboard.errors import ToolError
+from switchboard.errors import ToolError, UncertainOutcomeError
 from tests.conftest import AppFactory
 
 AUTHOR = "urn:li:person:SYNTHETIC"
@@ -148,3 +148,13 @@ def test_draft_event_has_metadata_but_no_body(store: DraftStore) -> None:
         "visibility": "PUBLIC",
         "characters": len(draft["text"]),
     }
+
+
+@pytest.mark.parametrize("state", ["PUBLISHED", "REFUSED", "UNKNOWN"])
+def test_recording_a_result_without_an_in_flight_claim_is_an_uncertain_outcome(
+    store: DraftStore, state: PublishState
+) -> None:
+    draft = _draft(store)
+    with pytest.raises(UncertainOutcomeError, match="reconcile delivery manually"):
+        store.finish(draft["draft_id"], state)
+    assert store.read(draft["draft_id"])["state"] == "DRAFT"

@@ -4,7 +4,7 @@
 connectors = ["wled"]
 
 [mcp]
-expose = ["switchboard_status", "approvals_*", "wled_*"]
+expose = ["switchboard_status", "approvals_*", "actions_recent", "wled_*"]
 
 [connectors.wled]
 timeout_seconds = 5

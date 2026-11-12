@@ -1,0 +1,2 @@
+device
+Digest realm="other", qop="auth", algorithm=SHA-256, nonce="abc"

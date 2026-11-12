@@ -18,7 +18,8 @@ Conditions: a plain value means *equals*; a table may combine ``equals``, ``cont
 
 Templates substitute ``{dotted.path}`` from ``{"event": …, "payload": …}``. A string that is exactly
 one placeholder keeps the value's type. ``{{`` and ``}}`` produce literal braces. Nothing is evaluated
-as code, and every action goes through the policy gate with origin ``rule``.
+as code, and every action goes through the policy gate with origin ``rule``. A non-read action whose
+outcome is unknown blocks identical repeats (same tool and arguments) until the user reconciles it.
 """
 
 from __future__ import annotations
@@ -122,7 +123,7 @@ def _check_condition(condition: Any, label: str) -> None:
     if "regex" in condition:
         try:
             re.compile(condition["regex"])
-        except re.error as exc:
+        except (re.error, OverflowError, RecursionError) as exc:
             raise ConfigError(f"{label}.regex: invalid regular expression") from exc
 
 
@@ -138,7 +139,7 @@ def lookup(context: Mapping[str, Any], dotted: str) -> Any:
     for part in dotted.split("."):
         if isinstance(node, Mapping) and part in node:
             node = node[part]
-        elif isinstance(node, list) and part.isdigit() and int(part) < len(node):
+        elif isinstance(node, list) and part.isascii() and part.isdigit() and int(part) < len(node):
             node = node[int(part)]
         else:
             return None
@@ -225,8 +226,14 @@ class RuleEngine:
             for action in rule.actions:
                 args = render(dict(action.get("args", {})), context)
                 outcome = self.dispatcher.call(str(action["tool"]), args, Origin.RULE)
+                journaled = {} if outcome.action is None else {"action": outcome.action["id"]}
                 self.audit.append(
-                    "rule.fired", rule=rule.name, event=event.id, tool=action["tool"], status=outcome.status
+                    "rule.fired",
+                    rule=rule.name,
+                    event=event.id,
+                    tool=action["tool"],
+                    status=outcome.status,
+                    **journaled,
                 )
                 if outcome.is_error and action.get("stop_on_error", True):
                     break

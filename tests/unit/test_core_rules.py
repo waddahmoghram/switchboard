@@ -9,7 +9,7 @@ import pytest
 from switchboard.errors import ConfigError
 from switchboard.events import Event
 from switchboard.policy import Tier
-from switchboard.rules import Rule, condition_holds, load_rules, matches, render
+from switchboard.rules import Rule, condition_holds, load_rules, lookup, matches, render
 from switchboard.tools import Tool
 from tests.conftest import AppFactory
 
@@ -119,6 +119,8 @@ def test_rule_engine_calls_tools_through_the_policy_gate(make_app: AppFactory) -
         {"in": "paid"},
         {"contains": 5},
         {"regex": "["},
+        {"regex": "a{99999999999999999999}"},
+        {"regex": "(" * 5000 + ")" * 5000},
         {"regex": False},
         {"gte": True},
         {"gte": "5"},
@@ -146,6 +148,13 @@ def test_invalid_conditions_fail_before_events_are_processed(condition: Any) -> 
 def test_unknown_rule_controls_are_not_silently_ignored(rule: dict[str, Any]) -> None:
     with pytest.raises(ConfigError):
         load_rules([rule])
+
+
+@pytest.mark.parametrize("segment", ["\u00b2", "\u0661", "1\u00b2"])
+def test_list_indexes_must_be_ascii_digits(segment: str) -> None:
+    context = {"payload": {"items": ["first", "second"]}}
+    assert lookup(context, "payload.items.1") == "second"
+    assert lookup(context, f"payload.items.{segment}") is None
 
 
 def test_rule_equality_does_not_confuse_boolean_flags_with_amounts() -> None:

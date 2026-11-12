@@ -122,7 +122,9 @@ including [its same-user shell-access limitation](../DEPLOYMENT.md#the-operating
 * A reply is claimed atomically. Duplicate approvals cannot send it twice. Confirmed rejection permits
   a later explicit attempt; uncertain network delivery, a server error, or missing confirmation leaves
   the item `unknown` and blocks automatic retry. A crash can leave `sending`, also blocked. Inspect
-  Telegram before deciding what to do; there is no automatic delivery-recovery command.
+  Telegram before deciding what to do; there is no automatic delivery-recovery command. The core action
+  journal records the same attempt as `uncertain`; `switchboard actions resolve` records what you found
+  there, but it does not change the inbox item's `unknown` state or send anything.
 * While the runner operates, maintenance clears old inbox text according to `retention_days`; stopping
   the runner stops cleanup. Minimal identifiers, reply hashes, and deduplication records remain. Approvals,
   reply arguments, and your external assistant can retain separate copies. Protect the data directory.

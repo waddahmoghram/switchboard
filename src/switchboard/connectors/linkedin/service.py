@@ -19,7 +19,7 @@ from switchboard.connectors.linkedin.settings import (
     load_settings,
 )
 from switchboard.context import AppContext
-from switchboard.errors import ConfigError, SecretError, ToolError
+from switchboard.errors import ConfigError, SecretError, ToolError, UncertainOutcomeError
 from switchboard.policy import Tier
 from switchboard.tools import Tool
 from switchboard.util import canonical_json, truncate
@@ -162,7 +162,7 @@ class LinkedInService:
         except Exception:
             # Transport exceptions can include credentials, and cannot prove whether delivery occurred.
             self.store.finish(args["draft_id"], "UNKNOWN", reason="transport_error")
-            raise ToolError(
+            raise UncertainOutcomeError(
                 "LinkedIn delivery is UNKNOWN after a transport failure; "
                 "inspect your profile; no retry is allowed"
             ) from None
@@ -186,7 +186,7 @@ class LinkedInService:
         self.store.finish(
             args["draft_id"], "UNKNOWN", http_status=response.status, reason="unconfirmed_delivery"
         )
-        raise ToolError(
+        raise UncertainOutcomeError(
             "LinkedIn delivery is UNKNOWN without reliable confirmation; "
             "inspect your profile; no retry is allowed"
         )

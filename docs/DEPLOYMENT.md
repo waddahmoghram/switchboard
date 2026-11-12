@@ -9,10 +9,12 @@ The policy gate controls calls through Switchboard, not arbitrary programs runni
 request. An assistant with unrestricted shell or file access under the same account can approve itself,
 remove the kill-switch file, read credentials, or bypass Switchboard entirely.
 
-Use the gate only with clients you trust to respect this boundary. Stronger separation requires a dedicated
-operating-system account or isolated machine with a carefully restricted bridge; this version does not
-provide that deployment automatically. The tool exposure list is also not a multi-user data-permission
-system: the approval queue is shared by processes using the same data directory.
+Use the gate only with clients you trust to respect this boundary. Stronger separation requires separate
+operating-system accounts: the optional broker keeps the configuration, credentials, and data under a
+dedicated service account and gives the assistant and the operator separate local sockets. It is authored but
+not yet exercised; see [Isolation](./ISOLATION.md) for its setup and limits. The tool exposure list is also
+not a multi-user data-permission system: the approval queue is shared by processes using the same data
+directory.
 
 Self-hosting removes the aggregator, not the model provider. A hosted assistant can receive tool results
 containing mail, contacts, purchases, and ledger entries. Use a local model and a client configured not to
@@ -229,20 +231,27 @@ systemctl --user enable --now switchboard.service
 journalctl --user -u switchboard.service -f
 ```
 
-Jobs run sequentially in this runner. Intervals are minimum spacing, not maximum response or reminder
-delays. A slow provider request, name lookup or filesystem check can delay other jobs; this version has
-no worker pool or whole-job deadline.
+Each job run has a deadline (`[switchboard] job_timeout_seconds`, default 300), and up to `job_workers`
+(default 4) jobs run at once, never two from the same connector. Web requests inside a run are cut off at
+the deadline; other code cannot be interrupted, so a run stuck past it is reported and not restarted until it
+returns. Intervals are minimum spacing, not maximum response or reminder delays. The first `SIGINT` or
+`SIGTERM` stops scheduling and waits for running jobs within their deadlines; a second exits immediately.
+`switchboard run --once` runs every job once and exits with status 1 when a job failed, got stuck, or did not
+start. See [Recovery](./RECOVERY.md#the-runner).
+
+For separate service, assistant, and operator accounts, use the system units in
+[deploy/systemd](../deploy/systemd/) instead of this user unit; [Isolation](./ISOLATION.md) walks through them.
 
 The webhook receiver is a separate, optional process (`switchboard webhooks serve`). It binds to `127.0.0.1`;
 see [webhooks](./connectors/webhooks.md) before exposing it through a tunnel.
 
 ## Back up, revoke, and stop
 
-* Back up `~/.config/switchboard/` and the data directory (`~/.local/share/switchboard/` by default). They contain
-  personal data: encrypt the backup. For a cold copy, stop the runner and webhook receiver and close every
-  assistant-owned server first. Do not copy just a live database file: uncheckpointed changes may be in its
-  `-wal` companion. A live database backup needs SQLite's backup interface and a separate plan for the
-  concurrently changing audit log and other files.
+* Back up with `switchboard backup create DIR`: it copies the database through SQLite's online backup
+  interface and the audit log at a record boundary while the runner keeps working, then writes a manifest.
+  Check a copy with `switchboard backup verify DIR`, and keep the printed audit head somewhere Switchboard
+  cannot write. Back up `~/.config/switchboard/` separately; backups never include configuration or secrets.
+  Both contain personal data: encrypt them. See [Data lifecycle](./DATA_LIFECYCLE.md).
 * Block non-read tool calls with `switchboard kill-switch on`. This does not stop polling, read tools, price
   fetches, or inbound webhooks. Stop their processes or disable their connectors to stop that activity.
 * Revoke at the source: delete app passwords, revoke OAuth grants, rotate bot tokens and webhook secrets, and
@@ -253,6 +262,7 @@ see [webhooks](./connectors/webhooks.md) before exposing it through a tunnel.
 
 ```bash
 uv run switchboard events --failed -n 50
+uv run switchboard actions list --state uncertain
 uv run switchboard approvals list --all
 uv run switchboard audit tail -n 50
 ```
@@ -262,18 +272,25 @@ error outcome to a rule is recorded separately as `rule.fired` in the audit log.
 automatically. Do not blindly replay a partially processed event: another subscriber or an earlier action
 may already have succeeded.
 
-An approval left at `approved` after a crash has an uncertain execution outcome; inspect the provider and
-audit record before submitting a replacement. A process interrupted during a rate-limited call leaves an
+Every draft and act call is recorded in the action journal before it runs. A call whose effect is unknown,
+including one interrupted by a crash, becomes `uncertain`, and an identical request is refused until you
+check the provider or device and record the result with `switchboard actions resolve ID --applied` or
+`--not-applied`. Resolving records your decision; it never repeats or reverses anything. See
+[Recovery](./RECOVERY.md#reconciliation-workflow). A process interrupted during a rate-limited call leaves an
 in-flight reservation that counts until its one-hour window passes.
 
-The default 14-day event retention is not a general data-deletion policy. Processed event payloads are
-deleted or emptied; deduplication keys can remain. Approval arguments and results, audit records, contact
-caches, ledger data, tokens, and imported files are not all automatically purged. Original bank statements
-in `processed/` and `failed/` can contain full account numbers even though the ledger masks them. Protect and
-delete or archive these deliberately.
+Retention is explicit. `switchboard data purge` applies the `[retention]` periods to tool-call rows,
+approvals, and finished journal entries, and connector hooks remove connector data only for connectors you
+list under `[retention.connectors]`; `--dry-run` counts first. It never removes open journal entries or
+approvals that can still be decided, and it is not scheduled. Processed event payloads are pruned after
+`event_retention_days` (14 by default), keeping deduplication keys. Data without a hook, such as mail cursors,
+contact caches, and imported files, is not purged. Original bank statements in `processed/` and `failed/` can
+contain full account numbers even though the ledger masks them; see
+[Data lifecycle](./DATA_LIFECYCLE.md#retention).
 
 Audit verification detects changed records and interior deletions, but cannot detect removal of a valid
-tail unless you compare with an independently saved head hash. It cannot stop the same user rewriting the
-entire chain.
+tail unless you compare with an independently saved head hash, such as the one `backup create` prints. It
+cannot stop the same user rewriting the entire chain. `switchboard audit-archive rotate` archives a long log
+and keeps the chain linked.
 
 Backup reference: [SQLite online backup interface](https://www.sqlite.org/backup.html), checked 2026-11-11.

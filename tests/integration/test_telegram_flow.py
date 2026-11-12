@@ -53,6 +53,7 @@ def test_replies_wait_for_exact_approval_and_are_bound_to_the_source_chat(
     sent = app.dispatcher.approve(pending.approval_id)
 
     assert sent.status == "ok" and sent.data["status"] == "sent"
+    assert sent.action is not None and sent.action["state"] == "succeeded"
     [request] = [request for request in fake_http.requests if request.url.endswith("/sendMessage")]
     payload = json.loads(request.body or b"{}")
     assert payload["chat_id"] == CHAT_ID and payload["text"] == args["text"]
@@ -72,7 +73,9 @@ def test_duplicate_queued_replies_cannot_send_twice(
     assert first.approval_id and second.approval_id
     respond(fake_http, "sendMessage", {"message_id": 900, "chat": {"id": CHAT_ID}})
     assert app.dispatcher.approve(first.approval_id).status == "ok"
-    assert app.dispatcher.approve(second.approval_id).status == "error"
+    duplicate = app.dispatcher.approve(second.approval_id)
+    assert duplicate.status == "error"
+    assert duplicate.action is not None and duplicate.action["state"] == "failed"
     assert sum(request.url.endswith("/sendMessage") for request in fake_http.requests) == 1
 
 
@@ -84,12 +87,19 @@ def test_uncertain_delivery_is_not_automatically_retried(
     pending = app.call("telegram_reply", args, Origin.ASSISTANT)
     assert pending.approval_id
     fake_http.add_error("POST", BASE + "sendMessage", "simulated timeout")
-    assert app.dispatcher.approve(pending.approval_id).status == "error"
+    first = app.dispatcher.approve(pending.approval_id)
+    assert first.status == "error"
+    assert first.action is not None and first.action["state"] == "uncertain"
     status = app.call("telegram_read", {"id": message["id"]}, Origin.ASSISTANT).data
     assert status["reply_state"] == "unknown"
     again = app.call("telegram_reply", args, Origin.ASSISTANT)
     assert again.approval_id
-    assert app.dispatcher.approve(again.approval_id).status == "error"
+    blocked = app.dispatcher.approve(again.approval_id)
+    assert blocked.status == "denied" and blocked.action is None
+    assert first.action["id"] in blocked.message
+    stored = app.approvals.get(again.approval_id)
+    assert stored is not None and stored.status == "failed"
+    assert stored.error is not None and first.action["id"] in stored.error
     assert sum(request.url.endswith("/sendMessage") for request in fake_http.requests) == 1
 
 
@@ -102,7 +112,9 @@ def test_confirmation_for_the_wrong_chat_is_not_success(
     )
     assert pending.approval_id
     respond(fake_http, "sendMessage", {"message_id": 900, "chat": {"id": 222}})
-    assert app.dispatcher.approve(pending.approval_id).status == "error"
+    outcome = app.dispatcher.approve(pending.approval_id)
+    assert outcome.status == "error"
+    assert outcome.action is not None and outcome.action["state"] == "uncertain"
     assert app.call("telegram_read", {"id": message["id"]}, Origin.ASSISTANT).data["reply_state"] == "unknown"
 
 

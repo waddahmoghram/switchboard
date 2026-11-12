@@ -3,14 +3,17 @@
 #include <algorithm>
 #include <array>
 #include <cctype>
+#include <charconv>
 #include <cmath>
 #include <cstdint>
+#include <cstdio>
 #include <map>
 #include <memory>
 #include <optional>
 #include <set>
 #include <string>
 #include <string_view>
+#include <system_error>
 #include <utility>
 #include <vector>
 
@@ -21,6 +24,10 @@ namespace
 constexpr std::size_t HOME_READ_BYTES = 1024 * 1024;
 constexpr std::size_t HOME_WRITE_BYTES = 65536;
 constexpr std::int64_t HOME_TIMEOUT_SECONDS = 15;
+constexpr std::int64_t POLL_STALE_MAXIMUM = 259200;
+constexpr std::size_t SNAPSHOT_BYTES = 8192;
+constexpr std::size_t PRESET_TARGETS = 16;
+constexpr std::array<const char *, 7> SENSOR_KINDS{"temperature", "humidity", "motion", "leak", "battery", "power", "energy"};
 constexpr std::int64_t FAN_SET_SPEED = 1;
 constexpr std::int64_t CLIMATE_TEMPERATURE = 1;
 constexpr std::int64_t CLIMATE_RANGE = 2;
@@ -185,6 +192,14 @@ std::string endpoint(std::string value, const bool allow_http)
     return value;
 }
 
+struct PollSettings
+{
+    bool enabled = false;
+    std::vector<std::string> entities;
+    std::int64_t interval_seconds = 60;
+    std::int64_t stale_after_seconds = 300;
+};
+
 struct HomeSettings
 {
     std::string base_url;
@@ -192,6 +207,8 @@ struct HomeSettings
     bool allow_http = false;
     Json reviewed;
     std::string binding;
+    std::string source;
+    PollSettings poll;
 
     [[nodiscard]] bool visible(const std::string &identifier) const
     {
@@ -200,10 +217,111 @@ struct HomeSettings
     }
 };
 
+PollSettings load_poll(const Json &input, const HomeSettings &settings)
+{
+    check_object(input, {"enabled", "entities", "interval_seconds", "stale_after_seconds"});
+    PollSettings poll;
+    poll.enabled = boolean_field(input, "enabled");
+    poll.interval_seconds = integer_field(input, "interval_seconds", 30, 86400, 60);
+    poll.stale_after_seconds =
+        integer_field(input, "stale_after_seconds", poll.interval_seconds, POLL_STALE_MAXIMUM, std::max<std::int64_t>(300, 3 * poll.interval_seconds));
+    poll.entities = string_set(
+                        input.value("entities", Json::array()), 200, poll.enabled,
+                        [&settings](const std::string &identifier)
+                        {
+                            return settings.visible(identifier);
+                        },
+                        "home poll entities")
+                        .get<std::vector<std::string>>();
+    return poll;
+}
+
+Json preset_target(const Json &value)
+{
+    check_object(value, {"state", "brightness_pct", "rgb_color", "color_temp_kelvin"}, {"state"});
+    const auto state = string_field(value, "state", 3, true, 2);
+    if (state != "on" && state != "off")
+    {
+        home_error("home lighting preset state must be on or off");
+    }
+    Json result = {{"state", state}};
+    if (value.contains("brightness_pct"))
+    {
+        result["brightness_pct"] = integer_field(value, "brightness_pct", 1, 100, 1);
+    }
+    if (value.contains("color_temp_kelvin"))
+    {
+        result["color_temp_kelvin"] = integer_field(value, "color_temp_kelvin", 1000, 20000, 1000);
+    }
+    if (value.contains("rgb_color"))
+    {
+        const auto &color = value.at("rgb_color");
+        if (!color.is_array() || color.size() != 3 ||
+            !std::all_of(color.begin(), color.end(),
+                         [](const Json &channel)
+                         {
+                             return channel.is_number_integer() && channel.get<double>() >= 0 && channel.get<double>() <= 255;
+                         }))
+        {
+            home_error("home lighting preset rgb_color needs three integer channels from 0 to 255");
+        }
+        Json channels = Json::array();
+        for (const auto &channel : color)
+        {
+            channels.push_back(channel.get<std::int64_t>());
+        }
+        result["rgb_color"] = std::move(channels);
+    }
+    if (result.contains("rgb_color") && result.contains("color_temp_kelvin"))
+    {
+        home_error("home lighting preset targets cannot mix rgb_color and color_temp_kelvin");
+    }
+    if (state == "off" && result.size() > 1)
+    {
+        home_error("home lighting preset off targets cannot set brightness or color");
+    }
+    return result;
+}
+
+Json load_presets(const Json &input, const HomeSettings &settings)
+{
+    if (!input.is_object() || input.size() > 100)
+    {
+        home_error("home lighting_presets must be an object with at most 100 presets");
+    }
+    Json result = Json::object();
+    for (const auto &[name, preset] : input.items())
+    {
+        if (!slug(name))
+        {
+            home_error("home lighting preset names must be lowercase names of at most 64 characters");
+        }
+        check_object(preset, {"targets"}, {"targets"});
+        const auto &targets = preset.at("targets");
+        if (!targets.is_object() || targets.empty() || targets.size() > PRESET_TARGETS)
+        {
+            home_error("home lighting preset targets must map 1 to 16 reviewed lights to their states");
+        }
+        Json normalized = Json::object();
+        for (const auto &[identifier, state] : targets.items())
+        {
+            if (!includes(settings.reviewed.at("lights"), identifier))
+            {
+                home_error("home lighting preset targets must be exact reviewed lights");
+            }
+            normalized[identifier] = preset_target(state);
+        }
+        const auto fingerprint = hash({{"component", "home_lighting_preset"}, {"native_preset_version", 1}, {"targets", normalized}});
+        result[name] = {{"fingerprint", fingerprint}, {"targets", std::move(normalized)}};
+    }
+    return result;
+}
+
 HomeSettings load_home(const Json &input)
 {
-    check_object(input, {"base_url", "token", "allow_http", "expose", "deny_domains", "lights", "rooms", "climate", "fans", "media_players"},
-                 {"base_url", "token"});
+    check_object(
+        input, {"base_url", "token", "allow_http", "expose", "deny_domains", "lights", "rooms", "climate", "fans", "media_players", "lighting_presets", "poll"},
+        {"base_url", "token"});
     HomeSettings settings;
     settings.allow_http = boolean_field(input, "allow_http");
     settings.base_url = endpoint(string_field(input, "base_url", 2048, true, 1), settings.allow_http);
@@ -250,7 +368,8 @@ HomeSettings load_home(const Json &input)
                          {"rooms", Json::object()},
                          {"climate", Json::object()},
                          {"fans", Json::object()},
-                         {"media_players", Json::object()}};
+                         {"media_players", Json::object()},
+                         {"lighting_presets", Json::object()}};
     const auto approved_entities = [&settings](const Json &value, const std::string &domain, const bool nonempty, const std::string &label)
     {
         return string_set(
@@ -332,11 +451,14 @@ HomeSettings load_home(const Json &input)
             settings.reviewed[table_name][identifier] = std::move(normalized);
         }
     }
+    settings.reviewed["lighting_presets"] = load_presets(input.value("lighting_presets", Json::object()), settings);
+    settings.poll = load_poll(input.value("poll", Json::object()), settings);
     settings.binding = hash({{"component", "home"},
-                             {"native_binding_version", 1},
+                             {"native_binding_version", 2},
                              {"base_url", settings.base_url},
                              {"allow_http", settings.allow_http},
                              {"reviewed", settings.reviewed}});
+    settings.source = hash({{"component", "home_source"}, {"base_url", settings.base_url}});
     return settings;
 }
 
@@ -466,6 +588,151 @@ Json observation(const Json &raw, const std::string &observed_at)
             {"observed_at", observed_at}};
 }
 
+Json missing_observation(const std::string &identifier, const std::string &observed_at)
+{
+    return {{"entity_id", identifier},  {"state", nullptr},        {"attributes", Json::object()}, {"availability", "missing"},
+            {"reported_leaf", nullptr}, {"last_changed", nullptr}, {"last_updated", nullptr},      {"observed_at", observed_at}};
+}
+
+Json bounded_snapshot(Json snapshot)
+{
+    // Two snapshots plus the envelope must fit the core's 20,000-byte event payload bound.
+    if (snapshot.dump().size() > SNAPSHOT_BYTES)
+    {
+        snapshot["attributes"] = Json::object();
+        snapshot["attributes_omitted"] = true;
+    }
+    return snapshot;
+}
+
+Json comparable(const Json &snapshot)
+{
+    return {{"state", snapshot.value("state", Json())},
+            {"attributes", snapshot.value("attributes", Json::object())},
+            {"attributes_omitted", snapshot.value("attributes_omitted", false)},
+            {"availability", snapshot.value("availability", Json())},
+            {"reported_leaf", snapshot.value("reported_leaf", Json())}};
+}
+
+bool sensor_domain(const std::string &identifier)
+{
+    const auto domain = domain_of(identifier);
+    return domain == "sensor" || domain == "binary_sensor";
+}
+
+std::optional<double> numeric_state(const Json &state)
+{
+    if (!state.is_string() || state.get_ref<const std::string &>().empty())
+    {
+        return std::nullopt;
+    }
+    const auto &text = state.get_ref<const std::string &>();
+    double value = 0;
+    const auto *end = text.data() + text.size();
+    const auto [last, failure] = std::from_chars(text.data(), end, value);
+    if (failure != std::errc() || last != end || !std::isfinite(value))
+    {
+        return std::nullopt;
+    }
+    return value == 0 ? 0.0 : value;
+}
+
+std::optional<Json> sensor_reading(const Json &snapshot, const bool source_failed)
+{
+    static const std::string degree = "\xc2\xb0";
+    static const std::map<std::string, std::pair<std::string, std::string>> binary{{"battery", {"battery", "low_battery"}},
+                                                                                   {"moisture", {"leak", "moisture_detected"}},
+                                                                                   {"motion", {"motion", "motion_detected"}},
+                                                                                   {"occupancy", {"motion", "occupied"}}};
+    static const std::map<std::string, std::set<std::string>> units{
+        {"temperature", {degree + "C", degree + "F", "K"}},
+        {"humidity", {"%"}},
+        {"battery", {"%"}},
+        {"power", {"mW", "W", "kW", "MW", "GW", "TW"}},
+        {"energy", {"J", "kJ", "MJ", "GJ", "mWh", "Wh", "kWh", "MWh", "GWh", "TWh", "cal", "kcal", "Mcal", "Gcal", "thm"}}};
+    const auto identifier = snapshot.at("entity_id").get<std::string>();
+    const auto attributes = snapshot.value("attributes", Json::object());
+    const auto device_class = attributes.value("device_class", Json());
+    if (!device_class.is_string())
+    {
+        return std::nullopt;
+    }
+    const auto state = snapshot.value("state", Json());
+    Json unit = attributes.value("unit_of_measurement", Json());
+    Json value;
+    Json meaning;
+    Json reason;
+    std::string kind;
+    if (domain_of(identifier) == "binary_sensor")
+    {
+        const auto found = binary.find(device_class.get<std::string>());
+        if (found == binary.end())
+        {
+            return std::nullopt;
+        }
+        kind = found->second.first;
+        meaning = found->second.second;
+        unit = nullptr;
+        if (state == "on" || state == "off")
+        {
+            value = state == "on";
+        }
+        else
+        {
+            reason = "no known binary state";
+        }
+    }
+    else
+    {
+        const auto found = units.find(device_class.get<std::string>());
+        if (found == units.end())
+        {
+            return std::nullopt;
+        }
+        kind = found->first;
+        const auto numeric = numeric_state(state);
+        if (!numeric)
+        {
+            reason = "no finite numeric reading";
+        }
+        else
+        {
+            value = *numeric;
+            if (!unit.is_string() || !found->second.contains(unit.get<std::string>()))
+            {
+                reason = "unit missing or unrecognized; no conversion attempted";
+            }
+            else if ((kind == "battery" || kind == "humidity") && (*numeric < 0 || *numeric > 100))
+            {
+                reason = "reported percentage is outside 0 to 100";
+            }
+        }
+    }
+    const auto availability = snapshot.value("availability", Json());
+    const bool current = availability == "available";
+    const bool is_stale = snapshot.value("stale", true);
+    return Json{{"entity_id", identifier},
+                {"kind", kind},
+                {"device_class", device_class},
+                {"state_class", attributes.value("state_class", Json())},
+                {"state", state},
+                {"value", current ? value : Json()},
+                {"unit", unit},
+                {"meaning", meaning},
+                {"availability", availability},
+                {"stale", is_stale},
+                {"usable", current && !is_stale && !source_failed && reason.is_null()},
+                {"reason", reason},
+                {"observed_at", snapshot.value("observed_at", Json())},
+                {"last_updated", snapshot.value("last_updated", Json())}};
+}
+
+std::string failure_code(const std::exception &error)
+{
+    const auto *typed = dynamic_cast<const Error *>(&error);
+    return typed != nullptr && slug(typed->code(), 32) ? typed->code() : std::string("internal");
+}
+
 Json identifier_schema(const Json &allowed)
 {
     // The schema subset needs a nonempty enum; "" cannot pass the entity pattern.
@@ -492,15 +759,35 @@ class Home
 public:
     Home(Context &context, HomeSettings settings) : context_(context), settings_(std::move(settings))
     {
+        Transaction transaction(context_.db);
+        context_.db.execute("CREATE TABLE IF NOT EXISTS native_home_snapshots ("
+                            "source TEXT NOT NULL CHECK(length(source) = 64), "
+                            "entity_id TEXT NOT NULL CHECK(length(CAST(entity_id AS BLOB)) BETWEEN 3 AND 255), "
+                            "snapshot_json TEXT NOT NULL, observed_at INTEGER NOT NULL, "
+                            "revision INTEGER NOT NULL CHECK(revision BETWEEN 1 AND 9007199254740991), "
+                            "PRIMARY KEY (source, entity_id))");
+        context_.db.execute("CREATE TABLE IF NOT EXISTS native_home_poll_status ("
+                            "source TEXT PRIMARY KEY CHECK(length(source) = 64), "
+                            "attempted_at INTEGER NOT NULL, succeeded_at INTEGER, error TEXT, "
+                            "consecutive_failures INTEGER NOT NULL CHECK(consecutive_failures BETWEEN 0 AND 9007199254740991))");
+        transaction.commit();
+    }
+
+    [[nodiscard]] bool polling() const
+    {
+        return settings_.poll.enabled;
+    }
+
+    [[nodiscard]] std::int64_t poll_interval() const
+    {
+        return settings_.poll.interval_seconds;
     }
 
     [[nodiscard]] Json action_schema(const std::string &name) const
     {
         const auto table_name = name == "home_lights" ? "lights" : (name == "home_climate" ? "climate" : (name == "home_fan" ? "fans" : "media_players"));
         const Json allowed = name == "home_lights" ? settings_.reviewed.at(table_name) : keys(settings_.reviewed.at(table_name));
-        Json properties = {
-            {"binding", {{"type", "string"}, {"minLength", 64}, {"maxLength", 64}, {"pattern", "^[0-9a-f]{64}$"}, {"enum", Json::array({settings_.binding})}}},
-            {"room", room_schema()}};
+        Json properties = {{"binding", binding_schema()}, {"room", room_schema()}};
         if (name == "home_lights")
         {
             properties["entity_ids"] = {{"type", "array"}, {"items", identifier_schema(allowed)}, {"minItems", 1}, {"maxItems", 16}};
@@ -545,6 +832,51 @@ public:
         return object_schema({{"entity_id", identifier_schema(visible_entities())}, {"room", room_schema()}}, {"entity_id"});
     }
 
+    [[nodiscard]] Json summary_schema() const
+    {
+        Json sensors = Json::array();
+        for (const auto &identifier : visible_entities())
+        {
+            if (sensor_domain(identifier.get<std::string>()))
+            {
+                sensors.push_back(identifier);
+            }
+        }
+        Json kinds = Json::array();
+        for (const auto *kind : SENSOR_KINDS)
+        {
+            kinds.push_back(kind);
+        }
+        return object_schema({{"entity_id", identifier_schema(sensors)},
+                              {"room", room_schema()},
+                              {"source", {{"type", "string"}, {"enum", {"live", "cached"}}}},
+                              {"kind", {{"type", "string"}, {"enum", kinds}}},
+                              {"limit", {{"type", "integer"}, {"minimum", 1}, {"maximum", 200}}}});
+    }
+
+    [[nodiscard]] Json preset_schema() const
+    {
+        const auto &presets = settings_.reviewed.at("lighting_presets");
+        const auto names = keys(presets);
+        Json fingerprints = Json::array();
+        for (const auto &[name, preset] : presets.items())
+        {
+            static_cast<void>(name);
+            fingerprints.push_back(preset.at("fingerprint"));
+        }
+        return object_schema(
+            {{"binding", binding_schema()},
+             {"name",
+              {{"type", "string"}, {"minLength", 1}, {"maxLength", 64}, {"pattern", "^[a-z0-9_]{1,64}$"}, {"enum", names.empty() ? Json::array({""}) : names}}},
+             {"fingerprint",
+              {{"type", "string"},
+               {"minLength", 64},
+               {"maxLength", 64},
+               {"pattern", "^[0-9a-f]{64}$"},
+               {"enum", fingerprints.empty() ? Json::array({""}) : fingerprints}}}},
+            {"binding", "name", "fingerprint"});
+    }
+
     [[nodiscard]] Json targets(const Json &arguments) const
     {
         validate(arguments, object_schema(Json::object()));
@@ -552,6 +884,8 @@ public:
         result["binding"] = settings_.binding;
         result["room_targeting"] = "explicit entities only; room restricts targets and never expands them";
         result["capabilities_source"] = "home_capabilities reads reported state attributes; execution rechecks them";
+        result["preset_execution"] = "every target is preflighted, then one light request per target in entity order; "
+                                     "a rejected or unknown submission stops the rest; never scenes or scripts";
         result["physical_delivery_verified"] = false;
         return result;
     }
@@ -572,20 +906,9 @@ public:
         }
         else
         {
-            const auto response = get("/api/states");
-            if (!response.is_array() || response.size() > 10000)
+            for (const auto &raw : read_all_states())
             {
-                home_error("Home Assistant returned an invalid or excessive states list");
-            }
-            std::set<std::string> seen;
-            for (const auto &raw : response)
-            {
-                check_state(raw);
                 const auto identifier = raw.at("entity_id").get<std::string>();
-                if (!seen.insert(identifier).second)
-                {
-                    home_error("Home Assistant returned duplicate states");
-                }
                 if (!settings_.visible(identifier) ||
                     (arguments.contains("room") && !includes(settings_.reviewed.at("rooms").at(arguments.at("room").get<std::string>()), identifier)) ||
                     (arguments.contains("domain") && domain_of(identifier) != arguments.at("domain")))
@@ -666,10 +989,7 @@ public:
 
     [[nodiscard]] Json action(const std::string &name, const Json &arguments)
     {
-        if (arguments.is_object() && arguments.contains("binding") && arguments.at("binding").is_string() && arguments.at("binding") != settings_.binding)
-        {
-            throw Error("home_binding", "home configuration changed; read home_targets and request new approval");
-        }
+        require_binding(arguments);
         validate(arguments, action_schema(name));
         HomePlan plan;
         if (name == "home_lights")
@@ -688,10 +1008,440 @@ public:
         {
             plan = media_plan(arguments);
         }
-        return execute(plan);
+        return submit(plan, submission(plan));
+    }
+
+    [[nodiscard]] Json lighting_preset(const Json &arguments)
+    {
+        require_binding(arguments);
+        const auto &presets = settings_.reviewed.at("lighting_presets");
+        if (arguments.is_object() && arguments.contains("name") && arguments.at("name").is_string() && arguments.contains("fingerprint") &&
+            arguments.at("fingerprint").is_string())
+        {
+            const auto requested = arguments.at("name").get<std::string>();
+            if (!presets.contains(requested) || presets.at(requested).at("fingerprint") != arguments.at("fingerprint"))
+            {
+                throw Error("home_preset", "the lighting preset is missing or changed; read home_targets before requesting it again");
+            }
+        }
+        validate(arguments, preset_schema());
+        const auto name = arguments.at("name").get<std::string>();
+        const auto &preset = presets.at(name);
+        std::vector<HomePlan> plans;
+        std::vector<HttpRequest> inputs;
+        for (const auto &[identifier, state] : preset.at("targets").items())
+        {
+            auto target = state;
+            target["entity_ids"] = Json::array({identifier});
+            plans.push_back(light_plan(target));
+            inputs.push_back(submission(plans.back()));
+        }
+        Json results = Json::array();
+        Json stop_reason;
+        std::size_t accepted = 0;
+        bool unknown = false;
+        bool readback = false;
+        bool matched = true;
+        std::size_t index = 0;
+        for (; index < plans.size(); ++index)
+        {
+            const auto limits = current_execution_limits();
+            if (index > 0 && limits && (limits->cancelled() || limits->expired()))
+            {
+                stop_reason = limits->cancelled() ? "cancelled" : "deadline";
+                break;
+            }
+            auto result = submit(plans[index], inputs[index]);
+            const auto request_status = result.at("request_status").get<std::string>();
+            accepted += request_status == "accepted" ? 1 : 0;
+            unknown = unknown || request_status == "unknown";
+            readback = readback || result.contains("confirmed");
+            matched = matched && result.value("confirmed", false);
+            results.push_back(std::move(result));
+            if (request_status != "accepted")
+            {
+                stop_reason = request_status;
+                ++index;
+                break;
+            }
+        }
+        Json not_attempted = Json::array();
+        for (; index < plans.size(); ++index)
+        {
+            not_attempted.push_back(plans[index].entities.front());
+        }
+        const bool confirmed = readback && matched && not_attempted.empty();
+        const bool rejected = accepted == 0 && stop_reason == "rejected";
+        Json report = {{"name", name},
+                       {"fingerprint", preset.at("fingerprint")},
+                       {"entity_ids", keys(preset.at("targets"))},
+                       {"status", rejected ? "rejected" : (confirmed ? "observed" : "requested_unconfirmed")},
+                       {"partial", accepted > 0 && accepted < plans.size()},
+                       {"results", results},
+                       {"not_attempted", not_attempted},
+                       {"stop_reason", stop_reason},
+                       {"atomic", false},
+                       {"physical_delivery_verified", false},
+                       {"confirmation_scope", "reported requested state of each submitted light; not physical completion or causal proof"},
+                       {"retry_safe", false}};
+        if (readback)
+        {
+            report["confirmed"] = confirmed;
+        }
+        if (unknown)
+        {
+            report["effect_unknown"] = true;
+        }
+        return report;
+    }
+
+    [[nodiscard]] std::string preset_summary(const Json &arguments) const
+    {
+        const auto &presets = settings_.reviewed.at("lighting_presets");
+        std::string targets = "{}";
+        if (arguments.is_object() && arguments.contains("name") && arguments.at("name").is_string() &&
+            presets.contains(arguments.at("name").get<std::string>()))
+        {
+            targets = presets.at(arguments.at("name").get<std::string>()).at("targets").dump();
+        }
+        return "home_lighting_preset " + arguments.dump() + " targets " + targets;
+    }
+
+    [[nodiscard]] Json poll_status(const Json &arguments) const
+    {
+        validate(arguments, object_schema(Json::object()));
+        return poll_report(context_.now());
+    }
+
+    [[nodiscard]] Json poll(const Json &arguments)
+    {
+        validate(arguments, object_schema(Json::object()));
+        return sample();
+    }
+
+    void poll_job()
+    {
+        static_cast<void>(sample());
+    }
+
+    [[nodiscard]] Json sensor_summary(const Json &arguments) const
+    {
+        validate(arguments, summary_schema());
+        std::optional<std::string> requested;
+        if (arguments.contains("entity_id"))
+        {
+            requested = arguments.at("entity_id").get<std::string>();
+            require_scope(*requested, arguments);
+            if (!sensor_domain(*requested))
+            {
+                home_error("home summary target is not an exposed sensor or binary sensor");
+            }
+        }
+        const auto members = arguments.contains("room") ? settings_.reviewed.at("rooms").at(arguments.at("room").get<std::string>()) : Json();
+        const auto source = arguments.value("source", std::string("live"));
+        Json source_error;
+        std::vector<Json> snapshots;
+        if (source == "cached")
+        {
+            if (!settings_.poll.enabled)
+            {
+                home_error("cached home summaries require opt-in polling");
+            }
+            if (requested && !std::binary_search(settings_.poll.entities.begin(), settings_.poll.entities.end(), *requested))
+            {
+                home_error("the requested sensor is not in the polling allowlist");
+            }
+            const auto report = poll_report(context_.now());
+            source_error = report.at("error");
+            snapshots.assign(report.at("entities").begin(), report.at("entities").end());
+        }
+        else
+        {
+            const auto observed_at = context_.timestamp();
+            const auto reported = requested ? std::vector<Json>{read_state(*requested)} : read_all_states();
+            for (const auto &raw : reported)
+            {
+                const auto identifier = raw.at("entity_id").get<std::string>();
+                if (settings_.visible(identifier) && sensor_domain(identifier))
+                {
+                    auto snapshot = observation(raw, observed_at);
+                    snapshot["stale"] = false;
+                    snapshots.push_back(std::move(snapshot));
+                }
+            }
+        }
+        std::sort(snapshots.begin(), snapshots.end(),
+                  [](const Json &left, const Json &right)
+                  {
+                      return left.at("entity_id").get<std::string>() < right.at("entity_id").get<std::string>();
+                  });
+        std::vector<Json> selected;
+        std::vector<Json> unclassified;
+        for (const auto &snapshot : snapshots)
+        {
+            const auto identifier = snapshot.at("entity_id").get<std::string>();
+            if (!sensor_domain(identifier) || (requested && identifier != *requested) || (!members.is_null() && !includes(members, identifier)))
+            {
+                continue;
+            }
+            auto reading = sensor_reading(snapshot, !source_error.is_null());
+            if (!reading)
+            {
+                unclassified.push_back({{"entity_id", identifier},
+                                        {"availability", snapshot.value("availability", Json())},
+                                        {"stale", snapshot.value("stale", true)},
+                                        {"reason", "no supported device_class was reported; no capability was inferred"}});
+            }
+            else if (!arguments.contains("kind") || reading->at("kind") == arguments.at("kind"))
+            {
+                selected.push_back(std::move(*reading));
+            }
+        }
+        const auto limit = static_cast<std::size_t>(integer_field(arguments, "limit", 1, 200, 100));
+        Json readings = Json::object();
+        for (const auto *kind : SENSOR_KINDS)
+        {
+            readings[kind] = Json::array();
+        }
+        const auto shown = std::min(limit, selected.size());
+        for (std::size_t index = 0; index < shown; ++index)
+        {
+            readings[selected[index].at("kind").get<std::string>()].push_back(selected[index]);
+        }
+        Json others = Json::array();
+        for (std::size_t index = 0; index < unclassified.size() && shown + index < limit; ++index)
+        {
+            others.push_back(unclassified[index]);
+        }
+        return {{"source", source},
+                {"readings", readings},
+                {"unclassified", others},
+                {"truncated", selected.size() + unclassified.size() > limit},
+                {"source_error", source_error},
+                {"units", "as reported by Home Assistant; no conversion"},
+                {"freshness_basis", "time of local state reads, not proof of device freshness"},
+                {"energy_scope", "reported instantaneous power and meter readings; no totals, costs, or conversions"}};
     }
 
 private:
+    [[nodiscard]] Json binding_schema() const
+    {
+        return {{"type", "string"}, {"minLength", 64}, {"maxLength", 64}, {"pattern", "^[0-9a-f]{64}$"}, {"enum", Json::array({settings_.binding})}};
+    }
+
+    void require_binding(const Json &arguments) const
+    {
+        if (arguments.is_object() && arguments.contains("binding") && arguments.at("binding").is_string() && arguments.at("binding") != settings_.binding)
+        {
+            throw Error("home_binding", "home configuration changed; read home_targets and request new approval");
+        }
+    }
+
+    [[nodiscard]] Json sample()
+    {
+        if (!settings_.poll.enabled)
+        {
+            home_error("home polling is disabled; enable poll with exact exposed entities first");
+        }
+        const auto attempted_at = context_.now();
+        try
+        {
+            const auto reported = read_all_states();
+            const auto observed_at = context_.now();
+            const auto rendered = timestamp(observed_at);
+            std::map<std::string, Json> polled;
+            for (const auto &raw : reported)
+            {
+                const auto identifier = raw.at("entity_id").get<std::string>();
+                if (std::binary_search(settings_.poll.entities.begin(), settings_.poll.entities.end(), identifier))
+                {
+                    polled.emplace(identifier, bounded_snapshot(observation(raw, rendered)));
+                }
+            }
+            std::vector<Json> snapshots;
+            for (const auto &identifier : settings_.poll.entities)
+            {
+                const auto found = polled.find(identifier);
+                snapshots.push_back(found == polled.end() ? missing_observation(identifier, rendered) : found->second);
+            }
+            return record_sample(snapshots, attempted_at, observed_at);
+        }
+        catch (const std::exception &error)
+        {
+            record_failure(attempted_at, failure_code(error));
+            throw Error("home_poll", "home polling failed; cached snapshots were retained; inspect home_poll_status");
+        }
+    }
+
+    [[nodiscard]] Json record_sample(const std::vector<Json> &snapshots, const std::int64_t attempted_at, const std::int64_t observed_at)
+    {
+        std::int64_t baselined = 0;
+        std::int64_t changed = 0;
+        Transaction transaction(context_.db);
+        const auto health = context_.db.query("SELECT attempted_at FROM native_home_poll_status WHERE source = ?", {settings_.source});
+        const bool older = !health.empty() && stored_integer(health.front().at("attempted_at")) > attempted_at;
+        for (std::size_t index = 0; !older && index < snapshots.size(); ++index)
+        {
+            const auto &snapshot = snapshots[index];
+            const auto identifier = snapshot.at("entity_id").get<std::string>();
+            const auto rows = context_.db.query("SELECT snapshot_json, revision FROM native_home_snapshots WHERE source = ? AND entity_id = ?",
+                                                {settings_.source, identifier});
+            std::int64_t revision = 1;
+            if (rows.empty())
+            {
+                ++baselined;
+            }
+            else
+            {
+                const auto previous = stored_snapshot(rows.front(), identifier);
+                revision = stored_revision(rows.front());
+                if (comparable(previous) != comparable(snapshot))
+                {
+                    if (revision >= MAX_JSON_INTEGER)
+                    {
+                        throw Error("home_cache", "home snapshot revision is exhausted");
+                    }
+                    ++revision;
+                    context_.emit("home", "home.state_changed",
+                                  {{"entity_id", identifier},
+                                   {"previous", previous},
+                                   {"current", snapshot},
+                                   {"observed_at", timestamp(observed_at)},
+                                   {"revision", revision},
+                                   {"source", settings_.source},
+                                   {"history_complete", false}},
+                                  "native:home:" + settings_.source + ":" + identifier + ":" + std::to_string(revision));
+                    ++changed;
+                }
+            }
+            context_.db.execute("INSERT INTO native_home_snapshots (source, entity_id, snapshot_json, observed_at, revision) VALUES (?, ?, ?, ?, ?) "
+                                "ON CONFLICT(source, entity_id) DO UPDATE SET snapshot_json = excluded.snapshot_json, "
+                                "observed_at = excluded.observed_at, revision = excluded.revision",
+                                {settings_.source, identifier, snapshot.dump(), observed_at, revision});
+        }
+        if (!older)
+        {
+            context_.db.execute("INSERT INTO native_home_poll_status (source, attempted_at, succeeded_at, error, consecutive_failures) "
+                                "VALUES (?, ?, ?, NULL, 0) ON CONFLICT(source) DO UPDATE SET attempted_at = excluded.attempted_at, "
+                                "succeeded_at = excluded.succeeded_at, error = NULL, consecutive_failures = 0",
+                                {settings_.source, attempted_at, observed_at});
+        }
+        transaction.commit();
+        return {{"entities", snapshots.size()}, {"baselined", baselined},        {"changed", changed},       {"observed_at", timestamp(observed_at)},
+                {"source", settings_.source},   {"ignored_older_sample", older}, {"history_complete", false}};
+    }
+
+    void record_failure(const std::int64_t attempted_at, const std::string &code) noexcept
+    {
+        try
+        {
+            Transaction transaction(context_.db);
+            context_.db.execute("INSERT INTO native_home_poll_status (source, attempted_at, succeeded_at, error, consecutive_failures) "
+                                "VALUES (?, ?, NULL, ?, 1) ON CONFLICT(source) DO UPDATE SET attempted_at = excluded.attempted_at, "
+                                "error = excluded.error, consecutive_failures = MIN(native_home_poll_status.consecutive_failures + 1, 9007199254740991) "
+                                "WHERE excluded.attempted_at >= native_home_poll_status.attempted_at",
+                                {settings_.source, attempted_at, code});
+            transaction.commit();
+        }
+        catch (const std::exception &)
+        {
+            std::fputs("ERROR: native home polling health could not be recorded\n", stderr);
+        }
+    }
+
+    [[nodiscard]] Json poll_report(const std::int64_t moment) const
+    {
+        const auto health = context_.db.query("SELECT attempted_at, succeeded_at, error, consecutive_failures FROM native_home_poll_status WHERE source = ?",
+                                              {settings_.source});
+        std::optional<std::int64_t> attempted;
+        std::optional<std::int64_t> succeeded;
+        Json error;
+        std::int64_t failures = 0;
+        if (!health.empty())
+        {
+            const auto &row = health.front();
+            attempted = stored_integer(row.at("attempted_at"));
+            if (!row.at("succeeded_at").is_null())
+            {
+                succeeded = stored_integer(row.at("succeeded_at"));
+            }
+            if (!row.at("error").is_null())
+            {
+                error = row.at("error").is_string() && slug(row.at("error").get<std::string>(), 32) ? row.at("error") : Json("internal");
+            }
+            failures = stored_integer(row.at("consecutive_failures"));
+        }
+        Json entities = Json::array();
+        for (const auto &identifier : settings_.poll.entities)
+        {
+            const auto rows = context_.db.query("SELECT snapshot_json, observed_at, revision FROM native_home_snapshots WHERE source = ? AND entity_id = ?",
+                                                {settings_.source, identifier});
+            if (rows.empty())
+            {
+                entities.push_back({{"entity_id", identifier}, {"availability", "not_observed"}, {"revision", 0}, {"stale", true}});
+                continue;
+            }
+            auto snapshot = stored_snapshot(rows.front(), identifier);
+            snapshot["revision"] = stored_revision(rows.front());
+            snapshot["stale"] = stale(stored_integer(rows.front().at("observed_at")), moment);
+            entities.push_back(std::move(snapshot));
+        }
+        return {{"enabled", settings_.poll.enabled},
+                {"source", settings_.source},
+                {"interval_seconds", settings_.poll.interval_seconds},
+                {"stale_after_seconds", settings_.poll.stale_after_seconds},
+                {"attempted_at", attempted ? Json(timestamp(*attempted)) : Json()},
+                {"succeeded_at", succeeded ? Json(timestamp(*succeeded)) : Json()},
+                {"error", error},
+                {"consecutive_failures", failures},
+                {"stale", !succeeded || stale(*succeeded, moment)},
+                {"entities", entities},
+                {"history_complete", false},
+                {"freshness_basis", "time of local state reads, not proof of device freshness"}};
+    }
+
+    [[nodiscard]] bool stale(const std::int64_t observed_at, const std::int64_t moment) const
+    {
+        return moment < observed_at || moment - observed_at > settings_.poll.stale_after_seconds;
+    }
+
+    [[nodiscard]] static std::int64_t stored_integer(const Json &value)
+    {
+        if (!value.is_number_integer() || value.get<double>() < 0 || value.get<double>() > static_cast<double>(MAX_JSON_INTEGER))
+        {
+            throw Error("home_cache", "home polling state is malformed");
+        }
+        return value.get<std::int64_t>();
+    }
+
+    [[nodiscard]] static std::int64_t stored_revision(const Json &row)
+    {
+        const auto revision = stored_integer(row.at("revision"));
+        if (revision < 1)
+        {
+            throw Error("home_cache", "home snapshot revision is malformed");
+        }
+        return revision;
+    }
+
+    [[nodiscard]] static Json stored_snapshot(const Json &row, const std::string &identifier)
+    {
+        Json snapshot;
+        try
+        {
+            snapshot = parse_json(row.at("snapshot_json").get<std::string>(), SNAPSHOT_BYTES);
+        }
+        catch (const std::exception &)
+        {
+            throw Error("home_cache", "the stored home snapshot is unreadable");
+        }
+        if (!snapshot.is_object() || snapshot.value("entity_id", Json()) != identifier || !snapshot.value("attributes", Json()).is_object())
+        {
+            throw Error("home_cache", "the stored home snapshot is malformed");
+        }
+        return snapshot;
+    }
+
     [[nodiscard]] Json visible_entities() const
     {
         Json result = Json::array();
@@ -807,6 +1557,27 @@ private:
             home_error("Home Assistant returned a different entity");
         }
         return raw;
+    }
+
+    [[nodiscard]] std::vector<Json> read_all_states() const
+    {
+        const auto response = get("/api/states");
+        if (!response.is_array() || response.size() > 10000)
+        {
+            home_error("Home Assistant returned an invalid or excessive states list");
+        }
+        std::vector<Json> result;
+        std::set<std::string> seen;
+        for (const auto &raw : response)
+        {
+            check_state(raw);
+            if (!seen.insert(raw.at("entity_id").get<std::string>()).second)
+            {
+                home_error("Home Assistant returned duplicate states");
+            }
+            result.push_back(raw);
+        }
+        return result;
     }
 
     [[nodiscard]] Json read_target(const std::string &identifier) const
@@ -1232,12 +2003,18 @@ private:
         return true;
     }
 
-    [[nodiscard]] Json execute(const HomePlan &plan) const
+    // Prepared before any effect, so a credential failure cannot follow an earlier preset submission.
+    [[nodiscard]] HttpRequest submission(const HomePlan &plan) const
     {
         auto input = request("POST", "/api/services/" + plan.domain + "/" + plan.service);
         Json body = plan.data;
         body["entity_id"] = plan.entities.size() == 1 ? Json(plan.entities.front()) : Json(plan.entities);
         input.body = body.dump();
+        return input;
+    }
+
+    [[nodiscard]] Json submit(const HomePlan &plan, const HttpRequest &input) const
+    {
         std::string request_status = "unknown";
         Json error = "submission outcome unknown; inspect state before a new request; nothing was resent";
         try
@@ -1282,17 +2059,25 @@ private:
                 }
             }
         }
-        return {{"called", plan.domain + "." + plan.service},
-                {"entity_ids", plan.entities},
-                {"request_status", request_status},
-                {"status", request_status == "rejected" ? "rejected" : (confirmed ? "observed" : "requested_unconfirmed")},
-                {"confirmed", confirmed},
-                {"physical_delivery_verified", false},
-                {"confirmation_scope", "reported requested state only; not physical completion or causal proof"},
-                {"observations", observations},
-                {"readback_errors", readback_errors},
-                {"error", error},
-                {"retry_safe", false}};
+        Json result = {{"called", plan.domain + "." + plan.service},
+                       {"entity_ids", plan.entities},
+                       {"request_status", request_status},
+                       {"status", request_status == "rejected" ? "rejected" : (confirmed ? "observed" : "requested_unconfirmed")},
+                       {"physical_delivery_verified", false},
+                       {"confirmation_scope", "reported requested state only; not physical completion or causal proof"},
+                       {"observations", observations},
+                       {"readback_errors", readback_errors},
+                       {"error", error},
+                       {"retry_safe", false}};
+        if (request_status != "rejected")
+        {
+            result["confirmed"] = confirmed;
+        }
+        if (request_status == "unknown")
+        {
+            result["effect_unknown"] = true;
+        }
+        return result;
     }
 
     Context &context_;
@@ -1308,7 +2093,7 @@ void register_home(Context &context, Registry &registry)
     }
     auto home = std::make_shared<Home>(context, load_home(context.settings("home")));
     registry.add({"home_targets",
-                  "Read exact reviewed home targets, room scopes, limits and current binding; offline.",
+                  "Read exact reviewed home targets, room scopes, limits, lighting presets and current binding; offline.",
                   Tier::read,
                   object_schema(Json::object()),
                   [home](const Json &arguments)
@@ -1334,6 +2119,33 @@ void register_home(Context &context, Registry &registry)
                       return home->capabilities(arguments);
                   },
                   {}});
+    registry.add({"home_sensor_summary",
+                  "Classify exposed sensors by reported device_class with original units, availability and staleness; no conversions or totals.",
+                  Tier::read,
+                  home->summary_schema(),
+                  [home](const Json &arguments)
+                  {
+                      return home->sensor_summary(arguments);
+                  },
+                  {}});
+    registry.add({"home_poll_status",
+                  "Read local polling health, cached minimized snapshots and staleness; no network.",
+                  Tier::read,
+                  object_schema(Json::object()),
+                  [home](const Json &arguments)
+                  {
+                      return home->poll_status(arguments);
+                  },
+                  {}});
+    registry.add({"home_poll",
+                  "Sample configured entities once and queue changed snapshots as events; first samples are silent; refused when polling is disabled.",
+                  Tier::read,
+                  object_schema(Json::object()),
+                  [home](const Json &arguments)
+                  {
+                      return home->poll(arguments);
+                  },
+                  {}});
     const std::map<std::string, std::string> actions{{"home_lights", "Set explicit reviewed leaf lights on/off, brightness or color; no fades or groups."},
                                                      {"home_climate", "Set one reviewed thermostat's unit-bound setpoint, range or mode within limits."},
                                                      {"home_fan", "Set one reviewed fan's bounded percentage; no inferred speed conversion."},
@@ -1349,6 +2161,25 @@ void register_home(Context &context, Registry &registry)
                       {
                           return name + " " + arguments.dump();
                       }});
+    }
+    registry.add({"home_lighting_preset",
+                  "Apply one reviewed lighting preset pinned by binding and fingerprint as individual light requests; no scenes or scripts; not atomic.",
+                  Tier::act, home->preset_schema(),
+                  [home](const Json &arguments)
+                  {
+                      return home->lighting_preset(arguments);
+                  },
+                  [home](const Json &arguments)
+                  {
+                      return home->preset_summary(arguments);
+                  }});
+    if (home->polling())
+    {
+        context.add_job("home.poll", home->poll_interval(),
+                        [home]()
+                        {
+                            home->poll_job();
+                        });
     }
 }
 }  // namespace switchboard

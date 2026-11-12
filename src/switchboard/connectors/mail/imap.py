@@ -3,7 +3,9 @@
 * Connections use implicit TLS (port 993, RFC 8314) with certificate verification against the system
   trust store. Plaintext IMAP and STARTTLS on port 143 are not offered.
 * Mailboxes are opened with ``EXAMINE`` and messages fetched with ``BODY.PEEK``, so reading never sets
-  ``\\Seen`` or changes anything else. The only write is ``APPEND`` to the Drafts mailbox.
+  ``\\Seen`` or changes anything else. The only write is ``APPEND`` to the Drafts mailbox. A connection
+  that fails during ``APPEND`` leaves its outcome unknown, so it raises
+  :class:`~switchboard.errors.UncertainOutcomeError`; a ``NO`` or ``BAD`` reply is a definite failure.
 * App passwords use ``LOGIN``; OAuth tokens use ``AUTHENTICATE XOAUTH2``.
 
 Tests replace :func:`connect_imap` with a fake that returns imaplib-shaped data.
@@ -22,11 +24,15 @@ from typing import Any, Protocol
 from switchboard.connectors.mail import protocol
 from switchboard.connectors.mail.oauth import XOAuth2
 from switchboard.connectors.mail.protocol import FetchedItem, MailboxInfo, SearchQuery
-from switchboard.errors import ToolError
+from switchboard.errors import ToolError, UncertainOutcomeError
 
 SUMMARY_FIELDS = "DATE FROM TO CC SUBJECT MESSAGE-ID"
 THREAD_FIELDS = "MESSAGE-ID REFERENCES"
 FETCH_LIMIT_BYTES = 10 * 1024 * 1024
+UNCERTAIN_APPEND = (
+    "the connection failed during APPEND, so the server may have stored the draft; "
+    "check the Drafts mailbox before trying again; nothing was resent"
+)
 
 
 class ImapConnection(Protocol):
@@ -144,9 +150,12 @@ class ImapSession:
 
     def append(self, mailbox: str, message: bytes, *, flags: str, when: datetime) -> int | None:
         """APPEND a message; returns its UID when the server reports one (UIDPLUS, RFC 4315)."""
-        result = self.conn.append(
-            protocol.mailbox_argument(mailbox), flags, imaplib.Time2Internaldate(when), message
-        )
+        try:
+            result = self.conn.append(
+                protocol.mailbox_argument(mailbox), flags, imaplib.Time2Internaldate(when), message
+            )
+        except (imaplib.IMAP4.abort, OSError) as exc:
+            raise UncertainOutcomeError(UNCERTAIN_APPEND) from exc
         appended = protocol.parse_appenduid(_ok(result, "APPEND"))
         return appended[1] if appended else None
 

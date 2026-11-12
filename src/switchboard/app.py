@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from types import ModuleType
 from typing import Any
 
+from switchboard.actions import STATES, ActionJournal
 from switchboard.approvals import ApprovalStore
 from switchboard.audit import AuditLog
 from switchboard.config import Config, ensure_private_dir
@@ -14,6 +15,7 @@ from switchboard.context import AppContext
 from switchboard.db import CORE_MIGRATIONS, Database
 from switchboard.errors import ConfigError
 from switchboard.events import EventBus
+from switchboard.execution import Lanes
 from switchboard.httpclient import HttpClient, HttpTransport
 from switchboard.policy import Origin, Policy, Tier
 from switchboard.rules import RuleEngine, load_rules
@@ -53,11 +55,20 @@ class App:
     def call(self, tool: str, args: dict[str, Any] | None, origin: Origin) -> CallOutcome:
         return self.dispatcher.call(tool, args, origin)
 
+    @property
+    def journal(self) -> ActionJournal:
+        return self.dispatcher.journal
+
     def process_events(self) -> int:
         return self.ctx.events.process(self.rules)
 
     def tick(self) -> None:
-        """One iteration of the background runner: expire approvals, poll due jobs, handle events."""
+        """One runner iteration: sweep the journal, expire approvals, start due jobs, handle events.
+
+        Jobs run on worker threads and are not awaited here; events, rules, and the tools rules call are
+        handled on the calling thread.
+        """
+        self.journal.sweep()
         self.approvals.expire()
         self.ctx.scheduler.run_due()
         self.process_events()
@@ -87,13 +98,18 @@ def build_app(config: Config, *, http: HttpTransport | None = None) -> App:
 
     audit = AuditLog(config.data_dir / "audit.jsonl")
     events = EventBus(db)
+    lanes = Lanes()
     ctx = AppContext(
         config=config,
         db=db,
         audit=audit,
         events=events,
         http=http if http is not None else HttpClient(),
-        scheduler=Scheduler(),
+        scheduler=Scheduler(
+            workers=config.bounded("switchboard", "job_workers"),
+            job_timeout_seconds=config.bounded("switchboard", "job_timeout_seconds"),
+            lanes=lanes,
+        ),
     )
     settings = config.section("policy")
     policy = Policy(
@@ -102,8 +118,19 @@ def build_app(config: Config, *, http: HttpTransport | None = None) -> App:
         recent_calls=lambda tool, seconds: count_recent_calls(db, tool, seconds),
     )
     approvals = ApprovalStore(db, ttl_seconds=int(settings.get("approval_ttl_minutes", 60)) * 60)
+    journal = ActionJournal(db)
+    journal.sweep()
     registry = ToolRegistry()
-    dispatcher = Dispatcher(registry=registry, policy=policy, approvals=approvals, audit=audit, db=db)
+    dispatcher = Dispatcher(
+        registry=registry,
+        policy=policy,
+        approvals=approvals,
+        audit=audit,
+        db=db,
+        journal=journal,
+        lanes=lanes,
+        tool_timeout_seconds=config.bounded("switchboard", "tool_timeout_seconds"),
+    )
     rules = RuleEngine(load_rules(config.data.get("rules")), dispatcher, audit)
     app = App(ctx, registry, policy, approvals, dispatcher, rules, modules)
 
@@ -144,13 +171,26 @@ def _register_core_tools(app: App) -> None:
         request = app.approvals.get(args["id"])
         if request is None:
             return {"id": args["id"], "status": "unknown"}
-        return {
+        result = {
             "id": request.id,
             "tool": request.tool,
             "status": request.status,
             "summary": request.summary,
             "result": request.result,
             "error": request.error,
+        }
+        action = app.journal.for_approval(request.id)
+        if action is not None and action.started_at >= request.created_at:
+            result["action"] = {"id": action.id, "state": action.state}
+        return result
+
+    def actions_recent(args: dict[str, Any]) -> dict[str, Any]:
+        records = app.journal.recent(state=args.get("state"), limit=args.get("limit", 20))
+        counts = app.journal.counts()
+        return {
+            "actions": [record.public() for record in records],
+            "open": {"in_flight": counts["in_flight"], "uncertain": counts["uncertain"]},
+            "reconciled_by": "operator only",
         }
 
     app.registry.add(
@@ -186,5 +226,24 @@ def _register_core_tools(app: App) -> None:
             },
             approval_status,
             title="Approval status",
+        )
+    )
+    app.registry.add(
+        Tool(
+            "actions_recent",
+            "List recent recorded actions (sends and changes) with their state, newest first, without their "
+            "arguments, plus counts of open (in-flight and uncertain) actions. State 'uncertain' means the "
+            "effect may or may not have happened: do not repeat it; the user checks and records the outcome.",
+            Tier.READ,
+            {
+                "type": "object",
+                "properties": {
+                    "state": {"type": "string", "enum": list(STATES)},
+                    "limit": {"type": "integer", "minimum": 1, "maximum": 100},
+                },
+                "additionalProperties": False,
+            },
+            actions_recent,
+            title="Recent actions",
         )
     )

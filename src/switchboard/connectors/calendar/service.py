@@ -19,10 +19,12 @@ from switchboard.connectors.calendar.settings import NAME, Settings, Source
 from switchboard.connectors.calendar.store import EventStore
 from switchboard.context import AppContext
 from switchboard.errors import HttpError, SecretError, SwitchboardError, ToolError
+from switchboard.httpclient import request_with_retries
 
 log = logging.getLogger(__name__)
 
 MAX_FEED_BYTES = 20_000_000
+FEED_RETRIES = 2  # the feed fetch is a read-only GET, so transient failures may be repeated
 CALDAV_PAST = timedelta(days=31)
 CALDAV_FUTURE = timedelta(days=366)
 MAX_AGENDA_SPAN = timedelta(days=366)
@@ -193,8 +195,14 @@ class CalendarService:
         if state.get("last_modified"):
             headers["If-Modified-Since"] = str(state["last_modified"])
         try:
-            response = self.ctx.http.request(
-                "GET", url, headers=headers, max_bytes=MAX_FEED_BYTES, allow_http=source.allow_http
+            response = request_with_retries(
+                self.ctx.http,
+                "GET",
+                url,
+                retries=FEED_RETRIES,
+                headers=headers,
+                max_bytes=MAX_FEED_BYTES,
+                allow_http=source.allow_http,
             )
         except HttpError as exc:
             raise ToolError(f"calendar source {source.name!r}: {exc}") from exc

@@ -6,16 +6,20 @@ import argparse
 import json
 import logging
 import os
+import signal
 import sys
 import tempfile
+import threading
 import time
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from importlib import resources
 from pathlib import Path
-from types import ModuleType
+from types import FrameType, ModuleType
+from typing import Any
 
-from switchboard import __version__, mcp_server
+from switchboard import __version__, cli_broker, cli_data, mcp_server
+from switchboard.actions import STATES, ActionStateError, normalize_note
 from switchboard.app import App, build_app, load_connectors
 from switchboard.config import default_config_path, ensure_config_dir, ensure_private_dir, load_config
 from switchboard.errors import ConfigError, SwitchboardError
@@ -38,7 +42,9 @@ def main(argv: list[str] | None = None) -> int:
     pre = argparse.ArgumentParser(add_help=False)
     pre.add_argument("--config", type=Path)
     known, _ = pre.parse_known_args(arguments)
-    parser = build_parser(_connector_cli_modules(known.config))
+    # Operator commands and the broker shim run under accounts that must not read the configuration.
+    modules = [] if cli_broker.configuration_free(arguments) else _connector_cli_modules(known.config)
+    parser = build_parser(modules)
     args = parser.parse_args(arguments)
     try:
         if hasattr(args, "app_handler"):
@@ -111,6 +117,28 @@ def build_parser(connector_modules: list[ModuleType] | None = None) -> argparse.
     deny.add_argument("id")
     deny.set_defaults(app_handler=cmd_approvals_deny)
 
+    actions = sub.add_parser("actions", help="inspect recorded actions and settle unknown outcomes")
+    action_sub = actions.add_subparsers(dest="actions_command", metavar="<action>", required=True)
+    recent = action_sub.add_parser("list", help="recent actions, newest first")
+    recent.add_argument("--state", choices=STATES, help="only actions in this state")
+    recent.add_argument("-n", type=int, default=20, help="how many to show (1 to 500)")
+    recent.set_defaults(app_handler=cmd_actions_list)
+    detail = action_sub.add_parser("show", help="show one action with its stored arguments")
+    detail.add_argument("id")
+    detail.set_defaults(app_handler=cmd_actions_show)
+    resolve = action_sub.add_parser(
+        "resolve", help="record whether an uncertain action's effect happened (nothing is re-sent)"
+    )
+    resolve.add_argument("id")
+    verdict = resolve.add_mutually_exclusive_group(required=True)
+    verdict.add_argument("--applied", action="store_true", help="you checked and the effect happened")
+    verdict.add_argument(
+        "--not-applied", action="store_true", help="you checked and the effect did not happen"
+    )
+    resolve.add_argument("--note", required=True, help="what you checked (1 to 500 printable characters)")
+    resolve.add_argument("--yes", action="store_true", help="skip the confirmation prompt")
+    resolve.set_defaults(app_handler=cmd_actions_resolve)
+
     audit = sub.add_parser("audit", help="inspect the hash-chained audit log")
     audit_sub = audit.add_subparsers(dest="audit_command", metavar="<action>", required=True)
     audit_sub.add_parser("verify", help="recompute the hash chain").set_defaults(app_handler=cmd_audit_verify)
@@ -127,16 +155,34 @@ def build_parser(connector_modules: list[ModuleType] | None = None) -> argparse.
     events.add_argument("--failed", action="store_true", help="show processing errors without event bodies")
     events.set_defaults(app_handler=cmd_events)
 
-    sub.add_parser("serve-mcp", help="run the MCP server on standard input and output").set_defaults(
-        app_handler=lambda _args, app: mcp_server.run(app)
+    serve_mcp = sub.add_parser("serve-mcp", help="run the MCP server on standard input and output")
+    serve_mcp.add_argument(
+        "--broker",
+        type=Path,
+        metavar="SOCKET",
+        help="relay to a broker's client socket instead; reads no configuration or secrets",
     )
-    run = sub.add_parser("run", help="poll connectors, process events, and run rules")
-    run.add_argument("--once", action="store_true", help="run every job once, process events, and exit")
+    serve_mcp.set_defaults(handler=cmd_serve_mcp)
+    run = sub.add_parser("run", help="poll connectors, process events, and run rules until SIGINT or SIGTERM")
+    run.add_argument(
+        "--once",
+        action="store_true",
+        help="run every job once, wait for it within its deadline, process events, and exit",
+    )
     run.set_defaults(app_handler=cmd_run)
 
+    cli_data.add_commands(sub)
+    cli_broker.add_commands(sub)
     for module in connector_modules or []:
         module.add_cli(sub)
     return parser
+
+
+def cmd_serve_mcp(args: argparse.Namespace) -> int:
+    """Serve the tools directly, or relay to a broker without building the application."""
+    if args.broker is not None:
+        return cli_broker.serve_mcp_via_broker(args.broker)
+    return mcp_server.run(_app(args))
 
 
 def cmd_init(args: argparse.Namespace) -> int:
@@ -192,6 +238,10 @@ def cmd_doctor(args: argparse.Namespace, app: App) -> int:
     print(f"connectors: {', '.join(sorted(app.connectors)) or 'none'}")
     print(f"tools: {len(app.registry.all())}; audit records: {chain.records}")
     print(f"kill switch: {'ON' if app.policy.kill_switch.exists() else 'off'}")
+    counts = app.journal.counts()
+    print(f"actions: {counts['uncertain']} uncertain, {counts['in_flight']} in flight")
+    if counts["uncertain"]:
+        print("  review: 'switchboard actions list --state uncertain', then 'switchboard actions resolve'")
     for problem in problems:
         print(f"problem: {problem}")
     print("ok" if not problems else f"{len(problems)} problem(s)")
@@ -268,6 +318,76 @@ def cmd_approvals_deny(args: argparse.Namespace, app: App) -> int:
     return 1
 
 
+def cmd_actions_list(args: argparse.Namespace, app: App) -> int:
+    if not 1 <= args.n <= 500:
+        print("-n must be between 1 and 500", file=sys.stderr)
+        return 2
+    records = app.journal.recent(state=args.state, limit=args.n)
+    if not records:
+        print("no recorded actions" if args.state is None else f"no {args.state} actions")
+    for record in records:
+        detail = record.resolution_note or record.error or ""
+        print(
+            f"{record.id}  {record.state:22} {printable(record.tool):24} {record.origin:9} "
+            f"started {record.started_at}  {printable(detail)}"
+        )
+    return 0
+
+
+def cmd_actions_show(args: argparse.Namespace, app: App) -> int:
+    record = app.journal.get(args.id)
+    if record is None:
+        print(f"no action {printable(args.id)}", file=sys.stderr)
+        return 1
+    print(json.dumps(record.to_dict(), indent=2, ensure_ascii=True, default=str))
+    return 0
+
+
+def cmd_actions_resolve(args: argparse.Namespace, app: App) -> int:
+    """Record the operator's finding for an uncertain action; this never repeats or reverses the effect."""
+    try:
+        note = normalize_note(args.note)
+    except ActionStateError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    record = app.journal.get(args.id)
+    if record is None:
+        print(f"no action {printable(args.id)}", file=sys.stderr)
+        return 1
+    if record.state != "uncertain":
+        print(f"action {record.id} is {record.state}; only uncertain actions are reconciled", file=sys.stderr)
+        return 1
+    applied = bool(args.applied)
+    print(f"{printable(record.tool)} from {record.origin}, started {record.started_at}")
+    print(f"recorded problem: {printable(record.error or 'none')}")
+    print(json.dumps(record.args, indent=2, ensure_ascii=True))
+    finding = "DID happen" if applied else "did NOT happen"
+    print(f"You are recording that this effect {finding}. Switchboard will not repeat, undo, or check it.")
+    if not args.yes:
+        if not sys.stdin.isatty():
+            print(
+                "refusing to reconcile without a terminal; pass --yes to confirm explicitly", file=sys.stderr
+            )
+            return 1
+        if input("Record exactly this? [y/N] ").strip().lower() not in {"y", "yes"}:
+            print("nothing recorded")
+            return 1
+    try:
+        resolved = app.journal.reconcile(args.id, applied=applied, note=note)
+    except ActionStateError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+    app.ctx.audit.append(
+        "action.reconciled",
+        action=resolved.id,
+        tool=resolved.tool,
+        state=resolved.state,
+        note=resolved.resolution_note,
+    )
+    print(f"{resolved.id} is now {resolved.state}; the duplicate guard no longer blocks an identical request")
+    return 0
+
+
 def cmd_audit_verify(args: argparse.Namespace, app: App) -> int:
     result = app.ctx.audit.verify()
     if result.ok:
@@ -336,14 +456,88 @@ def cmd_run(args: argparse.Namespace, app: App) -> int:
 def _run(args: argparse.Namespace, app: App) -> int:
     scheduler = app.ctx.scheduler
     if args.once:
-        scheduler.run_all()
-        handled = app.process_events()
-        print(f"ran {len(scheduler.jobs())} job(s); processed {handled} event(s)")
-        failed = [job.name for job in scheduler.jobs() if job.last_error is not None]
-        if failed:
-            print("failed jobs: " + ", ".join(failed), file=sys.stderr)
-        return 1 if failed else 0
-    print(f"running {len(scheduler.jobs())} job(s); press Ctrl+C to stop", file=sys.stderr)
-    while True:
+        return _run_once(app)
+    print(
+        f"running {len(scheduler.jobs())} job(s) on up to {scheduler.workers} worker(s); "
+        "press Ctrl+C or send SIGTERM to stop",
+        file=sys.stderr,
+    )
+    stop = RunnerStop()
+    previous = _install_signal_handlers(stop)
+    try:
+        abandoned = serve(app, stop)
+    finally:
+        _restore_signal_handlers(previous)
+    if abandoned:
+        print("stopped; left running past their deadlines: " + ", ".join(abandoned), file=sys.stderr)
+        return 1
+    print("stopped", file=sys.stderr)
+    return 0
+
+
+def _run_once(app: App) -> int:
+    """Run every job once, wait for them within their deadlines, process events, and report problems."""
+    scheduler = app.ctx.scheduler
+    app.journal.sweep()
+    app.approvals.expire()
+    ran = scheduler.run_all()
+    handled = app.process_events()
+    print(f"ran {len(ran)} job(s); processed {handled} event(s)")
+    finished = {item["name"]: item for item in scheduler.status() if not item["running"]}
+    failed = [name for name in ran if name in finished and finished[name]["last_error"] is not None]
+    stuck = scheduler.stuck()
+    skipped = scheduler.skipped()
+    if failed:
+        print("failed jobs: " + ", ".join(failed), file=sys.stderr)
+    if stuck:
+        print("stuck jobs (still running past their deadline): " + ", ".join(stuck), file=sys.stderr)
+    if skipped:
+        print(
+            "jobs not started (their lane or every worker stayed busy): " + ", ".join(skipped),
+            file=sys.stderr,
+        )
+    return 1 if failed or stuck or skipped else 0
+
+
+class RunnerStop:
+    """Signal handler state: the first SIGINT or SIGTERM asks for a graceful stop; a second one interrupts."""
+
+    def __init__(self) -> None:
+        self.requested = False
+
+    def __call__(self, signum: int, _frame: FrameType | None) -> None:
+        if self.requested:
+            raise KeyboardInterrupt
+        self.requested = True
+
+
+def serve(app: App, stop: RunnerStop) -> list[str]:
+    """Tick until a stop is requested, then stop scheduling and wait for running jobs within their deadlines.
+
+    Returns the jobs still running (stuck past their deadline) when the wait ended. Events are processed only
+    on this thread, between waits; a job finishing wakes the loop early.
+    """
+    scheduler = app.ctx.scheduler
+    while not stop.requested:
         app.tick()
-        time.sleep(min(30.0, max(1.0, scheduler.seconds_until_next())))
+        resume = time.monotonic() + min(30.0, max(1.0, scheduler.seconds_until_next()))
+        while not stop.requested:
+            left = resume - time.monotonic()
+            if left <= 0 or scheduler.wait(min(1.0, left)):
+                break
+    return scheduler.shutdown()
+
+
+SignalHandler = Callable[[int, FrameType | None], Any] | int | None
+
+
+def _install_signal_handlers(stop: RunnerStop) -> dict[int, SignalHandler]:
+    if threading.current_thread() is not threading.main_thread():
+        return {}
+    return {number: signal.signal(number, stop) for number in (signal.SIGINT, signal.SIGTERM)}
+
+
+def _restore_signal_handlers(previous: dict[int, SignalHandler]) -> None:
+    for number, handler in previous.items():
+        # None means a handler that was not installed from Python; the default is the closest equivalent.
+        signal.signal(number, signal.SIG_DFL if handler is None else handler)

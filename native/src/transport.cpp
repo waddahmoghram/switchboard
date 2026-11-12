@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <chrono>
 #include <limits>
 #include <memory>
 #include <string>
@@ -12,6 +13,34 @@ namespace switchboard
 {
 namespace
 {
+struct TransferLimits
+{
+    std::optional<ExecutionLimits> limits;
+    bool cancelled = false;
+    bool expired = false;
+};
+
+// Called by libcurl about once per second or more often; a nonzero return aborts with CURLE_ABORTED_BY_CALLBACK.
+int transfer_progress(void *opaque, const curl_off_t, const curl_off_t, const curl_off_t, const curl_off_t) noexcept
+{
+    auto &transfer = *static_cast<TransferLimits *>(opaque);
+    if (!transfer.limits)
+    {
+        return 0;
+    }
+    if (transfer.limits->cancelled())
+    {
+        transfer.cancelled = true;
+        return 1;
+    }
+    if (transfer.limits->expired())
+    {
+        transfer.expired = true;
+        return 1;
+    }
+    return 0;
+}
+
 struct ResponseBuffer
 {
     std::string text;
@@ -182,6 +211,26 @@ public:
         {
             throw Error("invalid", "native digest credentials require a pinned expected realm");
         }
+        const auto limits = current_execution_limits();
+        if (limits && limits->cancelled())
+        {
+            throw Error("cancelled", "native operation was cancelled; this web request was not started");
+        }
+        if (limits && limits->expired())
+        {
+            throw Error("deadline", "native operation deadline passed; this web request was not started");
+        }
+        auto timeout = std::chrono::milliseconds(request.timeout_seconds * 1000);
+        bool clamped = false;
+        if (limits)
+        {
+            const auto remaining = std::chrono::ceil<std::chrono::milliseconds>(limits->deadline - std::chrono::steady_clock::now());
+            if (remaining < timeout)
+            {
+                timeout = std::max(remaining, std::chrono::milliseconds(1));
+                clamped = true;
+            }
+        }
         std::unique_ptr<CURL, decltype(&curl_easy_cleanup)> client(curl_easy_init(), curl_easy_cleanup);
         if (!client)
         {
@@ -190,6 +239,8 @@ public:
         ResponseBuffer buffer;
         buffer.maximum = request.max_bytes;
         buffer.digest_realm = request.digest_realm;
+        TransferLimits transfer;
+        transfer.limits = limits;
         option(curl_easy_setopt(client.get(), CURLOPT_URL, request.url.c_str()));
         option(curl_easy_setopt(client.get(), CURLOPT_CUSTOMREQUEST, request.method.c_str()));
         option(curl_easy_setopt(client.get(), CURLOPT_FOLLOWLOCATION, 0L));
@@ -198,8 +249,12 @@ public:
         option(curl_easy_setopt(client.get(), CURLOPT_SSL_VERIFYHOST, 2L));
         option(curl_easy_setopt(client.get(), CURLOPT_PROXY, ""));
         option(curl_easy_setopt(client.get(), CURLOPT_NOSIGNAL, 1L));
-        option(curl_easy_setopt(client.get(), CURLOPT_CONNECTTIMEOUT, static_cast<long>(request.timeout_seconds)));
-        option(curl_easy_setopt(client.get(), CURLOPT_TIMEOUT, static_cast<long>(request.timeout_seconds)));
+        // Millisecond forms of CURLOPT_CONNECTTIMEOUT/CURLOPT_TIMEOUT, clamped to the operation's remaining time.
+        option(curl_easy_setopt(client.get(), CURLOPT_CONNECTTIMEOUT_MS, static_cast<long>(timeout.count())));
+        option(curl_easy_setopt(client.get(), CURLOPT_TIMEOUT_MS, static_cast<long>(timeout.count())));
+        option(curl_easy_setopt(client.get(), CURLOPT_NOPROGRESS, 0L));
+        option(curl_easy_setopt(client.get(), CURLOPT_XFERINFOFUNCTION, static_cast<curl_xferinfo_callback>(transfer_progress)));
+        option(curl_easy_setopt(client.get(), CURLOPT_XFERINFODATA, &transfer));
         option(curl_easy_setopt(client.get(), CURLOPT_USERAGENT, "switchboard-native/0.1"));
         option(curl_easy_setopt(client.get(), CURLOPT_WRITEFUNCTION, receive));
         option(curl_easy_setopt(client.get(), CURLOPT_WRITEDATA, &buffer));
@@ -260,6 +315,14 @@ public:
         if (buffer.exceeded)
         {
             throw Error("limit", "native web response exceeded its byte cap; write delivery may be unknown");
+        }
+        if (transfer.cancelled || (result != CURLE_OK && limits && limits->cancelled()))
+        {
+            throw Error("cancelled", "native web request was cancelled; a submitted write may have been delivered and must not be blindly repeated");
+        }
+        if (transfer.expired || (result == CURLE_OPERATION_TIMEDOUT && limits && (clamped || limits->expired())))
+        {
+            throw Error("deadline", "native operation deadline passed during a web request; a submitted write may have been delivered");
         }
         if (buffer.allocation_error || result != CURLE_OK)
         {

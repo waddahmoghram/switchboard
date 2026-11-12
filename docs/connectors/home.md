@@ -384,6 +384,10 @@ a tolerance never confirms a value just beyond a configured limit.
 Readback failures and subsequent volume changes are returned without compensating effects. The outer
 dispatcher can return `ok` for a rejected or unconfirmed receipt because the handler successfully reported it.
 Inspect `request_status`, `status`, `confirmed`, `error` and `readback_errors`/`readback_error`.
+Typed controls, lighting presets, and announcements also report `effect_unknown`, which is `true` exactly when
+a submission's outcome is unknown. The core action journal then records the call as `uncertain` and refuses an
+identical request until you check the device and run `switchboard actions resolve`. The generic service tool
+raises an uncertain error instead when its request may have been delivered.
 Preflight validation failures use `ToolError` before submission. Manual changes and other automations can
 race these reads; bounds are request-time guards, not a permanent governor.
 

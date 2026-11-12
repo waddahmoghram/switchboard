@@ -20,7 +20,9 @@ act tools normally ask for approval, and no payment or checkout tool is implemen
 > on your own computer first; see [Deployment](./docs/DEPLOYMENT.md).
 
 **This is a prototype, not a sandbox or a verified bank integration.** An assistant with shell access as your
-user can run approval commands, read your secrets, or edit the data directly. Self-hosting also does not keep
+user can run approval commands, read your secrets, or edit the data directly. The optional broker moves
+credentials, data, and approvals to a dedicated service account so that only separate operating-system accounts
+can decide; see [Isolation](./docs/ISOLATION.md). Self-hosting also does not keep
 mail or financial results away from your assistant's model provider; use a local model and client if those
 results must stay on your machine. See [the operating boundary](./docs/DEPLOYMENT.md#the-operating-boundary).
 
@@ -65,6 +67,15 @@ yourself. The reasons are in [Tradeoffs](./docs/TRADEOFFS.md#money-movement-and-
 * **The runner** (`switchboard run`) runs enabled polling and health jobs, queues due task reminders,
   turns observations into events, and runs your automation rules — a local "if this, then that".
 * **You** approve pending actions from the terminal, flip the kill switch, and verify the audit log.
+* **The action journal** records every draft and act call before its handler runs. A write whose outcome is
+  unknown, such as a send whose connection dropped, is marked `uncertain`, and an identical repeat is refused
+  until you check and record what happened with `switchboard actions resolve`. See [Recovery](./docs/RECOVERY.md).
+* **Deadlines** bound each tool call (`tool_timeout_seconds`) and each polling-job run (`job_timeout_seconds`);
+  the runner runs up to `job_workers` jobs at once, never two from the same connector.
+* **The optional broker** (`switchboard broker serve`) serves the assistant and the operator on separate local
+  sockets under a dedicated account; the assistant connects with `switchboard serve-mcp --broker SOCKET`.
+* **Data lifecycle commands** create and verify backups, export or purge stored data under `[retention]`, and
+  archive the audit log. See [Data lifecycle](./docs/DATA_LIFECYCLE.md).
 
 Every tool call goes through the same dispatcher: argument validation, policy, audit, then execution.
 Polling and connector-to-connector service calls are trusted application code, not additional dispatcher calls.
@@ -96,9 +107,11 @@ uv run switchboard call switchboard_status
 
 With an unchanged starter configuration and a fresh data directory, the last command should report
 `status: "ok"` and data containing
-`connectors: []`, `tools: 3`, and `kill_switch: false`. Its audit hash changes between calls; do not compare it
+`connectors: []`, `tools: 4`, and `kill_switch: false`. Its audit hash changes between calls; do not compare it
 with a fixed example. This checks local assembly and the dispatcher, not mail delivery or provider sign-in.
 These are expected results from source inspection, not commands executed on the authoring host.
+`scripts/ci/validate.sh` runs every check stage, including the native builds, contract fixtures, fault tests,
+sanitizers and fuzzing; see [Validation](./docs/VALIDATION.md).
 
 Stop here until that local path works. Then enable **one** connector, store its credential in your password manager,
 and reference it
@@ -129,7 +142,8 @@ which mistakes are rejected at startup and which guarantees the automation engin
 
 Plus: recipient allowlists, per-tool rate limits, amount caps, an exposure list for assistants, approvals that
 bind the exact arguments, a kill switch, secret references instead of secrets, owner-only file permissions,
-and a hash-chained audit log.
+a hash-chained audit log, deadlines on every call and job, and an action journal that refuses to repeat a
+write with an unknown outcome until you reconcile it.
 
 Approvals recheck the current argument schema and policy. Hourly limits include approved and in-flight calls;
 concurrent processes reserve capacity atomically. These controls do not identify a human independently of
@@ -139,9 +153,17 @@ the local user account.
 
 * [C++ native backend](./native/README.md) — C++ preference, coverage differences, dependencies and own-machine builds
 * [C and Rust bindings](./native/docs/bindings.md) — shared-engine design, ownership and errors
+* [Native operations](./native/docs/operations.md) and [native isolation](./native/docs/isolation.md) — the
+  native journal, deadlines, backups, and broker
+* [Cross-engine contract](./contracts/README.md) — outcomes, journal states, deadlines, and the operator protocol
+  that both engines share, with known differences
 * [Architecture](./docs/ARCHITECTURE.md) — components, the call path, trust boundaries
 * [Tradeoffs](./docs/TRADEOFFS.md) — what doing it yourself costs, connector by connector
 * [Deployment](./docs/DEPLOYMENT.md) — install, test, connect assistants, run as a service, revoke
+* [Recovery](./docs/RECOVERY.md) — the action journal, reconciling unknown outcomes, deadlines, and the runner
+* [Isolation](./docs/ISOLATION.md) — the broker, separate service, assistant, and operator accounts
+* [Data lifecycle](./docs/DATA_LIFECYCLE.md) — backups, restores, exports, retention, and audit archives
+* [Validation](./docs/VALIDATION.md) — the off-host checks, pinned toolchains, fuzzing, and fault tests
 * [Connector guide](./docs/CONNECTOR_GUIDE.md) — how to write a new connector
 * Connector pages: [mail](./docs/connectors/mail.md), [calendar](./docs/connectors/calendar.md),
   [contacts](./docs/connectors/contacts.md), [finance](./docs/connectors/finance.md),

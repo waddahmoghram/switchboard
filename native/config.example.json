@@ -2,7 +2,15 @@
   "switchboard": {
     "connectors": [],
     "data_dir": "~/.local/share/switchboard-native",
-    "event_retention_days": 14
+    "event_retention_days": 14,
+    "tool_timeout_seconds": 120,
+    "job_timeout_seconds": 300,
+    "tick_budget_seconds": 600
+  },
+  "retention": {
+    "tool_calls_days": 30,
+    "approvals_days": 90,
+    "actions_days": 180
   },
   "policy": {
     "approval_ttl_minutes": 60,
@@ -12,6 +20,7 @@
     "expose": [
       "switchboard_status",
       "approvals_*",
+      "actions_recent",
       "jobs_status",
       "events_recent",
       "audit_verify"

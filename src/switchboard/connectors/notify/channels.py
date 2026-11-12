@@ -3,6 +3,7 @@
 A channel raises :class:`ChannelError` when it cannot deliver. Its message is safe to log and to show
 an assistant: it never contains a secret, an ntfy topic, or a request URL. That matters because an ntfy
 topic on a public server works like a password, and Telegram's Bot API puts the bot token in the path.
+A channel raises :class:`ChannelUncertainError` instead when the note may have been delivered anyway.
 """
 
 from __future__ import annotations
@@ -17,7 +18,7 @@ from email.message import EmailMessage
 from typing import Any
 
 from switchboard.context import AppContext
-from switchboard.errors import ConfigError, HttpError, SecretError, SwitchboardError
+from switchboard.errors import ConfigError, HttpError, SecretError, SwitchboardError, UncertainOutcomeError
 from switchboard.httpclient import HttpResponse
 from switchboard.secrets import is_reference
 from switchboard.util import truncate
@@ -41,6 +42,11 @@ _HEADER_SAFE = re.compile(r"[!-~]+")
 
 class ChannelError(Exception):
     """A channel could not deliver. The message is safe to log: no secrets, topics, or URLs."""
+
+
+class ChannelUncertainError(ChannelError):
+    """The note may have been delivered: the connection failed after sending began, or the service
+    answered HTTP 408 or 5xx. It was not resent."""
 
 
 @dataclass(frozen=True)
@@ -77,7 +83,10 @@ class NtfyChannel:
             host=urllib.parse.urlsplit(self.server).hostname or "the ntfy server",
         )
         if not response.ok:
-            raise ChannelError(f"ntfy answered HTTP {response.status}")
+            message = f"ntfy answered HTTP {response.status}"
+            if _ambiguous(response.status):
+                raise ChannelUncertainError(f"{message}; the note may have been delivered and was not resent")
+            raise ChannelError(message)
 
     def check(self, ctx: AppContext) -> list[str]:
         problems = _check_secret(ctx, self.topic, "topic", _NTFY_TOPIC)
@@ -150,6 +159,8 @@ class EmailChannel:
         message.set_content(note.message + (f"\n\n{note.url}" if note.url else ""))
         try:
             sender.send(message, self.account)
+        except UncertainOutcomeError as exc:
+            raise ChannelUncertainError(f"the mail connector could not confirm sending: {exc}") from exc
         except SwitchboardError as exc:
             raise ChannelError(f"the mail connector could not send: {exc}") from exc
 
@@ -330,11 +341,22 @@ def _post(
     allow_http: bool,
     host: str,
 ) -> HttpResponse:
-    """POST without letting ``url`` reach an error message: it may carry a topic or a bot token."""
+    """POST without letting ``url`` reach an error message: it may carry a topic or a bot token.
+
+    Any network failure is treated as possibly delivered: the request may have reached the service
+    before the connection broke, so nothing is resent.
+    """
     try:
         return ctx.http.request("POST", url, headers=headers, body=body, allow_http=allow_http)
     except HttpError as exc:
-        raise ChannelError(f"could not reach {host}") from exc
+        raise ChannelUncertainError(
+            f"could not reach {host} to confirm delivery; the note may have been delivered and was not resent"
+        ) from exc
+
+
+def _ambiguous(status: int) -> bool:
+    """A reply after which the service may still have acted: a request timeout or a server error."""
+    return status == 408 or status >= 500
 
 
 def _ensure_telegram_ok(response: HttpResponse, bot: str) -> None:
@@ -348,4 +370,8 @@ def _ensure_telegram_ok(response: HttpResponse, bot: str) -> None:
     detail = ""
     if isinstance(description, str) and description:
         detail = ": " + truncate(description.replace(bot, "[redacted]"), 160)
-    raise ChannelError(f"Telegram answered HTTP {response.status}{detail}")
+    message = f"Telegram answered HTTP {response.status}{detail}"
+    if response.ok or _ambiguous(response.status):
+        # A 2xx reply that does not say ok:true, or a server error: the message may exist.
+        raise ChannelUncertainError(f"{message}; the note may have been delivered and was not resent")
+    raise ChannelError(message)

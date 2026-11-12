@@ -57,6 +57,7 @@ def test_social_connectors_register_and_list_tools_without_account_calls(
         "switchboard_status",
         "approvals_pending",
         "approvals_status",
+        "actions_recent",
         "telegram_status",
         "telegram_messages",
         "telegram_read",

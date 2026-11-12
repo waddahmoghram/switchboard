@@ -347,8 +347,14 @@ def test_claim_is_committed_before_http_and_another_approval_cannot_enter(
         return HttpResponse(201, request.url, {"x-restli-id": POST_URN})
 
     fake_http.add_handler("POST", POSTS_URL, respond, repeat=False)
-    assert app.dispatcher.approve(approvals[0]).status == "ok"
-    assert [outcome.status for outcome in blocked] == ["error", "error"]
+    first_outcome = app.dispatcher.approve(approvals[0])
+    assert first_outcome.status == "ok"
+    assert first_outcome.action is not None and first_outcome.action["state"] == "succeeded"
+    # The identical approval meets the journal's duplicate guard; the other draft meets the connector claim.
+    assert [outcome.status for outcome in blocked] == ["denied", "error"]
+    assert first_outcome.action["id"] in blocked[0].message
+    assert blocked[0].action is None
+    assert blocked[1].action is not None and blocked[1].action["state"] == "failed"
     assert _state(app, second["draft_id"])["state"] == "DRAFT"
     assert len(fake_http.requests) == 1
 
@@ -409,6 +415,7 @@ def test_explicit_provider_refusal_is_safe_and_consumes_the_attempt(
     result = publishing_app.dispatcher.approve(_request(publishing_app, draft["publish_args"]))
     assert result.status == "error"
     assert str(status) in result.message
+    assert result.action is not None and result.action["state"] == "failed"
     assert TOKEN not in result.message
     assert _state(publishing_app, draft["draft_id"])["state"] == "REFUSED"
     assert (
@@ -442,10 +449,10 @@ def test_missing_or_unreliable_confirmation_is_unknown_never_success_or_retry(
     assert result.status == "error"
     assert "UNKNOWN" in result.message
     assert TOKEN not in result.message
+    assert result.action is not None and result.action["state"] == "uncertain"
     assert _state(publishing_app, draft["draft_id"])["state"] == "UNKNOWN"
-    assert (
-        publishing_app.dispatcher.approve(_request(publishing_app, draft["publish_args"])).status == "error"
-    )
+    repeated = publishing_app.dispatcher.approve(_request(publishing_app, draft["publish_args"]))
+    assert repeated.status == "denied" and result.action["id"] in repeated.message
     assert len(fake_http.requests) == 1
     assert publishing_app.ctx.events.recent(event_type="linkedin.post_published") == []
     assert TOKEN not in json.dumps(list(publishing_app.ctx.audit.records()))
@@ -465,7 +472,10 @@ def test_ambiguous_network_delivery_persists_unknown_without_leaking_transport_d
     state = _state(reopened, draft["draft_id"])
     assert state["state"] == "UNKNOWN"
     assert state["attempt"]["reason"] == "transport_error"
-    assert reopened.dispatcher.approve(_request(reopened, draft["publish_args"])).status == "error"
+    assert result.action is not None and result.action["state"] == "uncertain"
+    # Another process sees the same journal, so the identical request is refused before the connector runs.
+    repeated = reopened.dispatcher.approve(_request(reopened, draft["publish_args"]))
+    assert repeated.status == "denied" and result.action["id"] in repeated.message
     assert len(fake_http.requests) == 1
     assert TOKEN not in json.dumps(list(app.ctx.audit.records()))
 

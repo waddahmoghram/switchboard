@@ -13,6 +13,7 @@ from switchboard.connectors.mail import smtp as mail_smtp
 from switchboard.connectors.mail.compose import compose
 from switchboard.connectors.mail.imap import Credentials
 from switchboard.connectors.mail.smtp import connect_smtp
+from switchboard.errors import UncertainOutcomeError
 from tests.fixtures.mail.fakes import FakeSmtp
 
 NOW = datetime(2026, 11, 11, 13, 45, tzinfo=UTC)
@@ -117,6 +118,92 @@ def test_connection_is_closed_when_sending_fails(monkeypatch: pytest.MonkeyPatch
             recipients=["sam@example.org"],
             timeout=5,
         )
+    assert fake.calls[-2:] == ["quit", "close"]
+
+
+def _send_failing(monkeypatch: pytest.MonkeyPatch, failure: BaseException) -> FakeSmtp:
+    """Run ``send`` against a server whose submission raises ``failure``; returns the fake for inspection."""
+
+    class Failing(FakeSmtp):
+        def send_message(self, *args: Any, **kwargs: Any) -> dict[str, Any]:
+            self.calls.append("send_message")
+            raise failure
+
+    fake = Failing()
+    monkeypatch.setattr(mail_smtp, "connect_smtp", lambda host, port, *, security, timeout: fake)
+    message = compose(sender="alex@example.com", to=["sam@example.org"], subject="Hello", body="Hi", now=NOW)
+    try:
+        mail_smtp.send(
+            "smtp.example.com",
+            465,
+            "ssl",
+            Credentials("alex@example.com", password="app-password-123"),
+            message,
+            sender="alex@example.com",
+            recipients=["sam@example.org"],
+            timeout=5,
+        )
+    finally:
+        assert fake.calls[-2:] == ["quit", "close"]
+    return fake
+
+
+@pytest.mark.parametrize(
+    "failure",
+    [
+        smtplib.SMTPServerDisconnected("Connection unexpectedly closed"),
+        TimeoutError("timed out"),
+        ConnectionResetError("reset by peer"),
+    ],
+)
+def test_a_connection_lost_during_submission_is_uncertain(
+    monkeypatch: pytest.MonkeyPatch, failure: BaseException
+) -> None:
+    with pytest.raises(UncertainOutcomeError, match="may have accepted it") as caught:
+        _send_failing(monkeypatch, failure)
+    assert caught.value.__cause__ is failure
+
+
+@pytest.mark.parametrize(
+    "failure",
+    [
+        smtplib.SMTPDataError(554, b"5.7.1 message rejected"),
+        smtplib.SMTPSenderRefused(550, b"5.1.0 sender rejected", "alex@example.com"),
+        smtplib.SMTPRecipientsRefused({"sam@example.org": (550, b"no such user")}),
+        smtplib.SMTPNotSupportedError("SMTPUTF8 not supported by server"),
+    ],
+)
+def test_a_server_refusal_stays_a_definite_failure(
+    monkeypatch: pytest.MonkeyPatch, failure: BaseException
+) -> None:
+    with pytest.raises(type(failure)) as caught:
+        _send_failing(monkeypatch, failure)
+    assert caught.value is failure
+    assert not isinstance(caught.value, UncertainOutcomeError)
+
+
+def test_a_failed_sign_in_happens_before_submission_and_is_not_uncertain(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class Rejecting(FakeSmtp):
+        def login(self, user: str, password: str) -> tuple[int, bytes]:
+            raise smtplib.SMTPAuthenticationError(535, b"5.7.8 bad credentials")
+
+    fake = Rejecting()
+    monkeypatch.setattr(mail_smtp, "connect_smtp", lambda host, port, *, security, timeout: fake)
+    message = compose(sender="alex@example.com", to=["sam@example.org"], subject="Hello", body="Hi", now=NOW)
+    with pytest.raises(smtplib.SMTPAuthenticationError):
+        mail_smtp.send(
+            "smtp.example.com",
+            465,
+            "ssl",
+            Credentials("alex@example.com", password="app-password-123"),
+            message,
+            sender="alex@example.com",
+            recipients=["sam@example.org"],
+            timeout=5,
+        )
+    assert "send_message" not in fake.calls
     assert fake.calls[-2:] == ["quit", "close"]
 
 

@@ -148,7 +148,10 @@ network.
 * **Writes** are a single `PUT` of `<calendar>/<uid>.ics` with `If-None-Match: *`, so an existing
   event is never overwritten. New events are written in UTC (or as dates), so no `VTIMEZONE` is
   needed; their unique identifier (UID) is a random universally unique identifier (UUID), as
-  RFC 7986 recommends.
+  RFC 7986 recommends. Because each attempt gets a new UID, a repeat after a lost reply would create a
+  second event: a `PUT` whose connection fails, or that is answered with HTTP 408 or 5xx, is recorded as
+  `uncertain`, and an identical request is refused until you check the calendar and run
+  `switchboard actions resolve`. Feed `GET` requests are retried twice on transient failures.
 * **Invitations** follow RFC 5546 and RFC 6047: a `multipart/alternative` message with a
   `text/plain` part and a `text/calendar; method=REQUEST` part holding `METHOD:REQUEST`, `ORGANIZER`,
   one `ATTENDEE;RSVP=TRUE` per invitee, `UID`, `DTSTAMP`, and `SEQUENCE:0`. Where a draft lands is up

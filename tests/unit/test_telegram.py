@@ -12,10 +12,10 @@ from switchboard.app import App
 from switchboard.connectors.telegram.client import TelegramError
 from switchboard.connectors.telegram.service import TelegramService, normalize_message
 from switchboard.connectors.telegram.settings import load_settings
-from switchboard.errors import ConfigError, ToolError
+from switchboard.errors import ConfigError, ToolError, UncertainOutcomeError
 from tests.conftest import AppFactory
 from tests.fakes import FakeHttp
-from tests.fixtures.telegram import BASE, BOT_ID, NOW, TOKEN, config, identity, respond, update
+from tests.fixtures.telegram import BASE, BOT_ID, CHAT_ID, NOW, TOKEN, config, identity, respond, update
 
 
 @pytest.fixture
@@ -175,3 +175,45 @@ def test_paging_and_expiration_are_local_only(app: App, fake_http: FakeHttp) -> 
     service.inbox.prune(NOW + timedelta(days=15), 14)
     assert service.messages({})["messages"] == []
     assert len(fake_http.requests) == 2
+
+
+def _received(app: App, fake_http: FakeHttp) -> tuple[TelegramService, dict[str, Any]]:
+    identity(fake_http)
+    respond(fake_http, "getUpdates", [update()])
+    service: TelegramService = app.ctx.require("telegram.inbox")
+    service.clock = lambda: NOW
+    service.poll()
+    [message] = service.messages({})["messages"]
+    return service, message
+
+
+@pytest.mark.parametrize("failure", ["transport", 500, "unreadable", "wrong_chat"])
+def test_replies_that_may_have_been_delivered_raise_uncertain_outcomes(
+    app: App, fake_http: FakeHttp, failure: str | int
+) -> None:
+    service, message = _received(app, fake_http)
+    if failure == "transport":
+        fake_http.add_error("POST", BASE + "sendMessage", "simulated timeout")
+    elif failure == "unreadable":
+        fake_http.add("POST", BASE + "sendMessage", body="not json")
+    elif failure == "wrong_chat":
+        respond(fake_http, "sendMessage", {"message_id": 900, "chat": {"id": 222}})
+    else:
+        fake_http.add("POST", BASE + "sendMessage", status=500, body='{"ok":false}')
+
+    with pytest.raises(UncertainOutcomeError) as raised:
+        service.reply({"id": message["id"], "chat_id": CHAT_ID, "text": "Hello."})
+
+    assert TOKEN not in str(raised.value)
+    assert service.read({"id": message["id"]})["reply_state"] == "unknown"
+
+
+def test_a_refused_reply_is_a_definite_failure(app: App, fake_http: FakeHttp) -> None:
+    service, message = _received(app, fake_http)
+    fake_http.add("POST", BASE + "sendMessage", status=403, body='{"ok":false}')
+
+    with pytest.raises(TelegramError, match="not permitted") as raised:
+        service.reply({"id": message["id"], "chat_id": CHAT_ID, "text": "Hello."})
+
+    assert not isinstance(raised.value, UncertainOutcomeError)
+    assert service.read({"id": message["id"]})["reply_state"] == "failed"

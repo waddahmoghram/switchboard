@@ -3,14 +3,18 @@
 #include <cmath>
 #include <fstream>
 #include <memory>
+#include <optional>
 #include <string>
+#include <vector>
 
 #include <sys/stat.h>
 
 using namespace switchboard;
 using switchboard::test::Directory;
 using switchboard::test::expect;
+using switchboard::test::expect_error_code;
 using switchboard::test::FakeHttp;
+using switchboard::test::ManualClock;
 
 namespace
 {
@@ -167,6 +171,226 @@ void audit_chain()
     editor.execute("UPDATE native_audit SET record = '{}' WHERE id = 1");
     expect(runtime.call("audit_verify", Json::object())["status"] == "error", "native audit edit was not detected");
 }
+
+void runtime_settings()
+{
+    Directory directory;
+    auto configuration = test::configuration(directory, {});
+    configuration["switchboard"]["tool_timeout_seconds"] = 5;
+    configuration["switchboard"]["job_timeout_seconds"] = 3600;
+    configuration["switchboard"]["tick_budget_seconds"] = 30;
+    configuration["retention"] = {{"tool_calls_days", 1}, {"approvals_days", 3650}, {"actions_days", 180}};
+    configuration["broker"] = {{"client_socket", "/run/switchboard/client.sock"},
+                               {"operator_socket", "/run/switchboard/operator.sock"},
+                               {"client_uids", Json::array({1001})},
+                               {"operator_uids", Json::array({0, 4294967294LL})}};
+    Runtime accepted(configuration, std::make_unique<FakeHttp>());
+    expect(accepted.call("switchboard_status", Json::object())["status"] == "ok", "native bounded settings were not accepted");
+    const auto rejected = [&](const char *section, const char *key, const Json &value, const std::string &code)
+    {
+        auto changed = configuration;
+        changed[section][key] = value;
+        expect_error_code(
+            [&]
+            {
+                Runtime runtime(changed, std::make_unique<FakeHttp>());
+            },
+            code, std::string("native setting was accepted: ") + section + "." + key + "=" + value.dump());
+    };
+    rejected("switchboard", "tool_timeout_seconds", 4, "invalid");
+    rejected("switchboard", "tool_timeout_seconds", 3601, "invalid");
+    rejected("switchboard", "job_timeout_seconds", 4, "invalid");
+    rejected("switchboard", "job_timeout_seconds", 3601, "invalid");
+    rejected("switchboard", "tick_budget_seconds", 29, "invalid");
+    rejected("switchboard", "tick_budget_seconds", 3601, "invalid");
+    rejected("switchboard", "tick_budget_seconds", 60.5, "invalid");
+    rejected("switchboard", "job_workers", 4, "unsupported");
+    rejected("retention", "actions_days", 0, "invalid");
+    rejected("retention", "approvals_days", 3651, "invalid");
+    rejected("retention", "connectors", Json::object(), "unsupported");
+    rejected("retention", "events_days", 30, "invalid");
+    rejected("broker", "client_uids", Json::array(), "invalid");
+    rejected("broker", "client_uids", Json::array({-1}), "invalid");
+    rejected("broker", "client_uids", Json::array({4294967295LL}), "invalid");
+    rejected("broker", "client_uids", Json::array({true}), "invalid");
+    rejected("broker", "operator_uids", Json::array({"1000"}), "invalid");
+    rejected("broker", "operator_uids", Json(std::vector<int>(65, 1000)), "invalid");
+    rejected("broker", "client_socket", "", "invalid");
+    rejected("broker", "client_socket", "   ", "invalid");
+    rejected("broker", "operator_socket", 5, "invalid");
+    rejected("broker", "listen_address", "0.0.0.0", "invalid");
+    bool explained = false;
+    try
+    {
+        auto changed = configuration;
+        changed["switchboard"]["job_workers"] = 2;
+        Runtime runtime(changed, std::make_unique<FakeHttp>());
+    }
+    catch (const Error &error)
+    {
+        explained = std::string(error.what()).find("Python-only") != std::string::npos;
+    }
+    expect(explained, "native job_workers rejection must say that the setting is Python-only");
+    auto array_broker = configuration;
+    array_broker["broker"] = Json::array();
+    expect_error_code(
+        [&]
+        {
+            Runtime runtime(array_broker, std::make_unique<FakeHttp>());
+        },
+        "invalid", "native broker section must be an object");
+}
+
+void journal_tool_and_status()
+{
+    Directory directory;
+    test::SyntheticProbe probe;
+    Runtime runtime(test::configuration(directory, {}), std::make_unique<FakeHttp>(), {}, test::synthetic_tools(probe));
+    bool listed = false;
+    for (const auto &tool : runtime.catalog()["tools"])
+    {
+        if (tool["name"] == "actions_recent")
+        {
+            listed = tool["annotations"]["readOnlyHint"] == true;
+        }
+        expect(tool["name"].get<std::string>().find("reconcile") == std::string::npos, "assistants must not receive a reconciliation tool");
+    }
+    expect(listed, "native action journal tool is missing or not read-only");
+    const auto status = runtime.call("switchboard_status", Json::object());
+    expect(status["data"]["open_actions"] == Json{{"in_flight", 0}, {"uncertain", 0}} && status["data"]["schema_version"] == STATE_SCHEMA_VERSION &&
+               !status.contains("action"),
+           "native status must report open journal counts and must not journal reads");
+    const auto unknown = runtime.call("synthetic_write", {{"mode", "effect_unknown"}});
+    expect(unknown["status"] == "ok" && unknown["action"]["state"] == "uncertain", "a returned effect_unknown report must be uncertain");
+    const auto recent = runtime.call("actions_recent", Json::object());
+    expect(recent["status"] == "ok" && recent["data"]["actions"].size() == 1 && !recent["data"]["actions"][0].contains("args") &&
+               !recent["data"]["actions"][0].contains("owner") && recent["data"]["actions"][0]["started_at"].is_string() &&
+               recent["data"]["open"]["uncertain"] == 1,
+           "the assistant journal view must omit arguments and owners");
+    expect(runtime.call("actions_recent", {{"state", "succeeded"}})["data"]["actions"].empty(), "native journal state filter failed");
+    expect(runtime.call("actions_recent", {{"state", "unknown"}})["status"] == "invalid", "native journal accepted an unknown state");
+    expect(runtime.call("actions_recent", {{"limit", 101}})["status"] == "invalid", "native journal accepted an unbounded limit");
+    expect(runtime.call("switchboard_status", Json::object())["data"]["open_actions"]["uncertain"] == 1, "native status missed an uncertain action");
+    const auto reply = runtime.rpc({{"jsonrpc", "2.0"},
+                                    {"id", 7},
+                                    {"method", "tools/call"},
+                                    {"params",
+                                     {{"name", "synthetic_write"},
+                                      {"arguments", {{"mode", "effect_unknown"}, {"tag", "protocol"}}},
+                                      {"_meta", {{"io.modelcontextprotocol/protocolVersion", "2026-07-28"}}}}}});
+    expect(reply["result"]["isError"] == true, "native protocol must flag a returned report whose effect is unknown");
+}
+
+void bounded_tick_and_backoff()
+{
+    Directory directory;
+    ManualClock clock;
+    const auto start = clock.now();
+    auto configuration = test::configuration(directory, {});
+    configuration["switchboard"]["tick_budget_seconds"] = 30;
+    configuration["switchboard"]["job_timeout_seconds"] = 5;
+    std::vector<std::string> order;
+    bool slow_first = true;
+    bool flaky_fails = true;
+    std::optional<ExecutionLimits> observed;
+    const Extension jobs = [&](Context &context, Registry &)
+    {
+        context.add_job("test.slow", 60,
+                        [&]
+                        {
+                            order.push_back("slow");
+                            if (slow_first)
+                            {
+                                slow_first = false;
+                                clock.advance(31);
+                            }
+                        });
+        context.jobs.back().next_run = start - 100;
+        context.add_job("test.flaky", 60,
+                        [&]
+                        {
+                            order.push_back("flaky");
+                            observed = current_execution_limits();
+                            if (flaky_fails)
+                            {
+                                throw Error("test_failure", "synthetic job failure");
+                            }
+                        });
+        context.jobs.back().next_run = start - 50;
+        context.add_job("test.later", 60,
+                        [&]
+                        {
+                            order.push_back("later");
+                        });
+    };
+    Runtime runtime(configuration, std::make_unique<FakeHttp>(), clock.clock(), jobs);
+
+    const auto first = runtime.tick();
+    expect(order == std::vector<std::string>{"slow"} && first["budget_exhausted"] == true && first["deferred"] == Json::array({"test.flaky", "test.later"}) &&
+               first["jobs"][0]["overran"] == true,
+           "native tick must run the most overdue job first and stop at its budget");
+    const auto second = runtime.tick();
+    expect(order == std::vector<std::string>{"slow", "flaky", "later"} && second["deferred"].empty() && second["budget_exhausted"] == false,
+           "native jobs left by an exhausted budget must stay due");
+    expect(observed && observed->remaining_seconds() > 0 && observed->remaining_seconds() <= 5 && !observed->cancelled(),
+           "native jobs must run under their own deadline");
+    expect(!current_execution_limits().has_value(), "native job limits must not leak out of a tick");
+    expect(second["jobs"][0]["error"] == "test_failure" && second["jobs"][0]["consecutive_failures"] == 1 && second["jobs"][0]["next_run"] == start + 31 + 60,
+           "a first failure must keep the normal interval");
+
+    clock.advance(60);
+    const auto third = runtime.tick();
+    expect(order.size() == 6 && order[3] == "slow" && order[4] == "flaky" && order[5] == "later", "equally overdue jobs must keep registration order");
+    expect(third["jobs"][1]["consecutive_failures"] == 2 && third["jobs"][1]["next_run"] == start + 91 + 120, "repeated failures must back off exponentially");
+
+    flaky_fails = false;
+    clock.advance(120);
+    (void)runtime.tick();
+    expect(order.size() == 9 && order[6] == "slow" && order[7] == "later" && order[8] == "flaky", "the least overdue job must run last");
+    Json flaky;
+    for (const auto &job : runtime.call("jobs_status", Json::object())["data"])
+    {
+        if (job["name"] == "test.flaky")
+        {
+            flaky = job;
+        }
+    }
+    expect(flaky["consecutive_failures"] == 0 && flaky["error"].is_null() && flaky["next_run"] == start + 211 + 60 && flaky["overruns"] == 0 &&
+               flaky["last_duration_ms"].is_number_integer() && flaky["last_started_at"] == start + 211 && flaky["timeout_seconds"] == 5,
+           "a success must reset backoff and report the last run");
+}
+
+void tick_cancellation()
+{
+    Directory directory;
+    Runtime *active = nullptr;
+    bool cancelled_inside = false;
+    bool second_cancelled = true;
+    int second_runs = 0;
+    const Extension jobs = [&](Context &context, Registry &)
+    {
+        context.add_job("test.first", 60,
+                        [&]
+                        {
+                            active->cancel();
+                            cancelled_inside = current_execution_limits()->cancelled();
+                        });
+        context.jobs.back().next_run -= 10;
+        context.add_job("test.second", 60,
+                        [&]
+                        {
+                            ++second_runs;
+                            second_cancelled = current_execution_limits()->cancelled();
+                        });
+    };
+    Runtime runtime(test::configuration(directory, {}), std::make_unique<FakeHttp>(), {}, jobs);
+    active = &runtime;
+    const auto first = runtime.tick();
+    expect(cancelled_inside && first["cancelled"] == true && first["deferred"] == Json::array({"test.second"}) && second_runs == 0,
+           "a cancellation during a tick must reach the running job and defer the rest");
+    const auto second = runtime.tick();
+    expect(second["cancelled"] == false && second_runs == 1 && !second_cancelled, "a cancellation must not affect a later tick");
+}
 }  // namespace
 
 int main()
@@ -176,5 +400,9 @@ int main()
     approval_revalidation_and_budget();
     protocol_and_exposure();
     audit_chain();
+    runtime_settings();
+    journal_tool_and_status();
+    bounded_tick_and_backoff();
+    tick_cancellation();
     return 0;
 }

@@ -1,0 +1,453 @@
+{
+  "format": "switchboard-contract-cases",
+  "version": 1,
+  "contract_revision": 1,
+  "area": "journal",
+  "summary": "The action journal: result classification, the duplicate guard, operator reconciliation, sweeps of abandoned attempts, and the assistant's read-only view. Uses the synthetic contract_* tools; stale attempts are inserted directly into each engine's journal table.",
+  "cases": [
+    {
+      "id": "draft-results-are-classified",
+      "summary": "Every handler result maps to the contract's state; only a top-level boolean effect_unknown makes a returned report uncertain.",
+      "steps": [
+        {
+          "op": "call",
+          "tool": "contract_draft",
+          "args": {"mode": "ok"},
+          "expect": {"status": "ok", "tool": "contract_draft", "action": "succeeded", "data": {"handled": true}}
+        },
+        {
+          "op": "call",
+          "tool": "contract_draft",
+          "args": {"mode": "confirmed"},
+          "expect": {"status": "ok", "action": "succeeded", "data": {"handled": true, "confirmed": true}}
+        },
+        {
+          "op": "call",
+          "tool": "contract_draft",
+          "args": {"mode": "unconfirmed"},
+          "expect": {"status": "ok", "action": "succeeded", "data": {"handled": true, "confirmed": false}}
+        },
+        {
+          "op": "call",
+          "tool": "contract_draft",
+          "args": {"mode": "effect_unknown"},
+          "expect": {"status": "ok", "action": "uncertain", "data": {"handled": null, "effect_unknown": true}}
+        },
+        {
+          "op": "call",
+          "tool": "contract_draft",
+          "args": {"mode": "effect_unknown_text"},
+          "expect": {"status": "ok", "action": "succeeded", "data": {"effect_unknown": "true"}}
+        },
+        {
+          "op": "call",
+          "tool": "contract_draft",
+          "args": {"mode": "effect_unknown_nested"},
+          "expect": {"status": "ok", "action": "succeeded", "data": {"report": {"effect_unknown": true}}}
+        },
+        {"op": "call", "tool": "contract_draft", "args": {"mode": "fail"}, "expect": {"status": "error", "action": "failed", "absent": ["data"]}},
+        {"op": "call", "tool": "contract_draft", "args": {"mode": "uncertain"}, "expect": {"status": "error", "action": "uncertain", "absent": ["data"]}},
+        {"op": "call", "tool": "contract_draft", "args": {"mode": "crash"}, "expect": {"status": "error", "action": "uncertain", "absent": ["data"]}},
+        {"op": "handler_calls", "expect": {"contract_draft": 9}}
+      ]
+    },
+    {
+      "id": "human-act-results-are-classified",
+      "summary": "An act call by a human executes directly and is journaled like any other non-read call.",
+      "steps": [
+        {"op": "call", "tool": "contract_act", "args": {"mode": "confirmed"}, "origin": "human", "expect": {"status": "ok", "action": "succeeded"}},
+        {"op": "call", "tool": "contract_act", "args": {"mode": "effect_unknown"}, "origin": "human", "expect": {"status": "ok", "action": "uncertain"}},
+        {"op": "call", "tool": "contract_act", "args": {"mode": "fail"}, "origin": "human", "expect": {"status": "error", "action": "failed"}},
+        {"op": "call", "tool": "contract_act", "args": {"mode": "uncertain"}, "origin": "human", "expect": {"status": "error", "action": "uncertain"}},
+        {"op": "call", "tool": "contract_act", "args": {"mode": "crash"}, "origin": "human", "expect": {"status": "error", "action": "uncertain"}},
+        {"op": "handler_calls", "expect": {"contract_act": 5}}
+      ]
+    },
+    {
+      "id": "reads-are-never-journaled",
+      "summary": "Read calls carry no action, even when they fail, and a failed read may be repeated.",
+      "steps": [
+        {"op": "call", "tool": "contract_read", "args": {"mode": "ok"}, "expect": {"status": "ok", "action": null}},
+        {"op": "call", "tool": "contract_read", "args": {"mode": "crash"}, "expect": {"status": "error", "action": null}},
+        {"op": "call", "tool": "contract_read", "args": {"mode": "crash"}, "expect": {"status": "error", "action": null}},
+        {"op": "call", "tool": "contract_read", "args": {"mode": "uncertain"}, "expect": {"status": "error", "action": null}},
+        {"op": "call", "tool": "contract_read", "args": {"mode": "fail"}, "expect": {"status": "error", "action": null}},
+        {"op": "handler_calls", "expect": {"contract_read": 5}},
+        {"op": "recent_actions", "args": {}, "expect": {"entries": []}}
+      ]
+    },
+    {
+      "id": "uncertain-blocks-identical-repeats",
+      "summary": "An uncertain attempt refuses the same tool with the same arguments, naming itself; other arguments still run.",
+      "steps": [
+        {
+          "op": "call",
+          "tool": "contract_draft",
+          "args": {"mode": "uncertain", "tag": "garage"},
+          "expect": {"status": "error", "action": "uncertain"},
+          "save": {"first": "action.id"}
+        },
+        {
+          "op": "call",
+          "tool": "contract_draft",
+          "args": {"mode": "uncertain", "tag": "garage"},
+          "expect": {"status": "denied", "action": null, "message_contains": [{"$saved": "first"}]}
+        },
+        {
+          "op": "call",
+          "tool": "contract_draft",
+          "args": {"tag": "garage", "mode": "uncertain"},
+          "note": "Key order does not change the canonical arguments.",
+          "expect": {"status": "denied", "action": null, "message_contains": [{"$saved": "first"}]}
+        },
+        {
+          "op": "call",
+          "tool": "contract_draft",
+          "args": {"mode": "uncertain", "tag": "garage"},
+          "origin": "human",
+          "expect": {"status": "denied", "action": null}
+        },
+        {"op": "call", "tool": "contract_draft", "args": {"mode": "uncertain", "tag": "porch"}, "expect": {"status": "error", "action": "uncertain"}},
+        {"op": "call", "tool": "contract_draft", "args": {"mode": "ok", "tag": "garage"}, "expect": {"status": "ok", "action": "succeeded"}},
+        {"op": "handler_calls", "expect": {"contract_draft": 3}},
+        {
+          "op": "recent_actions",
+          "args": {},
+          "expect": {
+            "entries": [
+              {"id": {"$saved": "first"}, "tool": "contract_draft", "state": "uncertain"},
+              {"tool": "contract_draft", "state": "uncertain"},
+              {"tool": "contract_draft", "state": "succeeded"}
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "returned-unknown-effect-blocks-identical-repeats",
+      "summary": "An ok outcome whose action is uncertain blocks repeats like a raised uncertain error.",
+      "steps": [
+        {
+          "op": "call",
+          "tool": "contract_draft",
+          "args": {"mode": "effect_unknown"},
+          "expect": {"status": "ok", "action": "uncertain"},
+          "save": {"first": "action.id"}
+        },
+        {
+          "op": "call",
+          "tool": "contract_draft",
+          "args": {"mode": "effect_unknown"},
+          "expect": {"status": "denied", "action": null, "message_contains": [{"$saved": "first"}]}
+        },
+        {"op": "handler_calls", "expect": {"contract_draft": 1}}
+      ]
+    },
+    {
+      "id": "unexpected-failure-blocks-identical-repeats",
+      "summary": "An unexpected exception leaves an uncertain attempt that blocks repeats.",
+      "steps": [
+        {
+          "op": "call",
+          "tool": "contract_act",
+          "args": {"mode": "crash"},
+          "origin": "human",
+          "expect": {"status": "error", "action": "uncertain"},
+          "save": {"first": "action.id"}
+        },
+        {
+          "op": "call",
+          "tool": "contract_act",
+          "args": {"mode": "crash"},
+          "origin": "human",
+          "expect": {"status": "denied", "action": null, "message_contains": [{"$saved": "first"}]}
+        },
+        {"op": "handler_calls", "expect": {"contract_act": 1}}
+      ]
+    },
+    {
+      "id": "settled-results-do-not-block",
+      "summary": "Succeeded and failed attempts never block an identical repeat.",
+      "steps": [
+        {"op": "call", "tool": "contract_draft", "args": {"mode": "ok"}, "expect": {"status": "ok", "action": "succeeded"}},
+        {"op": "call", "tool": "contract_draft", "args": {"mode": "ok"}, "expect": {"status": "ok", "action": "succeeded"}},
+        {"op": "call", "tool": "contract_draft", "args": {"mode": "fail"}, "expect": {"status": "error", "action": "failed"}},
+        {"op": "call", "tool": "contract_draft", "args": {"mode": "fail"}, "expect": {"status": "error", "action": "failed"}},
+        {"op": "handler_calls", "expect": {"contract_draft": 4}}
+      ]
+    },
+    {
+      "id": "reconcile-applied-lifts-the-guard",
+      "summary": "The operator records that an uncertain effect happened; the identical request may then run again.",
+      "steps": [
+        {
+          "op": "call",
+          "tool": "contract_draft",
+          "args": {"mode": "uncertain", "tag": "heater"},
+          "expect": {"status": "error", "action": "uncertain"},
+          "save": {"first": "action.id"}
+        },
+        {
+          "op": "reconcile",
+          "action": {"$saved": "first"},
+          "resolution": "applied",
+          "note": "Checked the heater: the change is in place",
+          "expect": {"accepted": true, "state": "reconciled_applied"}
+        },
+        {"op": "action_state", "action": {"$saved": "first"}, "expect": {"state": "reconciled_applied"}},
+        {"op": "call", "tool": "contract_draft", "args": {"mode": "uncertain", "tag": "heater"}, "expect": {"status": "error", "action": "uncertain"}},
+        {"op": "handler_calls", "expect": {"contract_draft": 2}}
+      ]
+    },
+    {
+      "id": "reconcile-not-applied-lifts-the-guard",
+      "summary": "The operator records that an uncertain effect did not happen; the identical request may then run again.",
+      "steps": [
+        {
+          "op": "call",
+          "tool": "contract_draft",
+          "args": {"mode": "crash", "tag": "lamp"},
+          "expect": {"status": "error", "action": "uncertain"},
+          "save": {"first": "action.id"}
+        },
+        {
+          "op": "reconcile",
+          "action": {"$saved": "first"},
+          "resolution": "not_applied",
+          "note": "  The lamp never changed  ",
+          "expect": {"accepted": true, "state": "reconciled_not_applied"}
+        },
+        {"op": "call", "tool": "contract_draft", "args": {"mode": "ok", "tag": "lamp"}, "expect": {"status": "ok", "action": "succeeded"}},
+        {"op": "call", "tool": "contract_draft", "args": {"mode": "crash", "tag": "lamp"}, "expect": {"status": "error", "action": "uncertain"}},
+        {"op": "handler_calls", "expect": {"contract_draft": 3}}
+      ]
+    },
+    {
+      "id": "only-uncertain-actions-are-reconciled",
+      "summary": "Reconciliation is refused for settled, missing, already reconciled and badly noted requests.",
+      "steps": [
+        {
+          "op": "call",
+          "tool": "contract_draft",
+          "args": {"mode": "ok", "tag": "settled"},
+          "expect": {"status": "ok", "action": "succeeded"},
+          "save": {"succeeded": "action.id"}
+        },
+        {"op": "reconcile", "action": {"$saved": "succeeded"}, "resolution": "applied", "note": "Checked", "expect": {"accepted": false}},
+        {"op": "action_state", "action": {"$saved": "succeeded"}, "expect": {"state": "succeeded"}},
+        {
+          "op": "call",
+          "tool": "contract_draft",
+          "args": {"mode": "fail", "tag": "settled"},
+          "expect": {"status": "error", "action": "failed"},
+          "save": {"failed": "action.id"}
+        },
+        {"op": "reconcile", "action": {"$saved": "failed"}, "resolution": "not_applied", "note": "Checked", "expect": {"accepted": false}},
+        {"op": "action_state", "action": {"$saved": "failed"}, "expect": {"state": "failed"}},
+        {
+          "op": "call",
+          "tool": "contract_draft",
+          "args": {"mode": "uncertain", "tag": "open"},
+          "expect": {"status": "error", "action": "uncertain"},
+          "save": {"open": "action.id"}
+        },
+        {"op": "reconcile", "action": {"$saved": "open"}, "resolution": "applied", "note": "   ", "expect": {"accepted": false}},
+        {"op": "reconcile", "action": {"$saved": "open"}, "resolution": "applied", "note": "bell\u0007", "expect": {"accepted": false}},
+        {"op": "action_state", "action": {"$saved": "open"}, "expect": {"state": "uncertain"}},
+        {"op": "reconcile", "action": {"$saved": "open"}, "resolution": "applied", "note": "Checked", "expect": {"accepted": true, "state": "reconciled_applied"}},
+        {"op": "reconcile", "action": {"$saved": "open"}, "resolution": "not_applied", "note": "Changed my mind", "expect": {"accepted": false}},
+        {"op": "action_state", "action": {"$saved": "open"}, "expect": {"state": "reconciled_applied"}},
+        {"op": "reconcile", "action": "00000000000000000000000000000000", "resolution": "applied", "note": "Checked", "expect": {"accepted": false}},
+        {"op": "action_state", "action": "00000000000000000000000000000000", "expect": {"state": null}}
+      ]
+    },
+    {
+      "id": "expired-in-flight-is-swept-before-the-duplicate-check",
+      "summary": "An attempt left in flight by an ended process becomes uncertain once its deadline is more than 60 seconds past, before an identical request is checked.",
+      "steps": [
+        {
+          "op": "insert_stale_action",
+          "tool": "contract_draft",
+          "args": {"mode": "ok", "tag": "stale"},
+          "started_offset_seconds": -900,
+          "deadline_offset_seconds": -300,
+          "save": "stale"
+        },
+        {"op": "action_state", "action": {"$saved": "stale"}, "expect": {"state": "in_flight"}},
+        {
+          "op": "call",
+          "tool": "contract_draft",
+          "args": {"mode": "ok", "tag": "stale"},
+          "expect": {"status": "denied", "action": null, "message_contains": [{"$saved": "stale"}]}
+        },
+        {"op": "action_state", "action": {"$saved": "stale"}, "expect": {"state": "uncertain"}},
+        {
+          "op": "reconcile",
+          "action": {"$saved": "stale"},
+          "resolution": "not_applied",
+          "note": "The process died before sending",
+          "expect": {"accepted": true, "state": "reconciled_not_applied"}
+        },
+        {"op": "call", "tool": "contract_draft", "args": {"mode": "ok", "tag": "stale"}, "expect": {"status": "ok", "action": "succeeded"}},
+        {"op": "handler_calls", "expect": {"contract_draft": 1}}
+      ]
+    },
+    {
+      "id": "expired-in-flight-is-swept-when-the-engine-starts",
+      "summary": "Starting an engine sweeps expired in-flight attempts.",
+      "steps": [
+        {
+          "op": "insert_stale_action",
+          "tool": "contract_draft",
+          "args": {"mode": "ok", "tag": "restart"},
+          "started_offset_seconds": -900,
+          "deadline_offset_seconds": -300,
+          "save": "stale"
+        },
+        {"op": "restart"},
+        {"op": "action_state", "action": {"$saved": "stale"}, "expect": {"state": "uncertain"}},
+        {"op": "recent_actions", "args": {"state": "uncertain"}, "expect": {"entries": [{"id": {"$saved": "stale"}, "tool": "contract_draft"}]}}
+      ]
+    },
+    {
+      "id": "expired-in-flight-is-swept-on-each-tick",
+      "summary": "A runner tick sweeps expired in-flight attempts.",
+      "steps": [
+        {
+          "op": "insert_stale_action",
+          "tool": "contract_draft",
+          "args": {"mode": "ok", "tag": "tick"},
+          "started_offset_seconds": -900,
+          "deadline_offset_seconds": -300,
+          "save": "stale"
+        },
+        {"op": "tick"},
+        {"op": "action_state", "action": {"$saved": "stale"}, "expect": {"state": "uncertain"}}
+      ]
+    },
+    {
+      "id": "in-flight-within-the-grace-period-still-blocks",
+      "summary": "An attempt whose deadline passed less than 60 seconds ago stays in flight, blocks an identical request and cannot be reconciled yet.",
+      "steps": [
+        {
+          "op": "insert_stale_action",
+          "tool": "contract_draft",
+          "args": {"mode": "ok", "tag": "recent"},
+          "started_offset_seconds": -60,
+          "deadline_offset_seconds": -30,
+          "save": "live"
+        },
+        {
+          "op": "call",
+          "tool": "contract_draft",
+          "args": {"mode": "ok", "tag": "recent"},
+          "expect": {"status": "denied", "action": null, "message_contains": [{"$saved": "live"}]}
+        },
+        {"op": "action_state", "action": {"$saved": "live"}, "expect": {"state": "in_flight"}},
+        {"op": "reconcile", "action": {"$saved": "live"}, "resolution": "applied", "note": "Too early", "expect": {"accepted": false}},
+        {"op": "call", "tool": "contract_draft", "args": {"mode": "ok", "tag": "other"}, "expect": {"status": "ok", "action": "succeeded"}},
+        {"op": "handler_calls", "expect": {"contract_draft": 1}}
+      ]
+    },
+    {
+      "id": "reconciling-an-expired-unswept-attempt",
+      "summary": "The operator reconciles an expired in-flight attempt before any sweep has run; reconciliation sweeps first.",
+      "steps": [
+        {
+          "op": "insert_stale_action",
+          "tool": "contract_draft",
+          "args": {"mode": "ok", "tag": "unswept"},
+          "started_offset_seconds": -900,
+          "deadline_offset_seconds": -300,
+          "save": "stale"
+        },
+        {
+          "op": "reconcile",
+          "action": {"$saved": "stale"},
+          "resolution": "applied",
+          "note": "Checked: it was delivered",
+          "expect": {"accepted": true, "state": "reconciled_applied"}
+        },
+        {"op": "action_state", "action": {"$saved": "stale"}, "expect": {"state": "reconciled_applied"}}
+      ]
+    },
+    {
+      "id": "assistant-view-of-recent-actions",
+      "summary": "actions_recent lists journal entries with their origin and state but never their arguments or owner, filters by state, and bounds its input.",
+      "steps": [
+        {
+          "op": "call",
+          "tool": "contract_draft",
+          "args": {"mode": "ok", "tag": "a"},
+          "expect": {"status": "ok", "action": "succeeded"},
+          "save": {"a": "action.id"}
+        },
+        {
+          "op": "call",
+          "tool": "contract_draft",
+          "args": {"mode": "uncertain", "tag": "b"},
+          "origin": "rule",
+          "expect": {"status": "error", "action": "uncertain"},
+          "save": {"b": "action.id"}
+        },
+        {
+          "op": "call",
+          "tool": "contract_act",
+          "args": {"mode": "fail", "tag": "c"},
+          "origin": "human",
+          "expect": {"status": "error", "action": "failed"},
+          "save": {"c": "action.id"}
+        },
+        {"op": "call", "tool": "contract_read", "args": {"mode": "ok"}, "expect": {"status": "ok", "action": null}},
+        {
+          "op": "recent_actions",
+          "args": {},
+          "expect": {
+            "entries": [
+              {"id": {"$saved": "a"}, "tool": "contract_draft", "state": "succeeded", "origin": "assistant", "approval_id": null},
+              {"id": {"$saved": "b"}, "tool": "contract_draft", "state": "uncertain", "origin": "rule"},
+              {"id": {"$saved": "c"}, "tool": "contract_act", "state": "failed", "origin": "human"}
+            ],
+            "present_fields": [
+              "id",
+              "tool",
+              "args_digest",
+              "origin",
+              "approval_id",
+              "state",
+              "started_at",
+              "deadline_at",
+              "finished_at",
+              "error",
+              "resolved_at",
+              "resolution_note"
+            ],
+            "absent_fields": ["args", "args_json", "owner"]
+          }
+        },
+        {"op": "recent_actions", "args": {"state": "uncertain"}, "expect": {"entries": [{"id": {"$saved": "b"}}]}},
+        {"op": "recent_actions", "args": {"state": "reconciled_applied"}, "expect": {"entries": []}},
+        {"op": "recent_actions", "args": {"limit": 1}, "expect": {"count": 1}},
+        {"op": "call", "tool": "actions_recent", "args": {"state": "bogus"}, "expect": {"status": "invalid", "action": null}},
+        {"op": "call", "tool": "actions_recent", "args": {"limit": 101}, "expect": {"status": "invalid"}},
+        {"op": "call", "tool": "actions_recent", "args": {"limit": 0}, "expect": {"status": "invalid"}}
+      ]
+    },
+    {
+      "id": "recent-actions-data-shape",
+      "summary": "actions_recent returns an object with the entries, the open counts, and who reconciles.",
+      "steps": [
+        {
+          "op": "call",
+          "tool": "actions_recent",
+          "expect": {
+            "status": "ok",
+            "action": null,
+            "types": {"data": "object", "data.actions": "array", "data.open": "object"},
+            "data": {"open": {"in_flight": 0, "uncertain": 0}, "reconciled_by": "operator only"}
+          }
+        }
+      ]
+    }
+  ]
+}

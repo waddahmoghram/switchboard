@@ -174,6 +174,9 @@ that the requested output was observed. Control reports separate:
 - `ok`: true only when acceptance is known, readback matches and the readback has no component error.
   `status` is `confirmed`, `unconfirmed` or `uncertain`; `automatic_resend` is always false.
   That flag excludes the bounded negotiation after a definite `401`; it prohibits uncertainty-driven retries.
+- `confirmed` equals `ok`; `effect_unknown` is true when `command_accepted` is `null`. The core action
+  journal then records the call as `uncertain` and refuses an identical request until you check the plug
+  and run `switchboard actions resolve`.
 
 After an uncertain write, the connector may read status but never blindly resends the command.
 An output already matching the request does not prove that the command executed. Inspect the state and

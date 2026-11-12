@@ -21,7 +21,7 @@ from collections.abc import Collection, Mapping, Sequence
 from dataclasses import dataclass, field
 from xml.sax.saxutils import escape
 
-from switchboard.errors import HttpError, ToolError
+from switchboard.errors import HttpError, ToolError, UncertainOutcomeError
 from switchboard.httpclient import HttpResponse, HttpTransport, basic_auth
 
 DAV = "DAV:"
@@ -47,6 +47,7 @@ COLLECTION = qname(DAV, "collection")
 MAX_REDIRECTS = 5
 MAX_REPLY_BYTES = 20_000_000
 _REDIRECTS = {301, 302, 303, 307, 308}
+_SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS", "PROPFIND", "REPORT"})
 _XML_HEADERS = {"Content-Type": "application/xml; charset=utf-8"}
 _STATUS = re.compile(r"\s(\d{3})(?:\s|$)")
 
@@ -61,6 +62,13 @@ class DavError(ToolError):
         super().__init__(message)
         self.status = status
         self.retry_after = retry_after
+
+
+class DavUncertainError(DavError, UncertainOutcomeError):
+    """A write may have reached the server: the connection failed, or it answered HTTP 408 or 5xx.
+
+    The action journal records the attempt as uncertain, so an identical repeat waits for the operator.
+    """
 
 
 def retry_after_seconds(response: HttpResponse) -> float | None:
@@ -282,6 +290,11 @@ class DavClient:
                     follow_redirects=False,
                 )
             except HttpError as exc:
+                if method.upper() not in _SAFE_METHODS:
+                    raise DavUncertainError(
+                        f"{self.label}: {exc}; the {method.upper()} may have reached the server; "
+                        "nothing was resent"
+                    ) from exc
                 raise DavError(f"{self.label}: {exc}") from exc
             location = response.headers.get("location")
             if response.status not in _REDIRECTS or not location:
@@ -317,6 +330,12 @@ class DavClient:
         response, _ = self.request("PUT", url, body=body, headers=headers)
         if response.status == 412:
             raise DavError(f"{self.label}: an item with this name already exists (HTTP 412)", status=412)
+        if response.status == 408 or response.status >= 500:
+            raise DavUncertainError(
+                f"{describe_status(self.label, response.status)}; the item may have been stored; "
+                "check before creating it again; nothing was resent",
+                status=response.status,
+            )
         self.expect(response, {200, 201, 204})
         return response
 

@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 
 from switchboard.connectors import _dav
+from switchboard.errors import UncertainOutcomeError
 from tests.fakes import FakeHttp
 
 FIXTURES = Path(__file__).resolve().parents[1] / "fixtures" / "calendar"
@@ -187,3 +188,46 @@ def test_throttled_replies_carry_retry_after(fake_http: FakeHttp) -> None:
     with pytest.raises(_dav.DavError, match="busy") as caught:
         _client(fake_http).propfind(BASE, [_dav.DISPLAYNAME])
     assert (caught.value.status, caught.value.retry_after) == (503, 120.0)
+
+
+NEW_ITEM = BASE + "personal/new.ics"
+
+
+def _put(http: FakeHttp) -> None:
+    _client(http).put(NEW_ITEM, b"BEGIN:VCALENDAR", "text/calendar; charset=utf-8")
+
+
+def test_a_write_that_loses_the_connection_is_uncertain(fake_http: FakeHttp) -> None:
+    fake_http.add_error("PUT", NEW_ITEM, "PUT dav.example.invalid: timed out")
+    with pytest.raises(_dav.DavUncertainError, match="may have reached the server") as caught:
+        _put(fake_http)
+    assert isinstance(caught.value, UncertainOutcomeError)
+    assert "app-password" not in str(caught.value)
+    assert len(fake_http.requests) == 1
+
+
+def test_a_read_that_loses_the_connection_is_a_definite_failure(fake_http: FakeHttp) -> None:
+    fake_http.add_error("PROPFIND", BASE, "PROPFIND dav.example.invalid: timed out")
+    with pytest.raises(_dav.DavError) as caught:
+        _client(fake_http).propfind(BASE, [_dav.DISPLAYNAME])
+    assert not isinstance(caught.value, UncertainOutcomeError)
+
+
+@pytest.mark.parametrize("status", [408, 500, 502, 503, 504])
+def test_a_write_answered_with_a_timeout_or_server_error_is_uncertain(
+    fake_http: FakeHttp, status: int
+) -> None:
+    fake_http.add("PUT", NEW_ITEM, status=status)
+    with pytest.raises(_dav.DavUncertainError, match="may have been stored") as caught:
+        _put(fake_http)
+    assert caught.value.status == status
+    assert len(fake_http.requests) == 1
+
+
+@pytest.mark.parametrize("status", [400, 401, 403, 404, 409, 415, 429])
+def test_a_write_the_server_refused_is_a_definite_failure(fake_http: FakeHttp, status: int) -> None:
+    fake_http.add("PUT", NEW_ITEM, status=status)
+    with pytest.raises(_dav.DavError) as caught:
+        _put(fake_http)
+    assert not isinstance(caught.value, UncertainOutcomeError)
+    assert caught.value.status == status

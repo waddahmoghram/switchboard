@@ -403,3 +403,49 @@ def test_control_fingerprints_do_not_bind_or_resolve_secret_values(
     monkeypatch.setenv("SB_TEST_SHELLY_PASSWORD", "synthetic-rotated-value")
     second = make_app(config(controls=True, password=True))
     assert control_args(second)["target"] == first_target and fake_http.requests == []
+
+
+def test_a_confirmed_output_is_a_succeeded_action_with_a_boolean_confirmation(
+    make_app: AppFactory, fake_http: FakeHttp
+) -> None:
+    app = make_app(config(controls=True))
+    identity(fake_http)
+    status(fake_http)
+    accepted(fake_http)
+    status(fake_http, output=True)
+    outcome = app.call("shelly_switch_set", control_args(app), Origin.HUMAN)
+    assert (outcome.data["confirmed"], outcome.data["effect_unknown"]) == (True, False)
+    assert outcome.action is not None and outcome.action["state"] == "succeeded"
+
+
+def test_unknown_delivery_is_journaled_as_uncertain_and_blocks_a_blind_repeat(
+    make_app: AppFactory, fake_http: FakeHttp
+) -> None:
+    app = make_app(config(controls=True))
+    identity(fake_http)
+    status(fake_http)
+    fake_http.add_error("POST", BASE + "/rpc", "synthetic-timeout")
+    status(fake_http, output=True)
+    outcome = app.call("shelly_switch_set", control_args(app), Origin.HUMAN)
+    assert outcome.status == "ok"
+    assert (outcome.data["effect_unknown"], outcome.data["confirmed"]) == (True, False)
+    assert outcome.action is not None and outcome.action["state"] == "uncertain"
+
+    repeat = app.call("shelly_switch_set", control_args(app), Origin.HUMAN)
+
+    assert repeat.status == "denied" and outcome.action["id"] in repeat.message
+    assert methods(fake_http).count("Switch.Set") == 1
+
+
+def test_a_refused_command_is_a_definite_unconfirmed_report(
+    make_app: AppFactory, fake_http: FakeHttp
+) -> None:
+    app = make_app(config(controls=True))
+    identity(fake_http)
+    status(fake_http)
+    fake_http.add("POST", BASE + "/rpc", status=403, body="synthetic refusal")
+    status(fake_http)
+    outcome = app.call("shelly_switch_set", control_args(app), Origin.HUMAN)
+    assert outcome.data["command_accepted"] is False
+    assert (outcome.data["effect_unknown"], outcome.data["confirmed"]) == (False, False)
+    assert outcome.action is not None and outcome.action["state"] == "succeeded"

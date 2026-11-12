@@ -1,0 +1,2 @@
+shelly
+Digest realm="shelly", nonce="6567", qop="auth", algorithm=SHA-256, stale=false, charset=UTF-8

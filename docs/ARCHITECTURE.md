@@ -53,17 +53,20 @@ flowchart LR
 
     subgraph SWITCHBOARD["Switchboard processes (your machine)"]
         MCP["MCP server<br/>stdio, no listener"]:::active
+        BROKER["Broker, optional<br/>separate assistant and<br/>operator sockets"]:::active
         CLI["Command line<br/>you, approvals"]:::active
         RUNNER["Runner<br/>scheduler and rules"]:::active
         HOOKS["Webhook receiver<br/>opt-in, loopback"]:::active
         GATE{{"Dispatcher and policy gate"}}:::caution
         CONNECTORS["Enabled connectors<br/>accounts, files, messaging,<br/>devices, tasks, monitoring"]:::active
-        STORE[("SQLite: approvals, events,<br/>ledger, tasks, snapshots")]:::neutral
+        STORE[("SQLite: approvals, action journal,<br/>events, ledger, tasks, snapshots")]:::neutral
         AUDIT[("Hash-chained audit log")]:::neutral
     end
 
     ASSISTANT -->|"tools/list, tools/call"| MCP
+    ASSISTANT -.->|"or through a local socket"| BROKER
     MCP --> GATE
+    BROKER --> GATE
     CLI --> GATE
     RUNNER --> GATE
     GATE --> CONNECTORS
@@ -79,22 +82,27 @@ flowchart LR
 
 Legend: tan nodes are external to Switchboard, blue nodes are its entry points and connectors, the yellow
 hexagon is the gate every tool call passes, and gray cylinders are local storage in a directory only you can
-read (mode 700). The diagram was written for Markdown previews with Mermaid support; it has not been visually
-checked in every renderer.
+read (mode 700). The dotted edge is the optional broker path described in [Isolation](./ISOLATION.md). The
+diagram was written for Markdown previews with Mermaid support; it has not been visually checked in every
+renderer.
 
-| Component        | Module                      | Responsibility                                                                                                                   |
-| ---------------- | --------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
-| Configuration    | `config.py`, `secrets.py`   | Table-based settings; `env:`, `file:` (mode 600, no symbolic links), and `cmd:` secret references                                |
-| Storage          | `db.py`                     | One SQLite file, write-ahead logging, versioned migrations per component                                                         |
-| Audit log        | `audit.py`                  | Hash-chained records; redacts credential-like keys but can retain message text and body prefixes                                 |
-| Policy gate      | `policy.py`                 | Tier defaults, per-tool rules, recipient allowlists, amount caps, rate limits, kill switch                                       |
-| Tools            | `tools.py`, `jsonschema.py` | Tool registry, argument validation, the dispatcher every call goes through                                                       |
-| Approvals        | `approvals.py`              | Queue binding the exact arguments; one atomic claim; expiry                                                                      |
-| Events and rules | `events.py`, `rules.py`     | Durable event queue; connector subscribers; "when this, do that" rules through the gate                                          |
-| Scheduler        | `scheduler.py`              | Interval polling jobs (at least 30 seconds apart)                                                                                |
-| Web transport    | `httpclient.py`             | Controlled redirects; public-only requests pin validated addresses and bypass proxies                                            |
-| MCP server       | `mcp_server.py`             | Targets `2026-07-28`, `2025-11-25`, `2025-06-18`, and `2025-03-26`; not certified against clients                                |
-| Command line     | `cli.py`                    | Setup, diagnostics, approvals, audit, kill switch, runner, connector subcommands                                                 |
+| Component        | Module                        | Responsibility                                                                                                                   |
+| ---------------- | ----------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| Configuration    | `config.py`, `secrets.py`     | Table-based settings; `env:`, `file:` (mode 600, no symbolic links), and `cmd:` secret references                                |
+| Storage          | `db.py`                       | One SQLite file, write-ahead logging, versioned migrations per component                                                         |
+| Audit log        | `audit.py`                    | Hash-chained records; redacts credential-like keys but can retain message text and body prefixes                                 |
+| Policy gate      | `policy.py`                   | Tier defaults, per-tool rules, recipient allowlists, amount caps, rate limits, kill switch                                       |
+| Tools            | `tools.py`, `jsonschema.py`   | Tool registry, argument validation, the dispatcher every call goes through                                                       |
+| Action journal   | `actions.py`                  | Records each non-read attempt before it runs; classifies results; refuses identical repeats of open attempts; reconciliation     |
+| Execution limits | `execution.py`                | Deadlines for tool calls and job runs, applied by the web client; per-connector lanes                                            |
+| Approvals        | `approvals.py`                | Queue binding the exact arguments; one atomic claim; expiry                                                                      |
+| Events and rules | `events.py`, `rules.py`       | Durable event queue; connector subscribers; "when this, do that" rules through the gate                                          |
+| Scheduler        | `scheduler.py`                | Interval polling jobs (at least 30 seconds apart) on a bounded worker pool, one job per lane at a time                           |
+| Web transport    | `httpclient.py`               | Controlled redirects; public-only requests pin validated addresses and bypass proxies; opt-in read retries                       |
+| MCP server       | `mcp_server.py`               | Targets `2026-07-28`, `2025-11-25`, `2025-06-18`, and `2025-03-26`; not certified against clients                                |
+| Broker           | `broker.py`, `cli_broker.py`  | Optional: assistant and operator sockets under a service account, checked by kernel peer credentials                             |
+| Data lifecycle   | `lifecycle.py`, `cli_data.py` | Online backups with a manifest, read-only verification, restore, export, retention, audit archives                               |
+| Command line     | `cli.py`                      | Setup, diagnostics, approvals, actions, audit, kill switch, runner, connector subcommands                                        |
 
 ## The path of every tool call
 
@@ -113,7 +121,8 @@ flowchart TD
     QUEUE["Approval request stores<br/>the exact arguments"]:::active
     HUMAN{"You approve<br/>before expiry?"}:::caution
     RECHECK{"Still allowed now?<br/>kill switch, deny rules, allowlist"}:::caution
-    RUN["Run the connector handler"]:::success
+    GUARD{"A write with an identical<br/>in-flight or uncertain attempt?"}:::caution
+    RUN["Journal the attempt, then run<br/>the handler under a deadline"]:::success
     REFUSE["Refuse with a reason"]:::critical
     LOG[("Audit record at every step")]:::neutral
 
@@ -122,20 +131,29 @@ flowchart TD
     KNOWN -->|yes| VALID
     VALID -->|no| REFUSE
     VALID -->|yes| POLICY
-    POLICY -->|allow| RUN
+    POLICY -->|allow| GUARD
     POLICY -->|deny| REFUSE
     POLICY -->|ask| QUEUE
     QUEUE --> HUMAN
     HUMAN -->|no| REFUSE
     HUMAN -->|yes| RECHECK
-    RECHECK -->|yes| RUN
+    RECHECK -->|yes| GUARD
     RECHECK -->|no| REFUSE
+    GUARD -->|"no, or a read"| RUN
+    GUARD -->|yes| REFUSE
     RUN -.->|"writes"| LOG
     REFUSE -.->|"writes"| LOG
 ```
 
 Legend: yellow diamonds are decisions, green is execution, red is refusal, and the dotted edges show audit
 writes that happen alongside the main flow.
+
+Draft and act calls are recorded in the action journal before their handler runs, and finish as `succeeded`,
+`failed`, or `uncertain`. A handler that cannot tell whether its write happened, for example because the
+connection dropped after sending, reports an unknown outcome instead of a failure, and a crash mid-call is
+swept to `uncertain` after its deadline. An identical repeat is refused until the operator checks the
+provider or device and reconciles the attempt; nothing is retried automatically. Each call runs under
+`tool_timeout_seconds`, which the web client enforces; see [Recovery](./RECOVERY.md).
 
 Default decisions by tier:
 
@@ -154,7 +172,8 @@ An interrupted reservation expires from the budget after one hour; an external e
 happened before the interruption.
 
 The local user account is the operator trust boundary, not a way to prove a human is present. An assistant
-with unrestricted shell access as that account can bypass the gate or approve its own request.
+with unrestricted shell access as that account can bypass the gate or approve its own request. The optional
+broker moves that boundary to separate operating-system accounts; see [Isolation](./ISOLATION.md).
 
 ## Event-driven automation
 
@@ -239,15 +258,17 @@ a later completion, cancellation or deletion.
 
 ## Trust boundaries and threats
 
-| Boundary                      | Threat                                                                        | Control                                                                                     |
-| ----------------------------- | ----------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
-| Assistant to Switchboard      | Prompt injection makes the assistant request harmful actions                  | Tiers, approvals with bound arguments, allowlists, rate limits, exposure list, audit        |
-| External content to assistant | Emails and pages contain instructions                                         | Content is returned as data marked untrusted; nothing in content can choose a tool          |
-| Switchboard to providers      | Credential theft or misuse                                                    | Secret references and encrypted transport; credential forwarding limited to trusted origins |
-| Web pages to your network     | A watched page redirects to an internal address (server-side request forgery) | Per-hop vetting, pinned public addresses, no proxy, certificate hostname checks             |
-| Internet to webhook receiver  | Forged or replayed notifications                                              | Loopback bind, your own tunnel, signatures, timestamps, replay cache, size limits           |
-| Local disk                    | Other users reading data                                                      | Mode 700 data directory, mode 600 files, owner checks on secret files                       |
-| Your own mistakes             | A bad rule or approval                                                        | Kill switch, deny rules that override approvals, approval expiry, audit verification        |
+| Boundary                      | Threat                                                                        | Control                                                                                        |
+| ----------------------------- | ----------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------- |
+| Assistant to Switchboard      | Prompt injection makes the assistant request harmful actions                  | Tiers, approvals with bound arguments, allowlists, rate limits, exposure list, audit           |
+| External content to assistant | Emails and pages contain instructions                                         | Content is returned as data marked untrusted; nothing in content can choose a tool             |
+| Switchboard to providers      | Credential theft or misuse                                                    | Secret references and encrypted transport; credential forwarding limited to trusted origins    |
+| Web pages to your network     | A watched page redirects to an internal address (server-side request forgery) | Per-hop vetting, pinned public addresses, no proxy, certificate hostname checks                |
+| Internet to webhook receiver  | Forged or replayed notifications                                              | Loopback bind, your own tunnel, signatures, timestamps, replay cache, size limits              |
+| Local disk                    | Other users reading data                                                      | Mode 700 data directory, mode 600 files, owner checks on secret files                          |
+| Assistant shell to the gate   | An assistant with a shell approves its own request or reads credentials       | Optional broker: separate service, assistant, and operator accounts with peer checks           |
+| Failures during writes        | A blind retry sends a second message or applies a second change               | Action journal: unknown outcomes stay `uncertain` and block identical repeats until reconciled |
+| Your own mistakes             | A bad rule or approval                                                        | Kill switch, deny rules that override approvals, approval expiry, audit verification           |
 
 The audit log is tamper-evident, not tamper-proof: anyone who can rewrite the whole file can recompute the
 chain. Interior deletions can break the chain; removing a valid tail cannot be detected without an

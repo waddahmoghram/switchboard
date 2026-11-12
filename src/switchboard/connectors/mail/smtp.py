@@ -5,6 +5,9 @@
   so credentials never travel unencrypted. Certificates are verified with the system trust store.
 * App passwords use smtplib's ``login`` (PLAIN or LOGIN inside TLS); OAuth tokens use ``AUTH XOAUTH2``.
 * Recipients are passed as the SMTP envelope, so Bcc addresses never appear in the message headers.
+* A server reply that refuses the message is a definite failure. A connection that breaks or times out
+  during submission is not: the server may already have accepted the message, so :func:`send` raises
+  :class:`~switchboard.errors.UncertainOutcomeError` and nothing is resent.
 
 Tests replace :func:`connect_smtp`, or :class:`smtplib.SMTP` and :class:`smtplib.SMTP_SSL`, with fakes.
 """
@@ -20,7 +23,19 @@ from typing import Any, Protocol
 
 from switchboard.connectors.mail.imap import Credentials
 from switchboard.connectors.mail.oauth import XOAuth2
-from switchboard.errors import ToolError
+from switchboard.errors import ToolError, UncertainOutcomeError
+
+# Replies in which the server refused the message. smtplib's exceptions all subclass OSError, so these are
+# matched before the broader OSError that also covers dropped connections and timeouts.
+DEFINITE_REFUSALS: tuple[type[BaseException], ...] = (
+    smtplib.SMTPResponseException,
+    smtplib.SMTPRecipientsRefused,
+    smtplib.SMTPNotSupportedError,
+)
+UNCERTAIN_SUBMISSION = (
+    "the connection failed while the message was being submitted, so the server may have accepted it; "
+    "check the Sent folder or ask a recipient before sending again; nothing was resent"
+)
 
 
 class SmtpClient(Protocol):
@@ -81,12 +96,18 @@ def send(
     """Deliver ``message`` to ``recipients`` (the envelope); return the addresses the server refused.
 
     smtplib raises only when every recipient is refused; otherwise it delivers to the rest and reports the
-    refusals in its return value, which a caller must not mistake for full success.
+    refusals in its return value, which a caller must not mistake for full success. Failures while
+    connecting or signing in happen before submission and propagate unchanged.
     """
     client = connect_smtp(host, port, security=security, timeout=timeout)
     try:
         authenticate(client, credentials)
-        refused = client.send_message(message, from_addr=sender, to_addrs=list(recipients)) or {}
+        try:
+            refused = client.send_message(message, from_addr=sender, to_addrs=list(recipients)) or {}
+        except DEFINITE_REFUSALS:
+            raise
+        except OSError as exc:
+            raise UncertainOutcomeError(UNCERTAIN_SUBMISSION) from exc
         return sorted(str(address) for address in refused)
     finally:
         with contextlib.suppress(Exception):

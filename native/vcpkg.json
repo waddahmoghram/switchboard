@@ -2,6 +2,7 @@
   "name": "switchboard-native",
   "version-string": "0.1.0",
   "description": "C++-first local hooks with a stable C interface and safe Rust clients",
+  "builtin-baseline": "9eec002df1cd109f8f104cd966a763daf9751489",
   "dependencies": [
     "curl",
     "sqlite3",

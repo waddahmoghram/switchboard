@@ -18,7 +18,7 @@ from switchboard.connectors.notify.service import (
     make_notification,
 )
 from switchboard.context import AppContext
-from switchboard.errors import ConfigError, ToolError
+from switchboard.errors import ConfigError, ToolError, UncertainOutcomeError
 from switchboard.policy import Tier
 from switchboard.tools import Tool, ToolRegistry
 from switchboard.util import truncate
@@ -104,7 +104,10 @@ def _notify_self(service: NotifyService) -> Callable[[dict[str, Any]], dict[str,
         )
         report = service.deliver(note, names)
         if not report.sent:
-            reasons = "; ".join(f"{name}: {reason}" for name, reason in report.failed.items())
+            problems = {**report.failed, **report.uncertain}
+            reasons = "; ".join(f"{name}: {reason}" for name, reason in problems.items())
+            if report.uncertain:
+                raise UncertainOutcomeError(f"no channel confirmed the notification ({reasons})")
             raise ToolError(f"no channel accepted the notification ({reasons})")
         return report.to_dict()
 

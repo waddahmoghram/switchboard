@@ -126,6 +126,8 @@ def test_speech_uses_verified_speak_shape_and_never_claims_playback_delivery(
     assert outcome.data["request_status"] == "accepted"
     assert outcome.data["status"] == "requested_unconfirmed"
     assert outcome.data["confirmed"] is False and outcome.data["delivery_verified"] is False
+    assert outcome.data["effect_unknown"] is False
+    assert outcome.action is not None and outcome.action["state"] == "succeeded"
     assert post_bodies(fake_http) == [
         {
             "entity_id": "tts.local_voice",
@@ -287,10 +289,13 @@ def test_ambiguous_speech_is_not_resent_even_when_the_speaker_reports_playing(
     ready(fake_http)
     fake_http.add_error("POST", f"{HA}/api/services/tts/speak")
     add_state(fake_http, "media_player.lounge", state="playing")
-    result = app.call("home_announce", announcement(app), Origin.HUMAN).data
+    outcome = app.call("home_announce", announcement(app), Origin.HUMAN)
+    result = outcome.data
     assert result["request_status"] == "unknown"
     assert result["status"] == "requested_unconfirmed"
     assert result["delivery_verified"] is False
+    assert result["effect_unknown"] is True
+    assert outcome.action is not None and outcome.action["state"] == "uncertain"
     assert len(post_bodies(fake_http)) == 1
 
 

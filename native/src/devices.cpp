@@ -337,6 +337,17 @@ HttpResponse send(Context &context, const HttpRequest &request)
     return response;
 }
 
+// Write reports for the action journal and typed C outcomes: "confirmed" is true only for a matching software
+// readback, and an "uncertain" status also declares effect_unknown. Neither proves a physical effect.
+void mark_outcome(Json &result)
+{
+    result["confirmed"] = result.at("status") == "state_matched";
+    if (result.at("status") == "uncertain")
+    {
+        result["effect_unknown"] = true;
+    }
+}
+
 Json decode(const HttpResponse &response)
 {
     if (response.status < 200 || response.status >= 300)
@@ -949,6 +960,7 @@ Json perform_wled(Context &context, const WledSettings &settings, const WledDevi
     {
         result["status"] = "rejected";
     }
+    mark_outcome(result);
     return result;
 }
 
@@ -1622,6 +1634,7 @@ Json perform_shelly(Context &context, const ShellySettings &settings, const Shel
     {
         result["status"] = "rejected";
     }
+    mark_outcome(result);
     return result;
 }
 

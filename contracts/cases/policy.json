@@ -1,0 +1,270 @@
+{
+  "format": "switchboard-contract-cases",
+  "version": 1,
+  "contract_revision": 1,
+  "area": "policy",
+  "summary": "The policy gate: tier defaults, configured decisions, the human origin, the kill switch, hourly budgets and the spend tier. Uses the synthetic contract_* tools.",
+  "cases": [
+    {
+      "id": "tier-defaults-for-assistant-and-rule-origins",
+      "summary": "Without configuration, read and draft run, act waits for approval and spend is denied, for the assistant and rule origins alike.",
+      "steps": [
+        {
+          "op": "call",
+          "tool": "contract_read",
+          "args": {"mode": "ok"},
+          "expect": {"status": "ok", "tool": "contract_read", "action": null, "data": {"handled": true}}
+        },
+        {"op": "call", "tool": "contract_draft", "args": {"mode": "ok"}, "expect": {"status": "ok", "tool": "contract_draft", "action": "succeeded"}},
+        {
+          "op": "call",
+          "tool": "contract_act",
+          "args": {"mode": "ok"},
+          "expect": {"status": "pending", "tool": "contract_act", "approval_id": true, "action": null, "absent": ["data"]}
+        },
+        {
+          "op": "call",
+          "tool": "contract_spend",
+          "args": {"mode": "ok"},
+          "expect": {"status": "denied", "tool": "contract_spend", "approval_id": false, "action": null, "absent": ["data"]}
+        },
+        {"op": "call", "tool": "contract_read", "args": {"mode": "ok", "tag": "rule"}, "origin": "rule", "expect": {"status": "ok", "action": null}},
+        {"op": "call", "tool": "contract_draft", "args": {"mode": "ok", "tag": "rule"}, "origin": "rule", "expect": {"status": "ok", "action": "succeeded"}},
+        {
+          "op": "call",
+          "tool": "contract_act",
+          "args": {"mode": "ok", "tag": "rule"},
+          "origin": "rule",
+          "expect": {"status": "pending", "approval_id": true, "action": null}
+        },
+        {"op": "call", "tool": "contract_spend", "args": {"mode": "ok", "tag": "rule"}, "origin": "rule", "expect": {"status": "denied", "action": null}},
+        {"op": "handler_calls", "expect": {"contract_read": 2, "contract_draft": 2, "contract_act": 0, "contract_spend": 0}}
+      ]
+    },
+    {
+      "id": "human-origin-turns-ask-into-allow",
+      "summary": "A human caller runs a tool whose decision is ask, by default or by configuration; deny and spend still refuse.",
+      "config": {"policy": {"tools": {"contract_draft": {"decision": "ask"}, "contract_read": {"decision": "deny"}}}},
+      "steps": [
+        {"op": "call", "tool": "contract_act", "args": {"mode": "ok"}, "origin": "human", "expect": {"status": "ok", "action": "succeeded"}},
+        {"op": "call", "tool": "contract_draft", "args": {"mode": "ok"}, "origin": "human", "expect": {"status": "ok", "action": "succeeded"}},
+        {
+          "op": "call",
+          "tool": "contract_draft",
+          "args": {"mode": "ok", "tag": "assistant"},
+          "expect": {"status": "pending", "approval_id": true, "action": null}
+        },
+        {"op": "call", "tool": "contract_read", "args": {"mode": "ok"}, "origin": "human", "expect": {"status": "denied", "action": null}},
+        {"op": "call", "tool": "contract_spend", "args": {"mode": "ok"}, "origin": "human", "expect": {"status": "denied", "action": null}},
+        {"op": "handler_calls", "expect": {"contract_read": 0, "contract_draft": 1, "contract_act": 1, "contract_spend": 0}}
+      ]
+    },
+    {
+      "id": "configured-decisions-override-tier-defaults",
+      "summary": "Configured deny, ask and allow replace the tier default for every origin that the rule applies to.",
+      "config": {
+        "policy": {
+          "tools": {
+            "contract_read": {"decision": "deny"},
+            "contract_draft": {"decision": "ask"},
+            "contract_act": {"decision": "allow"}
+          }
+        }
+      },
+      "steps": [
+        {"op": "call", "tool": "contract_read", "args": {"mode": "ok"}, "expect": {"status": "denied", "action": null}},
+        {"op": "call", "tool": "contract_draft", "args": {"mode": "ok"}, "expect": {"status": "pending", "approval_id": true, "action": null}},
+        {"op": "call", "tool": "contract_act", "args": {"mode": "ok"}, "expect": {"status": "ok", "action": "succeeded", "data": {"handled": true}}},
+        {"op": "call", "tool": "contract_act", "args": {"mode": "ok", "tag": "rule"}, "origin": "rule", "expect": {"status": "ok", "action": "succeeded"}},
+        {"op": "handler_calls", "expect": {"contract_read": 0, "contract_draft": 0, "contract_act": 2}}
+      ]
+    },
+    {
+      "id": "longest-matching-glob-wins",
+      "summary": "Without an exact rule, the longest matching glob decides; glob patterns ignore letter case.",
+      "config": {
+        "policy": {
+          "tools": {
+            "contract_*": {"decision": "deny"},
+            "contract_dr*": {"decision": "allow"},
+            "CONTRACT_A?T": {"decision": "allow"}
+          }
+        }
+      },
+      "steps": [
+        {"op": "call", "tool": "contract_draft", "args": {"mode": "ok"}, "expect": {"status": "ok", "action": "succeeded"}},
+        {"op": "call", "tool": "contract_act", "args": {"mode": "ok"}, "expect": {"status": "ok", "action": "succeeded"}},
+        {"op": "call", "tool": "contract_read", "args": {"mode": "ok"}, "expect": {"status": "denied", "action": null}},
+        {"op": "handler_calls", "expect": {"contract_read": 0, "contract_draft": 1, "contract_act": 1}}
+      ]
+    },
+    {
+      "id": "rule-name-letter-case",
+      "summary": "A rule name without glob characters that differs from the tool name only in letter case.",
+      "config": {"policy": {"tools": {"CONTRACT_READ": {"decision": "deny"}}}},
+      "steps": [
+        {
+          "op": "call",
+          "tool": "contract_read",
+          "args": {"mode": "ok"},
+          "expect": {"action": null},
+          "divergence": {
+            "topic": "Policy rule names",
+            "reason": "Python looks up a name without *, ? or [ exactly, so CONTRACT_READ does not apply to contract_read; the native engine matches every rule name as a case-insensitive pattern.",
+            "python": {"status": "ok"},
+            "native": {"status": "denied"}
+          }
+        }
+      ]
+    },
+    {
+      "id": "kill-switch-denies-every-non-read-call",
+      "summary": "The kill switch denies draft and act calls for every origin, queues no approval, and leaves reads running until it is removed.",
+      "steps": [
+        {"op": "kill_switch", "on": true},
+        {"op": "call", "tool": "contract_read", "args": {"mode": "ok"}, "expect": {"status": "ok", "action": null}},
+        {"op": "call", "tool": "contract_draft", "args": {"mode": "ok"}, "expect": {"status": "denied", "action": null}},
+        {"op": "call", "tool": "contract_act", "args": {"mode": "ok"}, "expect": {"status": "denied", "approval_id": false, "action": null}},
+        {"op": "call", "tool": "contract_act", "args": {"mode": "ok"}, "origin": "human", "expect": {"status": "denied", "action": null}},
+        {"op": "call", "tool": "switchboard_status", "expect": {"status": "ok", "data": {"kill_switch": true, "pending_approvals": 0}}},
+        {"op": "handler_calls", "expect": {"contract_read": 1, "contract_draft": 0, "contract_act": 0}},
+        {"op": "kill_switch", "on": false},
+        {"op": "call", "tool": "contract_draft", "args": {"mode": "ok"}, "expect": {"status": "ok", "action": "succeeded"}},
+        {"op": "call", "tool": "switchboard_status", "expect": {"status": "ok", "data": {"kill_switch": false}}}
+      ]
+    },
+    {
+      "id": "invalid-arguments-are-refused-before-policy",
+      "summary": "Unknown tools and arguments outside the schema are invalid even while the kill switch is on; no handler runs and nothing is journaled.",
+      "steps": [
+        {"op": "kill_switch", "on": true},
+        {"op": "call", "tool": "contract_draft", "args": {"mode": "bogus"}, "expect": {"status": "invalid", "action": null}},
+        {"op": "call", "tool": "contract_draft", "args": {}, "expect": {"status": "invalid", "action": null}},
+        {"op": "call", "tool": "contract_draft", "args": {"mode": "ok", "extra": 1}, "expect": {"status": "invalid", "action": null}},
+        {"op": "call", "tool": "contract_draft", "args": {"mode": "ok", "tag": 5}, "expect": {"status": "invalid", "action": null}},
+        {
+          "op": "call",
+          "tool": "contract_draft",
+          "args": {"mode": "ok", "tag": "abcdefghijklmnopqrstuvwxyz0123456"},
+          "expect": {"status": "invalid", "action": null}
+        },
+        {"op": "call", "tool": "contract_missing", "args": {}, "expect": {"status": "invalid", "action": null}},
+        {"op": "kill_switch", "on": false},
+        {"op": "call", "tool": "contract_draft", "args": {"mode": "bogus"}, "origin": "human", "expect": {"status": "invalid", "action": null}},
+        {"op": "handler_calls", "expect": {"contract_draft": 0}},
+        {"op": "recent_actions", "args": {}, "expect": {"entries": []}}
+      ]
+    },
+    {
+      "id": "hourly-budget-counts-executions",
+      "summary": "max_per_hour denies further executions once that many ran in the last hour; other tools are unaffected.",
+      "config": {"policy": {"tools": {"contract_draft": {"max_per_hour": 2}}}},
+      "steps": [
+        {"op": "call", "tool": "contract_draft", "args": {"mode": "ok", "tag": "a"}, "expect": {"status": "ok", "action": "succeeded"}},
+        {"op": "call", "tool": "contract_draft", "args": {"mode": "ok", "tag": "b"}, "expect": {"status": "ok", "action": "succeeded"}},
+        {"op": "call", "tool": "contract_draft", "args": {"mode": "ok", "tag": "c"}, "expect": {"status": "denied", "action": null}},
+        {"op": "call", "tool": "contract_draft", "args": {"mode": "ok", "tag": "d"}, "origin": "human", "expect": {"status": "denied", "action": null}},
+        {"op": "call", "tool": "contract_read", "args": {"mode": "ok"}, "expect": {"status": "ok"}},
+        {"op": "handler_calls", "expect": {"contract_draft": 2, "contract_read": 1}}
+      ]
+    },
+    {
+      "id": "failed-executions-do-not-use-the-budget",
+      "summary": "Only successful and running executions count toward max_per_hour.",
+      "config": {"policy": {"tools": {"contract_draft": {"max_per_hour": 1}}}},
+      "steps": [
+        {"op": "call", "tool": "contract_draft", "args": {"mode": "fail"}, "expect": {"status": "error", "action": "failed"}},
+        {"op": "call", "tool": "contract_draft", "args": {"mode": "ok"}, "expect": {"status": "ok", "action": "succeeded"}},
+        {"op": "call", "tool": "contract_draft", "args": {"mode": "ok", "tag": "again"}, "expect": {"status": "denied", "action": null}},
+        {"op": "handler_calls", "expect": {"contract_draft": 2}}
+      ]
+    },
+    {
+      "id": "budget-is-checked-again-when-an-approval-executes",
+      "summary": "Two approvals queued under a budget of one: the first runs, the second is denied when approved.",
+      "config": {"policy": {"tools": {"contract_act": {"max_per_hour": 1}}}},
+      "steps": [
+        {
+          "op": "call",
+          "tool": "contract_act",
+          "args": {"mode": "ok", "tag": "first"},
+          "expect": {"status": "pending", "approval_id": true},
+          "save": {"first": "approval_id"}
+        },
+        {
+          "op": "call",
+          "tool": "contract_act",
+          "args": {"mode": "ok", "tag": "second"},
+          "expect": {"status": "pending", "approval_id": true},
+          "save": {"second": "approval_id"}
+        },
+        {"op": "approve", "approval": {"$saved": "first"}, "expect": {"status": "ok", "action": "succeeded"}},
+        {"op": "approve", "approval": {"$saved": "second"}, "expect": {"status": "denied", "action": null}},
+        {"op": "call", "tool": "approvals_status", "args": {"id": {"$saved": "second"}}, "expect": {"status": "ok", "data": {"status": "failed"}}},
+        {"op": "handler_calls", "expect": {"contract_act": 1}}
+      ]
+    },
+    {
+      "id": "exhausted-budget-when-an-approval-is-requested",
+      "summary": "An act call requested after its hourly budget is used up.",
+      "config": {"policy": {"tools": {"contract_act": {"max_per_hour": 1}}}},
+      "steps": [
+        {"op": "call", "tool": "contract_act", "args": {"mode": "ok", "tag": "first"}, "origin": "human", "expect": {"status": "ok", "action": "succeeded"}},
+        {
+          "op": "call",
+          "tool": "contract_act",
+          "args": {"mode": "ok", "tag": "second"},
+          "expect": {"action": null},
+          "divergence": {
+            "topic": "Hourly budget timing",
+            "reason": "Python's policy checks max_per_hour when a call is requested and again when it executes; the native engine checks it only when the call executes, so it still queues an approval that will be denied when approved.",
+            "python": {"status": "denied", "approval_id": false},
+            "native": {"status": "pending", "approval_id": true}
+          }
+        },
+        {"op": "handler_calls", "expect": {"contract_act": 1}}
+      ]
+    },
+    {
+      "id": "spend-is-denied-by-default",
+      "summary": "The spend tier is denied for every origin and never queues an approval.",
+      "steps": [
+        {"op": "call", "tool": "contract_spend", "args": {"mode": "ok"}, "expect": {"status": "denied", "approval_id": false, "action": null}},
+        {"op": "call", "tool": "contract_spend", "args": {"mode": "ok"}, "origin": "human", "expect": {"status": "denied", "action": null}},
+        {"op": "call", "tool": "contract_spend", "args": {"mode": "ok"}, "origin": "rule", "expect": {"status": "denied", "action": null}},
+        {"op": "handler_calls", "expect": {"contract_spend": 0}},
+        {"op": "recent_actions", "args": {}, "expect": {"entries": []}}
+      ]
+    },
+    {
+      "id": "configured-spend-on-a-human-call",
+      "summary": "A spend tool whose rule says ask, called directly by a human.",
+      "config": {"policy": {"tools": {"contract_spend": {"decision": "ask"}}}},
+      "steps": [
+        {
+          "op": "call",
+          "tool": "contract_spend",
+          "args": {"mode": "ok"},
+          "origin": "human",
+          "expect": {},
+          "divergence": {
+            "topic": "Spend tier configuration",
+            "reason": "The native engine always denies spending. Python denies spend tools by default, but a configured ask lets a human call or an approval run one, and a configured allow runs one only with max_amount and an amount extractor.",
+            "python": {"status": "ok", "action": "succeeded"},
+            "native": {"status": "denied", "action": null}
+          }
+        },
+        {
+          "op": "handler_calls",
+          "expect": {},
+          "divergence": {
+            "topic": "Spend tier configuration",
+            "reason": "Python ran the configured spend tool once; the native engine never runs one.",
+            "python": {"contract_spend": 1},
+            "native": {"contract_spend": 0}
+          }
+        }
+      ]
+    }
+  ]
+}

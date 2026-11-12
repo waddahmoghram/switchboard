@@ -76,6 +76,36 @@ CORE_MIGRATIONS: list[Migration] = [
             """,
         ),
     ),
+    (
+        2,
+        (
+            """
+            CREATE TABLE action_journal (
+                id TEXT PRIMARY KEY,
+                tool TEXT NOT NULL,
+                args_digest TEXT NOT NULL,
+                args_json TEXT NOT NULL,
+                origin TEXT NOT NULL,
+                approval_id TEXT,
+                state TEXT NOT NULL CHECK (
+                    state IN (
+                        'in_flight', 'succeeded', 'failed', 'uncertain',
+                        'reconciled_applied', 'reconciled_not_applied'
+                    )
+                ),
+                owner TEXT NOT NULL,
+                started_at TEXT NOT NULL,
+                deadline_at TEXT NOT NULL,
+                finished_at TEXT,
+                error TEXT,
+                resolved_at TEXT,
+                resolution_note TEXT
+            )
+            """,
+            "CREATE INDEX action_journal_open ON action_journal(tool, args_digest, state)",
+            "CREATE INDEX action_journal_recent ON action_journal(started_at, id)",
+        ),
+    ),
 ]
 
 
@@ -131,6 +161,13 @@ class Database:
                 (row["component"], row["version"])
                 for row in conn.execute("SELECT component, version FROM schema_migrations")
             }
+            for component, version in sorted(done):
+                known = self._migrations.get(component)
+                if known and version > max(number for number, _ in known):
+                    raise ConfigError(
+                        f"the database has {component} schema version {version}, newer than this "
+                        "Switchboard understands; restore a matching backup or upgrade instead of downgrading"
+                    )
             for component in sorted(self._migrations):
                 for version, statements in self._migrations[component]:
                     if (component, version) in done:

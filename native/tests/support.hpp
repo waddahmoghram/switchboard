@@ -4,8 +4,10 @@
 
 #include <chrono>
 #include <filesystem>
+#include <functional>
 #include <iostream>
 #include <memory>
+#include <optional>
 #include <stdexcept>
 #include <string>
 #include <utility>
@@ -95,5 +97,118 @@ inline Json configuration(const Directory &directory, const std::vector<std::str
             {"connectors", settings},
             {"policy", {{"tools", Json::object()}}},
             {"mcp", {{"expose", {"*"}}}}};
+}
+
+template <typename Function> void expect_error_code(Function function, const std::string &code, const std::string &message)
+{
+    try
+    {
+        function();
+    }
+    catch (const Error &error)
+    {
+        expect(error.code() == code, message + " (got code " + error.code() + ")");
+        return;
+    }
+    throw std::runtime_error(message + " (no native error was raised)");
+}
+
+// A settable runtime clock shared by a test and the runtime it configures.
+class ManualClock
+{
+
+public:
+    explicit ManualClock(const std::int64_t start = 1800000000) : value_(std::make_shared<std::int64_t>(start))
+    {
+    }
+
+    [[nodiscard]] Clock clock() const
+    {
+        auto value = value_;
+        return [value]
+        {
+            return *value;
+        };
+    }
+
+    void advance(const std::int64_t seconds)
+    {
+        *value_ += seconds;
+    }
+
+    [[nodiscard]] std::int64_t now() const
+    {
+        return *value_;
+    }
+
+private:
+    std::shared_ptr<std::int64_t> value_;
+};
+
+// Observations from synthetic tools. "during" runs inside the handler, after limits are installed.
+struct SyntheticProbe
+{
+    int calls = 0;
+    std::optional<ExecutionLimits> limits;
+    std::function<void()> during;
+};
+
+inline Json synthetic_schema()
+{
+    return object_schema({{"mode", {{"type", "string"}, {"enum", Json::array({"ok", "fail", "uncertain", "effect_unknown", "crash", "web"})}}},
+                          {"tag", {{"type", "string"}, {"maxLength", 32}}}},
+                         {"mode"});
+}
+
+// In-process tools registered through the Runtime extension hook; they pass the same gate as built-in tools.
+// synthetic_write is draft tier (allowed by default), synthetic_act is act tier (asks by default) and
+// synthetic_read is read tier. Mode "web" makes one request through the runtime's (fake) transport.
+inline Extension synthetic_tools(SyntheticProbe &probe)
+{
+    return [&probe](Context &context, Registry &registry)
+    {
+        const auto handler = [&probe, &context](const Json &arguments) -> Json
+        {
+            ++probe.calls;
+            probe.limits = current_execution_limits();
+            if (probe.during)
+            {
+                probe.during();
+            }
+            const auto mode = arguments.at("mode").get<std::string>();
+            if (mode == "fail")
+            {
+                throw Error("synthetic_rejected", "the synthetic provider refused the write before applying it");
+            }
+            if (mode == "uncertain")
+            {
+                throw Error("uncertain", "the synthetic write may have been delivered");
+            }
+            if (mode == "effect_unknown")
+            {
+                return {{"written", nullptr}, {"effect_unknown", true}, {"confirmed", false}};
+            }
+            if (mode == "crash")
+            {
+                throw std::runtime_error("synthetic unexpected failure");
+            }
+            if (mode == "web")
+            {
+                HttpRequest request;
+                request.method = "POST";
+                request.url = "https://device.invalid/state";
+                request.body = "{}";
+                (void)context.http.request(request);
+            }
+            return {{"written", true}, {"confirmed", true}};
+        };
+        registry.add({"synthetic_write", "Synthetic draft-tier write for journal tests.", Tier::draft, synthetic_schema(), handler});
+        registry.add({"synthetic_act", "Synthetic act-tier write for approval tests.", Tier::act, synthetic_schema(), handler});
+        registry.add({"synthetic_read", "Synthetic read for journal tests.", Tier::read, object_schema(Json::object()),
+                      [](const Json &)
+                      {
+                          return Json{{"read", true}};
+                      }});
+    };
 }
 }  // namespace switchboard::test

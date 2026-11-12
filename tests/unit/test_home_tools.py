@@ -322,3 +322,26 @@ def test_doctor_reports_the_token_and_an_empty_expose_list(
         "token: environment variable 'SB_TEST_HA_TOKEN' is not set",
         "expose is empty, so the tools can see no entities",
     ]
+
+
+@pytest.mark.parametrize(
+    ("failure", "state"),
+    [("transport", "uncertain"), (500, "uncertain"), (408, "uncertain"), (400, "failed"), (404, "failed")],
+)
+def test_generic_action_failures_say_whether_the_effect_may_have_happened(
+    make_app: AppFactory, fake_http: FakeHttp, failure: str | int, state: str
+) -> None:
+    app = make_app(home_config())
+    url = f"{HA}/api/services/light/turn_on"
+    if isinstance(failure, int):
+        fake_http.add("POST", url, status=failure, body="synthetic detail")
+    else:
+        fake_http.add_error("POST", url, "synthetic timeout")
+    args = {"domain": "light", "service": "turn_on", "entity_id": "light.kitchen"}
+
+    outcome = app.call("home_call_service", args, Origin.HUMAN)
+
+    assert outcome.status == "error"
+    assert outcome.action is not None and outcome.action["state"] == state
+    assert TOKEN not in outcome.message and "synthetic" not in outcome.message
+    assert len(fake_http.requests) == 1

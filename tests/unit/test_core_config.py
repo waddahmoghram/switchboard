@@ -55,12 +55,54 @@ def test_database_permissions_are_tightened_before_connecting(tmp_path: Path) ->
 
 @pytest.mark.parametrize(
     ("section", "key"),
-    [("switchboard", "event_retention_days"), ("policy", "approval_ttl_minutes")],
+    [
+        ("switchboard", "event_retention_days"),
+        ("switchboard", "tool_timeout_seconds"),
+        ("switchboard", "job_timeout_seconds"),
+        ("switchboard", "job_workers"),
+        ("policy", "approval_ttl_minutes"),
+        ("retention", "tool_calls_days"),
+        ("retention", "approvals_days"),
+        ("retention", "actions_days"),
+    ],
 )
-@pytest.mark.parametrize("value", [False, 0, -1, "14"])
+@pytest.mark.parametrize("value", [False, 0, -1, "14", 10**9])
 def test_durations_cannot_silently_change_type(tmp_path: Path, section: str, key: str, value: Any) -> None:
-    with pytest.raises(ConfigError, match="positive whole number"):
+    with pytest.raises(ConfigError, match="must be a whole number from"):
         config_from_dict({section: {key: value}}, tmp_path)
+
+
+def test_bounded_settings_report_documented_defaults(tmp_path: Path) -> None:
+    config = config_from_dict({}, tmp_path)
+    assert config.bounded("switchboard", "tool_timeout_seconds") == 120
+    assert config.bounded("switchboard", "job_timeout_seconds") == 300
+    assert config.bounded("switchboard", "job_workers") == 4
+    assert config.bounded("retention", "actions_days") == 180
+    assert config.retention_connector_days() == {}
+    assert config.broker_settings() == {}
+
+
+@pytest.mark.parametrize(
+    "broker",
+    [
+        {"client_socket": ""},
+        {"operator_socket": 7},
+        {"client_uids": []},
+        {"client_uids": [True]},
+        {"operator_uids": [-1]},
+        {"operator_uids": ["1000"]},
+        {"unknown": 1},
+    ],
+)
+def test_broker_settings_refuse_ambiguous_principals(tmp_path: Path, broker: dict[str, Any]) -> None:
+    with pytest.raises(ConfigError):
+        config_from_dict({"broker": broker}, tmp_path)
+
+
+@pytest.mark.parametrize("value", [0, True, "30", 3651])
+def test_connector_retention_overrides_are_bounded_days(tmp_path: Path, value: Any) -> None:
+    with pytest.raises(ConfigError, match=r"\[retention.connectors\] telegram"):
+        config_from_dict({"retention": {"connectors": {"telegram": value}}}, tmp_path)
 
 
 def test_a_malformed_data_path_does_not_fall_back_to_another_database(tmp_path: Path) -> None:

@@ -1,0 +1,52 @@
+# Switchboard runner: polling jobs, event processing, and rules, under the same dedicated account and data
+# directory as the broker. See docs/ISOLATION.md and docs/DEPLOYMENT.md.
+# Install as /etc/systemd/system/switchboard-runner.service. Authored, not yet started on any host.
+
+[Unit]
+Description=Switchboard runner (polling, events, and rules)
+After=network-online.target switchboard-broker.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=switchboard
+Group=switchboard
+ExecStart=/opt/switchboard/.venv/bin/switchboard --config /etc/switchboard/config.toml run
+Restart=on-failure
+RestartSec=30
+# Running jobs may finish within [switchboard] job_timeout_seconds (300 by default) after SIGTERM.
+TimeoutStopSec=360
+Environment=SWITCHBOARD_LOG=INFO
+
+UMask=0077
+StateDirectory=switchboard
+StateDirectoryMode=0700
+# No RuntimeDirectory= here: systemd removes it when the declaring unit stops, which would take the
+# broker's sockets with it.
+
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+ProtectProc=invisible
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+CapabilityBoundingSet=
+AmbientCapabilities=
+RemoveIPC=yes
+
+[Install]
+WantedBy=multi-user.target

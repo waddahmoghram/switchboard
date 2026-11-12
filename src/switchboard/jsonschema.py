@@ -121,7 +121,7 @@ def check_schema(schema: Any, path: str = "$") -> None:
             raise ValueError(f"{path}.pattern: expected a string")
         try:
             re.compile(schema["pattern"])
-        except re.error as exc:
+        except (re.error, OverflowError, RecursionError) as exc:
             raise ValueError(f"{path}.pattern: invalid regular expression") from exc
     properties = schema.get("properties", {})
     if not isinstance(properties, Mapping) or not all(isinstance(name, str) for name in properties):

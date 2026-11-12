@@ -11,6 +11,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import pytest
 
+from switchboard import httpclient
 from switchboard.app import App
 from switchboard.connectors.calendar.service import CalendarService, parse_moment, webcal_to_https
 from switchboard.connectors.calendar.settings import load_settings
@@ -394,3 +395,16 @@ def test_parse_moment_and_webcal_links() -> None:
         parse_moment("2026-13-01", NEW_YORK)
     assert webcal_to_https("webcal://example.invalid/a.ics") == "https://example.invalid/a.ics"
     assert webcal_to_https("https://example.invalid/a.ics") == "https://example.invalid/a.ics"
+
+
+def test_a_transient_feed_failure_is_retried_within_one_refresh(
+    make_app: AppFactory, fake_http: FakeHttp, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(httpclient, "backoff_seconds", lambda _attempt: 0.0)
+    fake_http.add("GET", FEED, status=503)
+    app = _feed_app(make_app, fake_http, monkeypatch)
+
+    state = _service(app).refresh("google", datetime.now(UTC))
+
+    assert state["error"] is None and state["events"] == 5
+    assert [request.url for request in fake_http.requests] == [FEED, FEED]

@@ -798,3 +798,23 @@ def test_globally_reviewed_preset_requires_and_honors_global_opt_in(
     assert result.data["confirmed"] is True
     post = next(request for request in fake_http.requests if request.method == "POST")
     assert json.loads(post.body or b"") == {**patch, "udpn": {"nn": True}}
+
+
+def test_wled_reports_drive_the_action_journal(make_app: AppFactory, fake_http: FakeHttp) -> None:
+    app = make_app(config(allow_global=True))
+    queue_action(fake_http, {"on": False})
+    confirmed = app.call("wled_set_power", bound_args(app, {"device": "desk", "on": False}), Origin.HUMAN)
+    assert (confirmed.data["confirmed"], confirmed.data["effect_unknown"]) == (True, False)
+    assert confirmed.action is not None and confirmed.action["state"] == "succeeded"
+
+    fake_http.add("GET", f"{BASE}/json/si", body=json.dumps(fixture()))
+    fake_http.add_error("POST", f"{BASE}/json/state", message="synthetic-private-network-error")
+    turn_on = bound_args(app, {"device": "desk", "on": True})
+    unknown = app.call("wled_set_power", turn_on, Origin.HUMAN)
+    assert unknown.status == "ok" and unknown.data["effect_unknown"] is True
+    assert unknown.action is not None and unknown.action["state"] == "uncertain"
+
+    repeat = app.call("wled_set_power", turn_on, Origin.HUMAN)
+
+    assert repeat.status == "denied" and unknown.action["id"] in repeat.message
+    assert sum(request.method == "POST" for request in fake_http.requests) == 2

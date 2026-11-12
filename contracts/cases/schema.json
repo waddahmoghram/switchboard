@@ -1,0 +1,343 @@
+{
+  "format": "switchboard-contract-cases",
+  "version": 1,
+  "contract_revision": 1,
+  "area": "schema",
+  "summary": "The supported JSON Schema subset for tool arguments: which definitions register and which values validate. Checked through each engine's public check_schema, validate and tool-registration functions; no engine instance is started.",
+  "cases": [
+    {
+      "id": "supported-definitions-are-accepted",
+      "summary": "Every supported keyword, annotation, extension key and the 2020-12 identifier is accepted.",
+      "steps": [
+        {
+          "op": "check_schema",
+          "expect": {
+            "valid": [
+              {},
+              {
+                "type": "object",
+                "properties": {"name": {"type": "string", "minLength": 1, "maxLength": 64, "pattern": "^[a-z]+$"}},
+                "required": ["name"],
+                "additionalProperties": false
+              },
+              {"type": ["string", "null"], "maxLength": 10},
+              {"type": "array", "items": {"type": "integer", "minimum": 0, "maximum": 10}, "minItems": 0, "maxItems": 5},
+              {"type": "object", "propertyNames": {"maxLength": 3}, "minProperties": 1, "maxProperties": 4},
+              {"enum": ["a", 1, true, null, [1], {"k": "v"}]},
+              {"const": {"nested": [1, 2]}},
+              {"type": "number", "minimum": -1.5, "maximum": 1000.0},
+              {
+                "type": "string",
+                "title": "Name",
+                "description": "Shown to people",
+                "default": "x",
+                "examples": ["x"],
+                "format": "email",
+                "deprecated": false,
+                "readOnly": true,
+                "writeOnly": false,
+                "$comment": "note"
+              },
+              {"$schema": "https://json-schema.org/draft/2020-12/schema", "type": "object"},
+              {"$schema": "https://json-schema.org/draft/2020-12/schema#", "type": "object"},
+              {"type": "string", "x-display": {"order": 1}},
+              {"type": "string", "pattern": "(?=a)a"}
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "unknown-keywords-are-refused",
+      "summary": "A misspelled or unsupported keyword is refused at any depth instead of being ignored.",
+      "steps": [
+        {
+          "op": "check_schema",
+          "expect": {
+            "invalid": [
+              {"type": "string", "maxLenght": 5},
+              {"anyOf": [{"type": "string"}]},
+              {"$ref": "#/$defs/name"},
+              {"$defs": {"name": {"type": "string"}}},
+              {"if": {"type": "string"}, "then": {"minLength": 1}},
+              {"type": "integer", "multipleOf": 2},
+              {"type": "string", "contentEncoding": "base64"},
+              {"type": "object", "patternProperties": {"^a": {"type": "string"}}},
+              {"type": "object", "additionalProperties": false, "unevaluatedProperties": false},
+              {"type": "object", "properties": {"inner": {"type": "number", "exclusiveMaximum": 3}}},
+              {"type": "array", "items": {"type": "string", "contains": {}}},
+              {"type": "object", "propertyNames": {"type": "string", "dependentRequired": {}}}
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "malformed-keyword-values-are-refused",
+      "summary": "Keyword values of the wrong shape are refused; booleans never stand in for numbers.",
+      "steps": [
+        {
+          "op": "check_schema",
+          "expect": {
+            "invalid": [
+              [],
+              "string",
+              true,
+              {"type": "date"},
+              {"type": []},
+              {"type": ["string", 5]},
+              {"type": 5},
+              {"minLength": -1},
+              {"maxLength": 1.5},
+              {"maxItems": true},
+              {"minimum": "1"},
+              {"maximum": true},
+              {"maximum": null},
+              {"enum": []},
+              {"enum": "a"},
+              {"required": "name"},
+              {"required": [1]},
+              {"additionalProperties": {"type": "string"}},
+              {"properties": []},
+              {"properties": {"a": 5}},
+              {"items": true},
+              {"pattern": "["},
+              {"pattern": 5}
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "tool-registration-needs-an-object-schema-and-a-valid-name",
+      "summary": "Registration checks the definition, requires an object root and a lowercase tool name.",
+      "steps": [
+        {
+          "op": "register",
+          "expect": {
+            "accepted": [
+              {"name": "contract_probe", "schema": {"type": "object", "properties": {}, "additionalProperties": false}}
+            ],
+            "refused": [
+              {"name": "contract_probe", "schema": {"type": "string"}},
+              {"name": "contract_probe", "schema": {"type": ["object", "null"]}},
+              {"name": "contract_probe", "schema": {"properties": {}}},
+              {"name": "contract_probe", "schema": {"type": "object", "oneOf": []}},
+              {"name": "Contract-Probe", "schema": {"type": "object"}},
+              {"name": "9probe", "schema": {"type": "object"}}
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "types-keep-booleans-and-numbers-apart",
+      "summary": "Booleans are never numbers, a decimal literal is never an integer, and type lists accept any listed type.",
+      "steps": [
+        {
+          "op": "validate",
+          "schema": {"type": "integer"},
+          "expect": {
+            "valid": [0, -3, 9007199254740991],
+            "invalid": [true, false, 3.5, 3.0, "3", null, [3], {"n": 3}]
+          }
+        },
+        {"op": "validate", "schema": {"type": "number"}, "expect": {"valid": [0, 2.5, -1], "invalid": [true, "2.5", null]}},
+        {"op": "validate", "schema": {"type": "boolean"}, "expect": {"valid": [true, false], "invalid": [0, 1, "true", null]}},
+        {"op": "validate", "schema": {"type": "null"}, "expect": {"valid": [null], "invalid": [false, 0, ""]}},
+        {"op": "validate", "schema": {"type": ["string", "null"]}, "expect": {"valid": ["", "x", null], "invalid": [0, false, []]}},
+        {"op": "validate", "schema": {"type": "array"}, "expect": {"valid": [[], [1]], "invalid": [{}, "[]"]}},
+        {"op": "validate", "schema": {"type": "object"}, "expect": {"valid": [{}, {"a": 1}], "invalid": [[], null]}}
+      ]
+    },
+    {
+      "id": "enum-and-const-compare-json-values",
+      "summary": "enum and const compare JSON values deeply: true never equals 1 and false never equals 0, while 1.0 equals 1 and key order is irrelevant.",
+      "steps": [
+        {"op": "validate", "schema": {"enum": [1, 2]}, "expect": {"valid": [1, 2, 1.0], "invalid": [true, "1", 3]}},
+        {"op": "validate", "schema": {"enum": [true]}, "expect": {"valid": [true], "invalid": [1, "true"]}},
+        {"op": "validate", "schema": {"const": 0}, "expect": {"valid": [0, 0.0], "invalid": [false, null, "0"]}},
+        {"op": "validate", "schema": {"const": false}, "expect": {"valid": [false], "invalid": [0, null]}},
+        {"op": "validate", "schema": {"const": null}, "expect": {"valid": [null], "invalid": [false, 0, ""]}},
+        {
+          "op": "validate",
+          "schema": {"enum": [[1, {"a": true}]]},
+          "expect": {"valid": [[1, {"a": true}]], "invalid": [[true, {"a": true}], [1, {"a": 1}], [1]]}
+        },
+        {
+          "op": "validate",
+          "schema": {"const": {"a": 1, "b": [1]}},
+          "expect": {"valid": [{"b": [1], "a": 1}], "invalid": [{"a": 1}, {"a": 1, "b": [true]}, {"a": 1, "b": [1], "c": 0}]}
+        }
+      ]
+    },
+    {
+      "id": "numeric-bounds-are-inclusive-and-apply-only-to-numbers",
+      "summary": "minimum and maximum are inclusive, compare integers and decimals alike, and ignore non-numbers, booleans included.",
+      "steps": [
+        {"op": "validate", "schema": {"type": "integer", "minimum": 1, "maximum": 3}, "expect": {"valid": [1, 2, 3], "invalid": [0, 4, -1]}},
+        {
+          "op": "validate",
+          "schema": {"type": "number", "minimum": 0.5, "maximum": 1.5},
+          "expect": {"valid": [0.5, 1, 1.5], "invalid": [0.49, 1.51]}
+        },
+        {
+          "op": "validate",
+          "schema": {"minimum": 1, "maximum": 2},
+          "expect": {"valid": [1, 2, true, false, "0", null, [], {}], "invalid": [0, 3, 2.5]}
+        }
+      ]
+    },
+    {
+      "id": "lengths-count-characters-not-bytes",
+      "summary": "minLength and maxLength count Unicode characters; an accented letter or an emoji counts once.",
+      "steps": [
+        {
+          "op": "validate",
+          "schema": {"type": "string", "minLength": 2, "maxLength": 3},
+          "expect": {
+            "valid": ["ab", "abc", "\u00e9\u00e9", "\ud83d\ude00\ud83d\ude00\ud83d\ude00"],
+            "invalid": ["a", "abcd", "\u00e9", "\ud83d\ude00\ud83d\ude00\ud83d\ude00\ud83d\ude00"]
+          }
+        },
+        {"op": "validate", "schema": {"type": "string", "maxLength": 0}, "expect": {"valid": [""], "invalid": [" "]}}
+      ]
+    },
+    {
+      "id": "array-and-object-size-bounds",
+      "summary": "Item and property counts are bounded, and every item is checked against items.",
+      "steps": [
+        {
+          "op": "validate",
+          "schema": {"type": "array", "minItems": 1, "maxItems": 2, "items": {"type": "integer"}},
+          "expect": {"valid": [[1], [1, 2]], "invalid": [[], [1, 2, 3], [1, "2"], [1, true], [1.5]]}
+        },
+        {
+          "op": "validate",
+          "schema": {"type": "object", "minProperties": 1, "maxProperties": 2},
+          "expect": {"valid": [{"a": 1}, {"a": 1, "b": 2}], "invalid": [{}, {"a": 1, "b": 2, "c": 3}]}
+        }
+      ]
+    },
+    {
+      "id": "object-keywords",
+      "summary": "required, additionalProperties (true unless false), properties and propertyNames.",
+      "steps": [
+        {
+          "op": "validate",
+          "schema": {"type": "object", "properties": {"a": {"type": "integer"}}, "required": ["a"], "additionalProperties": false},
+          "expect": {"valid": [{"a": 1}], "invalid": [{}, {"a": 1, "b": 2}, {"a": "1"}, {"b": 1}]}
+        },
+        {
+          "op": "validate",
+          "schema": {"type": "object", "properties": {"a": {"type": "integer"}}},
+          "expect": {"valid": [{}, {"a": 1, "b": "extra"}], "invalid": [{"a": "1"}]}
+        },
+        {
+          "op": "validate",
+          "schema": {"type": "object", "propertyNames": {"pattern": "^[a-z]+$", "maxLength": 3}},
+          "expect": {"valid": [{}, {"ab": 1}], "invalid": [{"Ab": 1}, {"abcd": 1}]}
+        },
+        {"op": "validate", "schema": {"type": "object", "required": ["a"]}, "expect": {"valid": [{"a": null}], "invalid": [{"A": 1}]}}
+      ]
+    },
+    {
+      "id": "patterns-search-and-anchor",
+      "summary": "Patterns search unless anchored; a trailing $ must reach the very end, so a trailing newline does not match.",
+      "steps": [
+        {
+          "op": "validate",
+          "schema": {"type": "string", "pattern": "^[a-z]+$"},
+          "expect": {"valid": ["abc"], "invalid": ["abc\n", "ABC", "", "ab c"]}
+        },
+        {"op": "validate", "schema": {"type": "string", "pattern": "b+"}, "expect": {"valid": ["abbc", "b"], "invalid": ["ac", ""]}},
+        {
+          "op": "validate",
+          "schema": {"type": "string", "pattern": "^[0-9]{3}-[0-9]{4}$"},
+          "expect": {"valid": ["555-0100"], "invalid": ["555-01000", "x555-0100"]}
+        },
+        {"op": "validate", "schema": {"type": "string", "pattern": "^a"}, "expect": {"valid": ["ab"], "invalid": ["ba"]}},
+        {
+          "op": "validate",
+          "schema": {"type": "string", "pattern": "^\\d+$"},
+          "expect": {"valid": ["0123"], "invalid": ["12a", ""]}
+        },
+        {"op": "validate", "schema": {"type": "string", "pattern": "^.$"}, "expect": {"valid": ["a"], "invalid": ["ab", ""]}}
+      ]
+    },
+    {
+      "id": "annotation-keywords",
+      "summary": "Annotations are not assertions, but the engines check them differently.",
+      "steps": [
+        {
+          "op": "check_schema",
+          "divergence": {
+            "topic": "Schema annotations",
+            "reason": "Python treats $id as an annotation, requires title, description, format, $comment and $id to be strings, and accepts only the 2020-12 $schema identifier. The native subset has no $id and does not check annotation values.",
+            "python": {
+              "valid": [{"$id": "https://example.invalid/contract", "type": "string"}],
+              "invalid": [
+                {"description": 5},
+                {"format": 5},
+                {"title": ["Name"]},
+                {"$schema": "http://json-schema.org/draft-07/schema#"}
+              ]
+            },
+            "native": {
+              "valid": [
+                {"description": 5},
+                {"format": 5},
+                {"title": ["Name"]},
+                {"$schema": "http://json-schema.org/draft-07/schema#"}
+              ],
+              "invalid": [{"$id": "https://example.invalid/contract", "type": "string"}]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": "pattern-dialect",
+      "summary": "Lookbehind exists only in the Python pattern dialect.",
+      "steps": [
+        {
+          "op": "check_schema",
+          "divergence": {
+            "topic": "Schema patterns",
+            "reason": "Python compiles patterns with its re module; the native engine uses ECMAScript std::regex, which has lookahead but no lookbehind.",
+            "python": {"valid": [{"type": "string", "pattern": "(?<=a)b"}]},
+            "native": {"invalid": [{"type": "string", "pattern": "(?<=a)b"}]}
+          }
+        }
+      ]
+    },
+    {
+      "id": "pattern-character-semantics",
+      "summary": "Character classes and the dot see Unicode characters in Python and UTF-8 bytes in the native engine.",
+      "steps": [
+        {
+          "op": "validate",
+          "schema": {"type": "string", "pattern": "^\\d+$"},
+          "note": "U+0663 is ARABIC-INDIC DIGIT THREE, a Unicode decimal digit outside ASCII.",
+          "divergence": {
+            "topic": "Schema patterns",
+            "reason": "Python's \\d matches every Unicode decimal digit; std::regex matches bytes and its \\d is ASCII-only.",
+            "python": {"valid": ["\u0663"]},
+            "native": {"invalid": ["\u0663"]}
+          }
+        },
+        {
+          "op": "validate",
+          "schema": {"type": "string", "pattern": "^.$"},
+          "note": "U+00E9 is one character encoded as two UTF-8 bytes.",
+          "divergence": {
+            "topic": "Schema patterns",
+            "reason": "Python's dot matches one character; std::regex's dot matches one byte of the UTF-8 encoding.",
+            "python": {"valid": ["\u00e9"]},
+            "native": {"invalid": ["\u00e9"]}
+          }
+        }
+      ]
+    }
+  ]
+}

@@ -97,6 +97,8 @@ class ShellyTools:
         return {
             "ok": confirmed,
             "status": "confirmed" if confirmed else ("uncertain" if accepted is None else "unconfirmed"),
+            "confirmed": confirmed,
+            "effect_unknown": accepted is None,
             "device": device.name,
             "switch_id": switch_id,
             "requested_output": on,

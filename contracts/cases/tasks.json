@@ -1,0 +1,341 @@
+{
+  "format": "switchboard-contract-cases",
+  "version": 1,
+  "contract_revision": 1,
+  "area": "tasks",
+  "summary": "The shared subset of the local tasks connector: tasks_add, tasks_read, tasks_update, tasks_list, tasks_delete and tasks_status semantics, exact-revision updates, and timestamps compared as instants rather than text.",
+  "cases": [
+    {
+      "id": "add-and-read-normalize-input",
+      "summary": "A new task trims its title, defaults its list, starts at revision 1, and stores due and reminder times as instants.",
+      "config": {"switchboard": {"connectors": ["tasks"]}},
+      "steps": [
+        {
+          "op": "call",
+          "tool": "tasks_add",
+          "args": {
+            "title": "  Buy milk  ",
+            "notes": "Two litres",
+            "due_at": "2030-03-01T10:00:00+02:00",
+            "remind_at": "2030-02-28T23:30:00-05:00"
+          },
+          "expect": {
+            "status": "ok",
+            "tool": "tasks_add",
+            "action": "succeeded",
+            "data": {
+              "title": "Buy milk",
+              "notes": "Two litres",
+              "list_name": "personal",
+              "status": "open",
+              "revision": 1,
+              "untrusted_content": true,
+              "reminder_delivery": "not_queued",
+              "reminder_event_queued_at": null
+            },
+            "types": {"data.id": "integer", "data.created_at": "string", "data.updated_at": "string"},
+            "instants": {"data.due_at": "2030-03-01T08:00:00Z", "data.remind_at": "2030-03-01T04:30:00Z"}
+          },
+          "save": {"task": "data.id"}
+        },
+        {
+          "op": "call",
+          "tool": "tasks_read",
+          "args": {"id": {"$saved": "task"}},
+          "expect": {
+            "status": "ok",
+            "action": null,
+            "data": {"id": {"$saved": "task"}, "title": "Buy milk", "revision": 1, "status": "open", "untrusted_content": true},
+            "instants": {"data.due_at": "2030-03-01T08:00:00Z", "data.remind_at": "2030-03-01T04:30:00Z"}
+          }
+        },
+        {"op": "call", "tool": "tasks_add", "args": {"title": "No dates"}, "expect": {"status": "ok", "data": {"reminder_delivery": "not_scheduled"}, "instants": {"data.due_at": null, "data.remind_at": null}}}
+      ]
+    },
+    {
+      "id": "update-requires-the-current-revision",
+      "summary": "An update names the exact revision it changes; a stale revision or an empty change fails without changing the task.",
+      "config": {"switchboard": {"connectors": ["tasks"]}},
+      "steps": [
+        {"op": "call", "tool": "tasks_add", "args": {"title": "Draft report"}, "expect": {"status": "ok", "data": {"revision": 1}}, "save": {"task": "data.id"}},
+        {
+          "op": "call",
+          "tool": "tasks_update",
+          "args": {"id": {"$saved": "task"}, "revision": 1, "title": "Final report", "due_at": "2030-06-30T17:00:00+01:00"},
+          "expect": {"status": "ok", "action": "succeeded", "data": {"revision": 2, "title": "Final report"}, "instants": {"data.due_at": "2030-06-30T16:00:00Z"}}
+        },
+        {
+          "op": "call",
+          "tool": "tasks_update",
+          "args": {"id": {"$saved": "task"}, "revision": 1, "status": "completed"},
+          "expect": {"status": "error", "action": "failed"}
+        },
+        {"op": "call", "tool": "tasks_update", "args": {"id": {"$saved": "task"}, "revision": 2}, "expect": {"status": "error", "action": "failed"}},
+        {
+          "op": "call",
+          "tool": "tasks_update",
+          "args": {"id": {"$saved": "task"}, "revision": 2, "status": "completed", "due_at": null},
+          "expect": {"status": "ok", "action": "succeeded", "data": {"revision": 3, "status": "completed"}, "instants": {"data.due_at": null}}
+        },
+        {
+          "op": "call",
+          "tool": "tasks_read",
+          "args": {"id": {"$saved": "task"}},
+          "expect": {"status": "ok", "data": {"revision": 3, "status": "completed", "title": "Final report"}}
+        },
+        {"op": "call", "tool": "tasks_update", "args": {"id": 999999, "revision": 1, "title": "Ghost"}, "expect": {"status": "error", "action": "failed"}}
+      ]
+    },
+    {
+      "id": "list-filters-and-pages",
+      "summary": "Listing filters by status, list name and literal text, orders by identifier, and pages with after_id.",
+      "config": {"switchboard": {"connectors": ["tasks"]}},
+      "steps": [
+        {"op": "call", "tool": "tasks_add", "args": {"title": "Buy milk", "list_name": "home"}, "expect": {"status": "ok"}, "save": {"milk": "data.id"}},
+        {"op": "call", "tool": "tasks_add", "args": {"title": "Call plumber", "list_name": "home"}, "expect": {"status": "ok"}, "save": {"plumber": "data.id"}},
+        {
+          "op": "call",
+          "tool": "tasks_add",
+          "args": {"title": "Quarterly report", "list_name": "work", "notes": "Ask about milk budget"},
+          "expect": {"status": "ok"},
+          "save": {"report": "data.id"}
+        },
+        {
+          "op": "call",
+          "tool": "tasks_update",
+          "args": {"id": {"$saved": "plumber"}, "revision": 1, "status": "completed"},
+          "expect": {"status": "ok", "data": {"status": "completed"}}
+        },
+        {
+          "op": "call",
+          "tool": "tasks_list",
+          "expect": {
+            "status": "ok",
+            "action": null,
+            "data": {
+              "tasks": [{"id": {"$saved": "milk"}, "title": "Buy milk"}, {"id": {"$saved": "report"}, "title": "Quarterly report"}],
+              "truncated": false,
+              "next_after_id": null,
+              "untrusted_content": true
+            }
+          }
+        },
+        {
+          "op": "call",
+          "tool": "tasks_list",
+          "args": {"status": "all", "list_name": "home"},
+          "expect": {"status": "ok", "data": {"tasks": [{"id": {"$saved": "milk"}}, {"id": {"$saved": "plumber"}}]}}
+        },
+        {
+          "op": "call",
+          "tool": "tasks_list",
+          "args": {"status": "completed"},
+          "expect": {"status": "ok", "data": {"tasks": [{"id": {"$saved": "plumber"}, "status": "completed"}]}}
+        },
+        {"op": "call", "tool": "tasks_list", "args": {"status": "cancelled"}, "expect": {"status": "ok", "data": {"tasks": []}}},
+        {
+          "op": "call",
+          "tool": "tasks_list",
+          "args": {"query": "milk", "status": "all"},
+          "note": "Literal text matches the title of one task and the notes of another.",
+          "expect": {"status": "ok", "data": {"tasks": [{"id": {"$saved": "milk"}}, {"id": {"$saved": "report"}}]}}
+        },
+        {
+          "op": "call",
+          "tool": "tasks_list",
+          "args": {"status": "all", "limit": 2},
+          "expect": {
+            "status": "ok",
+            "data": {
+              "tasks": [{"id": {"$saved": "milk"}}, {"id": {"$saved": "plumber"}}],
+              "truncated": true,
+              "next_after_id": {"$saved": "plumber"}
+            }
+          }
+        },
+        {
+          "op": "call",
+          "tool": "tasks_list",
+          "args": {"status": "all", "after_id": {"$saved": "plumber"}},
+          "expect": {"status": "ok", "data": {"tasks": [{"id": {"$saved": "report"}}], "truncated": false, "next_after_id": null}}
+        },
+        {"op": "call", "tool": "tasks_list", "args": {"status": "everything"}, "expect": {"status": "invalid", "action": null}}
+      ]
+    },
+    {
+      "id": "overdue-compares-instants",
+      "summary": "overdue lists open tasks whose due instant has passed, whatever offset the time was written with.",
+      "config": {"switchboard": {"connectors": ["tasks"]}},
+      "steps": [
+        {"op": "call", "tool": "tasks_add", "args": {"title": "Renew passport", "due_at": "2001-01-01T00:00:00Z"}, "expect": {"status": "ok"}, "save": {"late": "data.id"}},
+        {"op": "call", "tool": "tasks_add", "args": {"title": "Plan trip", "due_at": "2099-01-01T00:00:00+01:00"}, "expect": {"status": "ok"}},
+        {"op": "call", "tool": "tasks_add", "args": {"title": "Someday"}, "expect": {"status": "ok"}},
+        {"op": "call", "tool": "tasks_list", "args": {"overdue": true}, "expect": {"status": "ok", "data": {"tasks": [{"id": {"$saved": "late"}}]}}},
+        {
+          "op": "call",
+          "tool": "tasks_list",
+          "args": {"overdue": true},
+          "expect": {"status": "ok", "instants": {"data.tasks.0.due_at": "2000-12-31T19:00:00-05:00"}}
+        }
+      ]
+    },
+    {
+      "id": "delete-waits-for-approval-at-the-exact-revision",
+      "summary": "Deleting is an act call: the assistant's request waits for approval, an edit in between makes the approval fail, and a human deletes the current revision directly.",
+      "config": {"switchboard": {"connectors": ["tasks"]}},
+      "steps": [
+        {"op": "call", "tool": "tasks_add", "args": {"title": "Old note"}, "expect": {"status": "ok"}, "save": {"task": "data.id"}},
+        {
+          "op": "call",
+          "tool": "tasks_delete",
+          "args": {"id": {"$saved": "task"}, "revision": 1},
+          "expect": {"status": "pending", "approval_id": true, "action": null},
+          "save": {"approval": "approval_id"}
+        },
+        {"op": "call", "tool": "tasks_read", "args": {"id": {"$saved": "task"}}, "expect": {"status": "ok", "data": {"revision": 1}}},
+        {
+          "op": "call",
+          "tool": "tasks_update",
+          "args": {"id": {"$saved": "task"}, "revision": 1, "title": "Edited note"},
+          "expect": {"status": "ok", "data": {"revision": 2}}
+        },
+        {"op": "approve", "approval": {"$saved": "approval"}, "expect": {"status": "error", "action": "failed"}},
+        {"op": "call", "tool": "tasks_read", "args": {"id": {"$saved": "task"}}, "expect": {"status": "ok", "data": {"title": "Edited note", "revision": 2}}},
+        {
+          "op": "call",
+          "tool": "tasks_delete",
+          "args": {"id": {"$saved": "task"}, "revision": 2},
+          "origin": "human",
+          "expect": {"status": "ok", "action": "succeeded", "data": {"id": {"$saved": "task"}, "revision": 2, "status": "deleted"}}
+        },
+        {"op": "call", "tool": "tasks_read", "args": {"id": {"$saved": "task"}}, "expect": {"status": "error", "action": null}},
+        {"op": "call", "tool": "tasks_delete", "args": {"id": {"$saved": "task"}, "revision": 2}, "origin": "human", "expect": {"status": "error", "action": "failed"}}
+      ]
+    },
+    {
+      "id": "invalid-task-input-changes-nothing",
+      "summary": "A blank title fails in the handler, schema bounds are invalid before it, and a missing task is an error.",
+      "config": {"switchboard": {"connectors": ["tasks"]}},
+      "steps": [
+        {"op": "call", "tool": "tasks_add", "args": {"title": "   "}, "expect": {"status": "error", "action": "failed"}},
+        {"op": "call", "tool": "tasks_add", "args": {"title": ""}, "expect": {"status": "invalid", "action": null}},
+        {"op": "call", "tool": "tasks_add", "args": {"title": "Example", "unexpected": true}, "expect": {"status": "invalid", "action": null}},
+        {"op": "call", "tool": "tasks_add", "args": {"title": "Example", "remind_at": true}, "expect": {"status": "invalid", "action": null}},
+        {"op": "call", "tool": "tasks_read", "args": {"id": 0}, "expect": {"status": "invalid", "action": null}},
+        {"op": "call", "tool": "tasks_read", "args": {"id": 999999}, "expect": {"status": "error", "action": null}},
+        {"op": "call", "tool": "tasks_list", "expect": {"status": "ok", "data": {"tasks": []}}},
+        {"op": "call", "tool": "tasks_status", "expect": {"status": "ok", "action": null, "data": {"counts": {"open": 0, "completed": 0, "cancelled": 0}}}}
+      ]
+    },
+    {
+      "id": "status-counts-tasks-by-state",
+      "summary": "tasks_status counts open, completed and cancelled tasks.",
+      "config": {"switchboard": {"connectors": ["tasks"]}},
+      "steps": [
+        {"op": "call", "tool": "tasks_add", "args": {"title": "One"}, "expect": {"status": "ok"}, "save": {"one": "data.id"}},
+        {"op": "call", "tool": "tasks_add", "args": {"title": "Two"}, "expect": {"status": "ok"}, "save": {"two": "data.id"}},
+        {"op": "call", "tool": "tasks_add", "args": {"title": "Three"}, "expect": {"status": "ok"}},
+        {"op": "call", "tool": "tasks_update", "args": {"id": {"$saved": "one"}, "revision": 1, "status": "completed"}, "expect": {"status": "ok"}},
+        {"op": "call", "tool": "tasks_update", "args": {"id": {"$saved": "two"}, "revision": 1, "status": "cancelled"}, "expect": {"status": "ok"}},
+        {"op": "call", "tool": "tasks_status", "expect": {"status": "ok", "data": {"counts": {"open": 1, "completed": 1, "cancelled": 1}}}}
+      ]
+    },
+    {
+      "id": "stored-timestamp-format",
+      "summary": "The same instant is rendered differently.",
+      "config": {"switchboard": {"connectors": ["tasks"]}},
+      "steps": [
+        {
+          "op": "call",
+          "tool": "tasks_add",
+          "args": {"title": "Dentist", "due_at": "2030-03-01T10:00:00+02:00"},
+          "expect": {"status": "ok", "instants": {"data.due_at": "2030-03-01T08:00:00Z"}},
+          "divergence": {
+            "topic": "Stored timestamps",
+            "reason": "Python stores and returns UTC text with a +00:00 offset; the native engine stores integer seconds and renders them with Z.",
+            "python": {"data": {"due_at": "2030-03-01T08:00:00+00:00"}},
+            "native": {"data": {"due_at": "2030-03-01T08:00:00Z"}}
+          }
+        }
+      ]
+    },
+    {
+      "id": "search-letter-case",
+      "summary": "Literal search text that differs from the stored title only in letter case.",
+      "config": {"switchboard": {"connectors": ["tasks"]}},
+      "steps": [
+        {"op": "call", "tool": "tasks_add", "args": {"title": "Buy milk"}, "expect": {"status": "ok"}, "save": {"task": "data.id"}},
+        {"op": "call", "tool": "tasks_list", "args": {"query": "milk"}, "expect": {"status": "ok", "data": {"tasks": [{"id": {"$saved": "task"}}]}}},
+        {
+          "op": "call",
+          "tool": "tasks_list",
+          "args": {"query": "MILK"},
+          "expect": {"status": "ok"},
+          "divergence": {
+            "topic": "Task search",
+            "reason": "Python searches case-folded title and notes text; the native engine searches the title and notes literally and case-sensitively.",
+            "python": {"data": {"tasks": [{"id": {"$saved": "task"}}]}},
+            "native": {"data": {"tasks": []}}
+          }
+        }
+      ]
+    },
+    {
+      "id": "timestamp-input-forms",
+      "summary": "Timestamps without seconds or without an offset.",
+      "config": {"switchboard": {"connectors": ["tasks"]}},
+      "steps": [
+        {
+          "op": "call",
+          "tool": "tasks_add",
+          "args": {"title": "Seconds omitted", "due_at": "2030-03-01T10:00+02:00"},
+          "divergence": {
+            "topic": "Task timestamp input",
+            "reason": "Python accepts any datetime.fromisoformat form that carries an offset; the native engine accepts only whole seconds with Z or +HH:MM/-HH:MM and reports other forms as a handler error.",
+            "python": {"status": "ok", "action": "succeeded", "instants": {"data.due_at": "2030-03-01T08:00:00Z"}},
+            "native": {"status": "error", "action": "failed"}
+          }
+        },
+        {
+          "op": "call",
+          "tool": "tasks_add",
+          "args": {"title": "No offset", "due_at": "2030-03-01T10:00:00"},
+          "note": "Both engines refuse a time without an offset; they report it at different stages.",
+          "divergence": {
+            "topic": "Task timestamp input",
+            "reason": "Python's schema allows 1 to 64 characters and its handler refuses the missing offset; the native schema allows only 20 to 25 characters, so the 19-character value is invalid before any handler runs.",
+            "python": {"status": "error", "action": "failed"},
+            "native": {"status": "invalid", "action": null}
+          }
+        },
+        {"op": "call", "tool": "tasks_list", "args": {"status": "all", "query": "No offset"}, "expect": {"status": "ok", "data": {"tasks": []}}}
+      ]
+    },
+    {
+      "id": "reminder-delivery-of-an-inactive-task",
+      "summary": "A completed task that still has an unqueued reminder.",
+      "config": {"switchboard": {"connectors": ["tasks"]}},
+      "steps": [
+        {
+          "op": "call",
+          "tool": "tasks_add",
+          "args": {"title": "Water plants", "remind_at": "2099-01-01T00:00:00Z"},
+          "expect": {"status": "ok", "data": {"reminder_delivery": "not_queued"}},
+          "save": {"task": "data.id"}
+        },
+        {
+          "op": "call",
+          "tool": "tasks_update",
+          "args": {"id": {"$saved": "task"}, "revision": 1, "status": "completed"},
+          "expect": {"status": "ok", "action": "succeeded", "instants": {"data.remind_at": "2099-01-01T00:00:00Z"}},
+          "divergence": {
+            "topic": "Inactive task reminders",
+            "reason": "Python reports not_queued whenever a reminder time exists and no event was queued; the native engine reports suppressed_inactive for a task that is no longer open.",
+            "python": {"data": {"status": "completed", "revision": 2, "reminder_delivery": "not_queued"}},
+            "native": {"data": {"status": "completed", "revision": 2, "reminder_delivery": "suppressed_inactive"}}
+          }
+        }
+      ]
+    }
+  ]
+}
