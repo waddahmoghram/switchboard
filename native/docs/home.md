@@ -1,34 +1,32 @@
 # Native Home Assistant adapter
 
-This C++20 adapter uses Home Assistant's Representational State Transfer (REST) application programming
-interface (API), with JavaScript Object Notation (JSON) requests. It has no Python subprocess,
-interpreter embedding, fallback, or dependency on Python home state. The Python baseline `6989a4b`
-is a read-only behavior reference, not evidence that native behavior has run.
+This C++20 adapter uses Home Assistant's Representational State Transfer (REST) application programming interface (API), with JavaScript Object Notation (JSON) requests.
+It has no Python subprocess, interpreter embedding, fallback, or dependency on Python home state.
+The Python baseline `6989a4b` is a read-only behavior reference, not evidence that native behavior has run.
 
 **Validation boundary:** source and authored tests have received syntax/type and formatting checks only.
-Every test below is **authored but UNRUN**. No project program, test collection, test, example, build,
-Home Assistant server, account, or device was executed or contacted. Public provider and SQLite
-documentation was read on 2026-11-11.
+Every test below is **authored but UNRUN**.
+No project program, test collection, test, example, build, Home Assistant server, account, or device was executed or contacted.
+Public provider and SQLite documentation was read on 2026-11-11.
 
-**Not a safety controller.** Review the actual physical effect of every concrete entity. Locks,
-alarm panels, covers including garage doors, cameras, switches, scripts, scenes, automations,
-appliance relays and other domains outside the six listed below cannot be configured. A misleading
-`light`, `fan`, or `climate` entity can still conceal unsafe integration behavior or high-power
-equipment; names and reported membership cannot prove otherwise. Do not review such entities for
-use here. Keep physical interlocks and manual control independent.
+**Not a safety controller.**
+Review the actual physical effect of every concrete entity.
+Locks, alarm panels, covers including garage doors, cameras, switches, scripts, scenes, automations, appliance relays and other domains outside the six listed below cannot be configured.
+A misleading `light`, `fan`, or `climate` entity can still conceal unsafe integration behavior or high-power equipment; names and reported membership cannot prove otherwise.
+Do not review such entities for use here.
+Keep physical interlocks and manual control independent.
 
 ## Tools and tiers
 
-Entry point: `switchboard::register_home(Context&, Registry&)` in
-[`home.cpp`](../src/home.cpp). It returns immediately unless `Context.enabled("home")`.
-Enabled registration validates settings, creates the two home tables when they are missing
-(`CREATE TABLE IF NOT EXISTS`, in one transaction, even when polling is disabled), and registers
-exactly eleven tools. It never resolves a secret, makes a provider request, records a snapshot or
-emits an event. It schedules the `home.poll` job only when `poll.enabled` is `true`. Empty profiles
-and preset tables are allowed, but their action schemas admit no targets.
+Entry point: `switchboard::register_home(Context&, Registry&)` in [`home.cpp`](../src/home.cpp).
+It returns immediately unless `Context.enabled("home")`.
+Enabled registration validates settings, creates the two home tables when they are missing (`CREATE TABLE IF NOT EXISTS`, in one transaction, even when polling is disabled), and registers exactly eleven tools.
+It never resolves a secret, makes a provider request, records a snapshot or emits an event.
+It schedules the `home.poll` job only when `poll.enabled` is `true`.
+Empty profiles and preset tables are allowed, but their action schemas admit no targets.
 
-The literal tiers `read` and `act` mean read-only and externally acting tools. `home_poll` is a
-`read` tool: it writes only local snapshots, health and events, and never sends a device request.
+The literal tiers `read` and `act` mean read-only and externally acting tools.
+`home_poll` is a `read` tool: it writes only local snapshots, health and events, and never sends a device request.
 
 | Tool                   | Tier   | Inputs and behavior                                                                                                                                                                   |
 | ---------------------- | ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -44,34 +42,37 @@ The literal tiers `read` and `act` mean read-only and externally acting tools. `
 | `home_media`           | `act`  | Required `binding`, one profiled `entity_id`, `action` (`play`, `pause`, `stop`, `volume`, `mute`); optional `room`; only the selected action's value is accepted.                    |
 | `home_lighting_preset` | `act`  | Required `binding`, preset `name` and that preset's 64-character `fingerprint`; nothing else. See [Lighting presets](#lighting-presets).                                              |
 
-`home_capabilities` uses `GET /api/states/<entity_id>`, not a fabricated service catalog or a
-device probe. Reported support is advisory even when unavailable or unprofiled; it never
-authorizes an action. Sensors return no inferred writable capabilities.
+`home_capabilities` uses `GET /api/states/<entity_id>`, not a fabricated service catalog or a device probe.
+Reported support is advisory even when unavailable or unprofiled; it never authorizes an action.
+Sensors return no inferred writable capabilities.
 
-Assistant and rule `act` calls require approval under the runtime's default policy. Explicit
-configuration can change that policy; the example pins each action to `ask`. A trusted human-origin
-call counts as approval, but cannot bypass denial or the core kill switch. Approval, expiry,
+Assistant and rule `act` calls require approval under the runtime's default policy.
+Explicit configuration can change that policy; the example pins each action to `ask`.
+A trusted human-origin call counts as approval, but cannot bypass denial or the core kill switch.
+Approval, expiry,
 rate limits, single-use claims and current-policy rechecking belong to the shared runtime,
-not a second adapter-specific authorization path. Direct handlers are for trusted internal use.
-Do not approve from a shortened summary; review the complete stored arguments. A preset request
-stores only its name and fingerprint: its approval summary appends the reviewed target content, which
-the runtime may shorten, so compare the fingerprint with `home_targets` before approving.
+not a second adapter-specific authorization path.
+Direct handlers are for trusted internal use.
+Do not approve from a shortened summary; review the complete stored arguments.
+A preset request stores only its name and fingerprint: its approval summary appends the reviewed target content, which the runtime may shorten, so compare the fingerprint with `home_targets` before approving.
 
 ## Configuration
 
-Merge [`home.example.json`](../config/home.example.json) into the native configuration, preserving
-other enabled connectors and policy. All addresses and entity names are fictional. Deliberately
-append `home` to the connector list. The example uses separate native storage and keeps polling disabled.
+Merge [`home.example.json`](../config/home.example.json) into the native configuration, preserving other enabled connectors and policy.
+All addresses and entity names are fictional.
+Deliberately append `home` to the connector list.
+The example uses separate native storage and keeps polling disabled.
 
-Use a dedicated non-administrator Home Assistant user and a long-lived access token. That token
-is **not entity-scoped**; the adapter's local allowlists are an additional software boundary.
+Use a dedicated non-administrator Home Assistant user and a long-lived access token.
+That token is **not entity-scoped**; the adapter's local allowlists are an additional software boundary.
 Use `env:NAME` or an owner-private `file:PATH` secret reference handled by `Context.secret`.
-Command references and literal credentials are rejected. Registration does not read the file or
-environment. Credentials are resolved for each actual request and never returned or hashed.
+Command references and literal credentials are rejected.
+Registration does not read the file or environment.
+Credentials are resolved for each actual request and never returned or hashed.
 
-Unknown settings are rejected, including unsupported `speech`, `quiet_hours` or `timezone` settings
-set to `false` or empty objects. The same applies to extra keys in device profiles, presets, polling
-and action inputs. JSON booleans are not numbers; numeric settings must be finite.
+Unknown settings are rejected, including unsupported `speech`, `quiet_hours` or `timezone` settings set to `false` or empty objects.
+The same applies to extra keys in device profiles, presets, polling and action inputs.
+JSON booleans are not numbers; numeric settings must be finite.
 
 | Setting            | Contract                                                                                                                                                                                         |
 | ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
@@ -88,21 +89,22 @@ and action inputs. JSON booleans are not numbers; numeric settings must be finit
 | `lighting_presets` | Default `{}`; at most 100 lowercase names of 1-64 characters, each `{"targets": {...}}` mapping 1-16 reviewed `lights` to a light state. See [Lighting presets](#lighting-presets).              |
 | `poll`             | Default disabled. Object with `enabled`, `entities`, `interval_seconds` and `stale_after_seconds`. See [Polling settings](#polling-settings).                                                    |
 
-The base address also rejects percent escapes. Only `sensor`, `binary_sensor`, `light`, `climate`,
-`fan`, and `media_player` are permitted in exposure, rooms and polling. Each identifier matches
-`[a-z0-9_]{1,64}\.[a-z0-9_]{1,190}`. Every action target also needs its typed profile; exposure or
-room membership alone does not grant control. `room` only restricts explicitly supplied targets and
-**never expands** them.
+The base address also rejects percent escapes.
+Only `sensor`, `binary_sensor`, `light`, `climate`, `fan`, and `media_player` are permitted in exposure, rooms and polling.
+Each identifier matches `[a-z0-9_]{1,64}\.[a-z0-9_]{1,190}`.
+Every action target also needs its typed profile; exposure or room membership alone does not grant control.
+`room` only restricts explicitly supplied targets and **never expands** them.
 
-Climate `unit` is `C` (Celsius) or `F` (Fahrenheit), matching the provider's **reported**
-`temperature_unit` (`"\u00b0C"` or `"\u00b0F"`). Configuration bounds are -50 to 100 Celsius or
--58 to 212 Fahrenheit, with `maximum >= minimum`. Configure a much narrower suitable range.
-`max_change` defaults to 2 in that unit, bounded to 0.1-20. `modes` explicitly lists 1-5 distinct
-members of `off`, `heat`, `cool`, `heat_cool`, `fan_only`. No automatic unit conversion occurs.
+Climate `unit` is `C` (Celsius) or `F` (Fahrenheit), matching the provider's **reported** `temperature_unit` (`"\u00b0C"` or `"\u00b0F"`).
+Configuration bounds are -50 to 100 Celsius or -58 to 212 Fahrenheit, with `maximum >= minimum`.
+Configure a much narrower suitable range.
+`max_change` defaults to 2 in that unit, bounded to 0.1-20.
+`modes` explicitly lists 1-5 distinct members of `off`, `heat`, `cool`, `heat_cool`, `fan_only`.
+No automatic unit conversion occurs.
 
 Fan bounds are integer percentages 0-100 with `minimum <= maximum`; `max_change` is 1-100.
-Media bounds are fractions 0-1 with `minimum <= maximum`, not measured loudness or hearing-safety
-guarantees. Change caps can also block large reductions; manual controls remain independent.
+Media bounds are fractions 0-1 with `minimum <= maximum`, not measured loudness or hearing-safety guarantees.
+Change caps can also block large reductions; manual controls remain independent.
 
 ### Polling settings
 
@@ -113,48 +115,49 @@ guarantees. Change caps can also block large reductions; manual controls remain 
 | `interval_seconds`    | Integer 30-86,400, default 60; the job interval.                                                                                                      |
 | `stale_after_seconds` | Integer from `interval_seconds` to 259,200; default is the larger of 300 and three intervals.                                                         |
 
-Polling settings are read-only configuration. They are excluded from the action binding, so changing
-them never invalidates a queued approval.
+Polling settings are read-only configuration.
+They are excluded from the action binding, so changing them never invalidates a queued approval.
 
 The `mcp.expose` setting selects tools exposed through the Model Context Protocol (MCP).
-It is not the home entity allowlist. Core policy settings and the operator's secret-file rules are
-independent of this adapter's configuration.
+It is not the home entity allowlist.
+Core policy settings and the operator's secret-file rules are independent of this adapter's configuration.
 
 ## Binding and reloads
 
-Read `home_targets` before each new action. Copy its full 64-character `binding` into the action
-you review. Every action schema pins that value and enumerates its concrete reviewed target set;
-the preset schema also enumerates the current preset names and fingerprints. The handler checks again
-before network access. Duplicate light targets fail before any preflight.
+Read `home_targets` before each new action.
+Copy its full 64-character `binding` into the action you review.
+Every action schema pins that value and enumerates its concrete reviewed target set;
+the preset schema also enumerates the current preset names and fingerprints.
+The handler checks again before network access.
+Duplicate light targets fail before any preflight.
 
-Binding version `native_binding_version = 2` hashes the component `home`, normalized server origin,
-`allow_http`, exact exposures, additional denials, all lights/rooms, climate modes/units/limits,
-fan/media limits, and every lighting preset's normalized targets and fingerprint. Polling settings are
-excluded. Bindings from builds that used version 1 no longer match; read `home_targets` again and
-request fresh approval. Entity sets, room members and mode sets are sorted; profile numbers and
-defaults are normalized. Origin normalization lowercases it, removes a final slash and host dot, and
-removes default ports. Alternate Internet Protocol version 6 (IPv6) spellings can conservatively yield
-different bindings. No secret value, secret reference, timestamp, pointer, unordered iteration, or
-process identity enters the digest. Rotating a credential reference alone preserves the binding.
+Binding version `native_binding_version = 2` hashes the component `home`, normalized server origin, `allow_http`, exact exposures, additional denials, all lights/rooms, climate modes/units/limits, fan/media limits, and every lighting preset's normalized targets and fingerprint.
+Polling settings are excluded.
+Bindings from builds that used version 1 no longer match; read `home_targets` again and request fresh approval.
+Entity sets, room members and mode sets are sorted; profile numbers and defaults are normalized.
+Origin normalization lowercases it, removes a final slash and host dot, and removes default ports.
+Alternate Internet Protocol version 6 (IPv6) spellings can conservatively yield different bindings.
+No secret value, secret reference, timestamp, pointer, unordered iteration, or process identity enters the digest.
+Rotating a credential reference alone preserves the binding.
 
-A preset fingerprint is a digest of its component name, `native_preset_version = 1` and its normalized
-targets. It does not include the preset name or the key order of the configuration file. Changing a
-preset's content changes its fingerprint and the binding; other presets keep their fingerprints.
+A preset fingerprint is a digest of its component name, `native_preset_version = 1` and its normalized targets.
+It does not include the preset name or the key order of the configuration file.
+Changing a preset's content changes its fingerprint and the binding; other presets keep their fingerprints.
 
 On runtime reconstruction, stored approval arguments are revalidated against the new schema.
-Changing an endpoint, target, room, denial, limit or preset invalidates the old binding even if the old
-requested value would fit the new limits. Request fresh approval; never substitute a new binding into
-an old approval. Current policy and live capabilities are rechecked at execution. The digest cannot
-detect provider-side entity remapping or hidden side effects. Long-lived instances use their
-captured configuration until deliberately reconstructed.
+Changing an endpoint, target, room, denial, limit or preset invalidates the old binding even if the old requested value would fit the new limits.
+Request fresh approval; never substitute a new binding into an old approval.
+Current policy and live capabilities are rechecked at execution.
+The digest cannot detect provider-side entity remapping or hidden side effects.
+Long-lived instances use their captured configuration until deliberately reconstructed.
 
 ## Control coverage
 
-Each action validates scope and combinations before effects and reads every intended target during
-preflight. `unknown`/`unavailable` states fail closed. Reported `entity_id` or `group_members`
-membership must be absent, null, empty, or a singleton containing only the target itself.
-Other members, malformed membership, and even groups containing other explicitly requested lights
-are refused. Absence of group metadata is not proof of a physical leaf; human review is still required.
+Each action validates scope and combinations before effects and reads every intended target during preflight.
+`unknown`/`unavailable` states fail closed.
+Reported `entity_id` or `group_members` membership must be absent, null, empty, or a singleton containing only the target itself.
+Other members, malformed membership, and even groups containing other explicitly requested lights are refused.
+Absence of group metadata is not proof of a physical leaf; human review is still required.
 
 | Control | Supported checks and exact service                                                                                                                                                                                                                                                                      |
 | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -164,39 +167,37 @@ are refused. Absence of group metadata is not proof of a physical leaf; human re
 | Media   | Per-action reported feature bits; exact action/value pairing. Play/unmute require observed in-profile volume; explicit volume values must fit the profile. Pause, stop and mute do not require a known volume. `media_player.media_play`, `media_pause`, `media_stop`, `volume_set`, `volume_mute`.     |
 | Presets | The Lights checks for every target, then one `light.turn_on` or `light.turn_off` per target. Never `scene` or `script` services. See [Lighting presets](#lighting-presets).                                                                                                                             |
 
-Climate mode-only entry into heating/cooling requires existing setpoints/range to be known, ordered
-and within both profile and device bounds; it cannot energize an already out-of-profile setpoint.
-Mode-only `off`/`fan_only` does not need temperature attributes, but still needs a reported/reviewed
-mode. Supplying temperatures with an incompatible mode is rejected. Readback also checks the
-effective mode for a temperature-only call. This is observation of requested setpoints/mode, not comfort.
+Climate mode-only entry into heating/cooling requires existing setpoints/range to be known, ordered and within both profile and device bounds; it cannot energize an already out-of-profile setpoint.
+Mode-only `off`/`fan_only` does not need temperature attributes, but still needs a reported/reviewed mode.
+Supplying temperatures with an incompatible mode is rejected.
+Readback also checks the effective mode for a temperature-only call.
+This is observation of requested setpoints/mode, not comfort.
 
-There are no implicit volume changes, power-on, unmute, source selection, content addresses, playlists,
-or grouping requests. Media play does not guarantee audible playback, including when a player stays
-muted. There is no quiet-hours implementation; any `quiet_hours` configuration is rejected.
-Reported temperature/speed step attributes are displayed, not used for automatic rounding or conversion;
-device quantization may leave a request unconfirmed.
+There are no implicit volume changes, power-on, unmute, source selection, content addresses, playlists, or grouping requests.
+Media play does not guarantee audible playback, including when a player stays muted.
+There is no quiet-hours implementation; any `quiet_hours` configuration is rejected.
+Reported temperature/speed step attributes are displayed, not used for automatic rounding or conversion; device quantization may leave a request unconfirmed.
 
 ## Action and readback contract
 
-Reads use `GET /api/states` or `GET /api/states/<entity_id>`. The list endpoint fetches everything the
-token can read, then filters locally; `limit` is an output cap, not an upstream scope or pagination.
-Malformed or duplicate states fail the entire read. Output retains only bounded observation/capability
-attributes; artwork, access-token attributes, provider context, content addresses and arbitrary attributes
-are omitted. Names, retained values and timestamps remain untrusted data, never instructions.
+Reads use `GET /api/states` or `GET /api/states/<entity_id>`.
+The list endpoint fetches everything the token can read, then filters locally; `limit` is an output cap, not an upstream scope or pagination.
+Malformed or duplicate states fail the entire read.
+Output retains only bounded observation/capability attributes; artwork, access-token attributes, provider context, content addresses and arbitrary attributes are omitted.
+Names, retained values and timestamps remain untrusted data, never instructions.
 Provider timestamps are bounded strings, not validated evidence of device freshness.
 
-Each typed action uses exactly one `POST /api/services/<domain>/<service>`, containing one concrete
-`entity_id` or, for multi-light calls, the exact explicit entity list and only typed values. Every target
-is preflighted before that submission. Multi-light effects can still be partial and are not atomic.
+Each typed action uses exactly one `POST /api/services/<domain>/<service>`, containing one concrete `entity_id` or, for multi-light calls, the exact explicit entity list and only typed values.
+Every target is preflighted before that submission.
+Multi-light effects can still be partial and are not atomic.
 The provider's returned changed-state list is ignored; only independent per-target reads are evaluated.
-A successful response with an unreadable body can therefore still be accepted, but that body never
-proves anything.
+A successful response with an unreadable body can therefore still be accepted, but that body never proves anything.
 
 Every request has a 15-second timeout and `Authorization: Bearer ...` plus `Accept: application/json`.
-Posts additionally use `Content-Type: application/json`. State responses are capped at 1,048,576 bytes;
-action responses at 65,536 bytes. The real shared transport verifies certificates and does not redirect
-or retry; it also applies the runtime's per-call deadline and cancellation. The adapter does not retry,
-sleep, schedule readback, compensate, or resend.
+Posts additionally use `Content-Type: application/json`.
+State responses are capped at 1,048,576 bytes; action responses at 65,536 bytes.
+The real shared transport verifies certificates and does not redirect or retry; it also applies the runtime's per-call deadline and cancellation.
+The adapter does not retry, sleep, schedule readback, compensate, or resend.
 
 | Result                                  | Meaning                                                                                                                                                    |
 | --------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -206,33 +207,31 @@ sleep, schedule readback, compensate, or resend.
 | `status = observed`, `confirmed = true` | Accepted request and one independent matching, available, leaf-reported, within-profile readback for every explicit target.                                |
 | `status = requested_unconfirmed`        | Mismatch, ambiguity, lost capability, unavailable/grouped/out-of-profile result or failed readback. Read errors are reported in `readback_errors`.         |
 
-Rejections have `status = rejected`. An unknown submission never becomes confirmed merely because
-its readback matches. Numeric comparison tolerances are one brightness step, one per color channel,
-0.01 volume and 0.05 for other numeric values. Brightness percent is compared with its nearest
-0-255 step. Profile/device bounds are checked separately without tolerance. Matching just beyond a
-volume/temperature bound does not confirm the action. Readback rechecks applicable capabilities,
-units and memberships as well as requested values.
+Rejections have `status = rejected`.
+An unknown submission never becomes confirmed merely because its readback matches.
+Numeric comparison tolerances are one brightness step, one per color channel, 0.01 volume and 0.05 for other numeric values.
+Brightness percent is compared with its nearest 0-255 step.
+Profile/device bounds are checked separately without tolerance.
+Matching just beyond a volume/temperature bound does not confirm the action.
+Readback rechecks applicable capabilities, units and memberships as well as requested values.
 
 ### Standardized confirmation fields
 
 Every `act` report follows the shared [cross-engine contract](../../contracts/README.md):
 
 - `confirmed` is present exactly when a readback ran, that is, for accepted and unknown submissions.
-  It is `true` only when the submission was accepted and every target's readback matched within its
-  profile. A rejected submission has no readback and no `confirmed` field.
-- `"effect_unknown": true` appears at the top level exactly when a submission outcome is unknown and is
-  absent otherwise. The shared runtime then journals the call as `uncertain`, and its duplicate guard
-  refuses an identical request until the operator reconciles it. Nothing here resends anything.
+  It is `true` only when the submission was accepted and every target's readback matched within its profile.
+  A rejected submission has no readback and no `confirmed` field.
+- `"effect_unknown": true` appears at the top level exactly when a submission outcome is unknown and is absent otherwise.
+  The shared runtime then journals the call as `uncertain`, and its duplicate guard refuses an identical request until the operator reconciles it.
+  Nothing here resends anything.
 - `status` keeps its values `rejected`, `observed` and `requested_unconfirmed`.
 
-Through the C interface, an accepted report is therefore `SB_EFFECT_CONFIRMED` or
-`SB_EFFECT_UNCONFIRMED`, a rejected report is `SB_EFFECT_RETURNED`, and an unknown report is
-`SB_EFFECT_UNKNOWN`. Earlier native receipts set `confirmed = false` on rejections and had no
-`effect_unknown`.
+Through the C interface, an accepted report is therefore `SB_EFFECT_CONFIRMED` or `SB_EFFECT_UNCONFIRMED`, a rejected report is `SB_EFFECT_RETURNED`, and an unknown report is `SB_EFFECT_UNKNOWN`.
+Earlier native receipts set `confirmed = false` on rejections and had no `effect_unknown`.
 
-Every receipt has `physical_delivery_verified = false`, `retry_safe = false`, observations and
-safe error metadata. A runtime outer `status = ok` means the handler returned a receipt; inspect
-the inner `request_status`, `status`, `confirmed`, `effect_unknown` and `readback_errors`.
+Every receipt has `physical_delivery_verified = false`, `retry_safe = false`, observations and safe error metadata.
+A runtime outer `status = ok` means the handler returned a receipt; inspect the inner `request_status`, `status`, `confirmed`, `effect_unknown` and `readback_errors`.
 **Readback is software evidence only, not verified physical delivery or causal proof.**
 Another automation or a manual change can race all reads.
 
@@ -251,26 +250,24 @@ A preset is reviewed lighting-only configuration, applied as individual light re
 }
 ```
 
-Each preset contains only `targets`, mapping 1-16 identifiers that are already in `lights` (and are
-therefore exposed, non-denied `light` entities) to a state. A state requires `state` (`on`/`off`) and
-accepts the `home_lights` bounds: integer `brightness_pct` 1-100, `rgb_color` as three integers 0-255, or
-integer `color_temp_kelvin` 1,000-20,000. `rgb_color` and `color_temp_kelvin` cannot be combined, and
-`off` cannot carry brightness or color. Transitions, effects, services, scenes, scripts and arbitrary
-action data are rejected.
+Each preset contains only `targets`, mapping 1-16 identifiers that are already in `lights` (and are therefore exposed, non-denied `light` entities) to a state.
+A state requires `state` (`on`/`off`) and accepts the `home_lights` bounds: integer `brightness_pct` 1-100, `rgb_color` as three integers 0-255, or integer `color_temp_kelvin` 1,000-20,000.
+`rgb_color` and `color_temp_kelvin` cannot be combined, and `off` cannot carry brightness or color.
+Transitions, effects, services, scenes, scripts and arbitrary action data are rejected.
 
 `home_lighting_preset` takes only `binding`, `name` and `fingerprint`, all copied from `home_targets`.
-A changed binding fails with code `home_binding`; a missing, renamed or changed preset fails with code
-`home_preset`. Both refusals happen before the credential is resolved or Home Assistant is contacted.
+A changed binding fails with code `home_binding`; a missing, renamed or changed preset fails with code `home_preset`.
+Both refusals happen before the credential is resolved or Home Assistant is contacted.
 
-1. Every target is preflighted exactly like a one-light `home_lights` call: scope, reviewed light,
-   availability, leaf membership, known color modes, and live brightness/color/kelvin capability. Each
-   submission request, including its credential, is prepared before the first effect. Any failure
-   sends nothing.
-2. Targets are then submitted in entity-identifier order. Each is its own `light.turn_on` or
-   `light.turn_off` request with that target's values, followed by one independent readback.
-3. A rejected or unknown submission stops the remaining targets. Before each later submission, the
-   adapter also stops when the call's deadline has passed or cancellation was requested.
-4. Nothing is retried, resent, rolled back or compensated. The effect is sequential, not atomic.
+1. Every target is preflighted exactly like a one-light `home_lights` call: scope, reviewed light, availability, leaf membership, known color modes, and live brightness/color/kelvin capability.
+   Each submission request, including its credential, is prepared before the first effect.
+   Any failure sends nothing.
+2. Targets are then submitted in entity-identifier order.
+   Each is its own `light.turn_on` or `light.turn_off` request with that target's values, followed by one independent readback.
+3. A rejected or unknown submission stops the remaining targets.
+   Before each later submission, the adapter also stops when the call's deadline has passed or cancellation was requested.
+4. Nothing is retried, resent, rolled back or compensated.
+   The effect is sequential, not atomic.
 
 | Field                                                | Meaning                                                                                                                                       |
 | ---------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -287,8 +284,8 @@ Reports also repeat `name`, `fingerprint`, the preset's `entity_ids` and a `conf
 
 ## Sensor summary
 
-`home_sensor_summary` classifies only exposed `sensor` and `binary_sensor` entities by their reported
-`device_class`. It never infers a class from names, and it never converts units.
+`home_sensor_summary` classifies only exposed `sensor` and `binary_sensor` entities by their reported `device_class`.
+It never infers a class from names, and it never converts units.
 
 | Domain and `device_class`     | `kind`        | Value                                    | Recognized units, returned unchanged                                                                 |
 | ----------------------------- | ------------- | ---------------------------------------- | ---------------------------------------------------------------------------------------------------- |
@@ -302,55 +299,48 @@ Reports also repeat `name`, `fingerprint`, the preset's `entity_ids` and a `conf
 | `binary_sensor` / `moisture`  | `leak`        | Boolean; `meaning = moisture_detected`   | None                                                                                                 |
 | `binary_sensor` / `battery`   | `battery`     | Boolean; `meaning = low_battery`         | None                                                                                                 |
 
-Each reading has `entity_id`, `kind`, `device_class`, `state_class`, `state`, `value`, `unit`, `meaning`,
-`availability`, `stale`, `usable`, `reason`, `observed_at` and `last_updated`. Numeric states must be
-complete finite decimal numbers, without surrounding spaces, a leading plus sign, underscores, `inf`
-or `nan`. `value` is `null` whenever the entity is not available, never zero or `false`. `usable`
-requires availability, freshness, no recorded polling error and no `reason`. Reasons are
-`no finite numeric reading`, `unit missing or unrecognized; no conversion attempted`,
-`reported percentage is outside 0 to 100` and `no known binary state`. Other classes, and entities
-without one, appear under `unclassified` with only availability, staleness and a fixed reason.
+Each reading has `entity_id`, `kind`, `device_class`, `state_class`, `state`, `value`, `unit`, `meaning`, `availability`, `stale`, `usable`, `reason`, `observed_at` and `last_updated`.
+Numeric states must be complete finite decimal numbers, without surrounding spaces, a leading plus sign, underscores, `inf` or `nan`.
+`value` is `null` whenever the entity is not available, never zero or `false`.
+`usable` requires availability, freshness, no recorded polling error and no `reason`.
+Reasons are `no finite numeric reading`, `unit missing or unrecognized; no conversion attempted`,
+`reported percentage is outside 0 to 100` and `no known binary state`.
+Other classes, and entities without one, appear under `unclassified` with only availability, staleness and a fixed reason.
 
-Units are exactly what the state reports, which can already reflect Home Assistant's own display-unit
-setting. There is no conversion, total, integration, tariff or cost calculation, and an energy meter
-reading is not a household total.
+Units are exactly what the state reports, which can already reflect Home Assistant's own display-unit setting.
+There is no conversion, total, integration, tariff or cost calculation, and an energy meter reading is not a household total.
 
-- `source = live` (default) uses one `GET /api/states/<entity_id>` for a named sensor, otherwise one
-  `GET /api/states` filtered locally; readings are `stale = false` at the local read time.
-- `source = cached` requires `poll.enabled`, is offline, and reads the polling snapshots. A named sensor
-  must be in `poll.entities`. Never-observed entities are unclassified as `not_observed`. Staleness comes
-  from each snapshot's age, and a recorded polling error appears as `source_error` and makes every
-  reading unusable.
-- `limit` caps classified readings first and fills remaining slots with unclassified entries; `truncated`
-  reports any omission. `kind` filters classified readings only. `room` restricts and never expands.
+- `source = live` (default) uses one `GET /api/states/<entity_id>` for a named sensor, otherwise one `GET /api/states` filtered locally; readings are `stale = false` at the local read time.
+- `source = cached` requires `poll.enabled`, is offline, and reads the polling snapshots.
+  A named sensor must be in `poll.entities`.
+  Never-observed entities are unclassified as `not_observed`.
+  Staleness comes from each snapshot's age, and a recorded polling error appears as `source_error` and makes every reading unusable.
+- `limit` caps classified readings first and fills remaining slots with unclassified entries; `truncated` reports any omission.
+  `kind` filters classified readings only.
+  `room` restricts and never expands.
 
 ## Polling, events and storage
 
 Polling is opt-in sampling, not a subscription to every Home Assistant state transition.
 
-When `poll.enabled` is `true`, registration adds the `home.poll` job at `interval_seconds`. With the
-current core, its first run is due at the next runtime tick; the runtime applies the job deadline and
-cancellation to the web transfer. `home_poll` runs the same sample on demand and is refused while polling
-is disabled.
+When `poll.enabled` is `true`, registration adds the `home.poll` job at `interval_seconds`.
+With the current core, its first run is due at the next runtime tick; the runtime applies the job deadline and cancellation to the web transfer.
+`home_poll` runs the same sample on demand and is refused while polling is disabled.
 
-Each sample makes exactly one `GET /api/states`, capped at 1,048,576 bytes, and validates the whole list
-as `home_states` does: malformed or duplicate states fail the sample. Configured entities absent from
-the list become `availability = missing` with `state = null`. Snapshots keep the same allowlisted
-attributes as `home_states`, plus `availability`, `reported_leaf`, provider timestamps and the local
-`observed_at`. A snapshot whose serialized size exceeds 8,192 bytes keeps an empty `attributes` object
-and `attributes_omitted = true`, so two snapshots and the envelope fit the core's 20,000-byte event
-payload bound.
+Each sample makes exactly one `GET /api/states`, capped at 1,048,576 bytes, and validates the whole list as `home_states` does: malformed or duplicate states fail the sample.
+Configured entities absent from the list become `availability = missing` with `state = null`.
+Snapshots keep the same allowlisted attributes as `home_states`, plus `availability`, `reported_leaf`, provider timestamps and the local `observed_at`.
+A snapshot whose serialized size exceeds 8,192 bytes keeps an empty `attributes` object and `attributes_omitted = true`, so two snapshots and the envelope fit the core's 20,000-byte event payload bound.
 
 ### Change detection and events
 
 - The first successful observation of each configured entity on a server is a silent baseline at revision 1.
-- A later difference in `state`, retained `attributes`, `attributes_omitted`, `availability` or
-  `reported_leaf` queues one `home.state_changed` event and increments the revision.
-- Changes in provider timestamps or the local observation time alone queue nothing, although the stored
-  snapshot's observation time advances.
-- `missing`, `unknown`, `unavailable` and recovery are sampled transitions. Changes between samples are
-  not seen.
-- Staleness is computed when read and never creates an event. Poll failures update health only.
+- A later difference in `state`, retained `attributes`, `attributes_omitted`, `availability` or `reported_leaf` queues one `home.state_changed` event and increments the revision.
+- Changes in provider timestamps or the local observation time alone queue nothing, although the stored snapshot's observation time advances.
+- `missing`, `unknown`, `unavailable` and recovery are sampled transitions.
+  Changes between samples are not seen.
+- Staleness is computed when read and never creates an event.
+  Poll failures update health only.
 
 Events have source `home`, type `home.state_changed`, and this payload:
 
@@ -364,12 +354,11 @@ Events have source `home`, type `home.state_changed`, and this payload:
 | `source`           | Opaque 64-character digest of the normalized server origin, never the address.  |
 | `history_complete` | Always `false`.                                                                 |
 
-The deduplication key is `native:home:<source>:<entity_id>:<revision>`. Snapshot writes, revision
-changes, health and event inserts through `Context.emit` on the same database connection happen in one
-transaction; any failure rolls all of them back and records only failure health. A sample that started
-before the recorded attempt is ignored (`ignored_older_sample = true`), so it cannot overwrite newer state.
-`home_poll` returns `entities`, `baselined`, `changed`, `observed_at`, `source`, `ignored_older_sample`
-and `history_complete = false`. This is local atomicity, not exactly-once external delivery.
+The deduplication key is `native:home:<source>:<entity_id>:<revision>`.
+Snapshot writes, revision changes, health and event inserts through `Context.emit` on the same database connection happen in one transaction; any failure rolls all of them back and records only failure health.
+A sample that started before the recorded attempt is ignored (`ignored_older_sample = true`), so it cannot overwrite newer state.
+`home_poll` returns `entities`, `baselined`, `changed`, `observed_at`, `source`, `ignored_older_sample` and `history_complete = false`.
+This is local atomicity, not exactly-once external delivery.
 
 ### Storage
 
@@ -378,31 +367,27 @@ and `history_complete = false`. This is local atomicity, not exactly-once extern
 | `native_home_snapshots`   | `source` and `entity_id` (primary key), `snapshot_json`, `observed_at` (integer seconds), `revision` (1 to 9,007,199,254,740,991). |
 | `native_home_poll_status` | `source` (primary key), `attempted_at`, `succeeded_at`, `error` (a safe error code, never provider text), `consecutive_failures`.  |
 
-There are no other home migrations, and Python `home:1` tables are neither read nor migrated. Changing
-servers starts fresh baselines under a new source. Rows for removed entities or other servers are kept
-but filtered from reads; there is no home retention job, and event payload retention follows the core's
-event retention. A corrupt stored snapshot fails each sample with code `home_cache` until the operator
-restores or removes that row.
+There are no other home migrations, and Python `home:1` tables are neither read nor migrated.
+Changing servers starts fresh baselines under a new source.
+Rows for removed entities or other servers are kept but filtered from reads; there is no home retention job, and event payload retention follows the core's event retention.
+A corrupt stored snapshot fails each sample with code `home_cache` until the operator restores or removes that row.
 
 ### Health and staleness
 
-`home_poll_status` is offline and returns `enabled`, `source`, `interval_seconds`, `stale_after_seconds`,
-`attempted_at`, `succeeded_at`, `error`, `consecutive_failures`, overall `stale`, `entities`,
-`history_complete = false` and `freshness_basis`. Entities follow sorted configured order. Before a
-baseline each is `{"entity_id": ..., "availability": "not_observed", "revision": 0, "stale": true}`;
-afterwards it is the stored snapshot plus `revision` and `stale`. An observation is stale when it is
-older than `stale_after_seconds` or lies in the local future; overall `stale` uses the last success.
+`home_poll_status` is offline and returns `enabled`, `source`, `interval_seconds`, `stale_after_seconds`, `attempted_at`, `succeeded_at`, `error`, `consecutive_failures`, overall `stale`, `entities`, `history_complete = false` and `freshness_basis`.
+Entities follow sorted configured order.
+Before a baseline each is `{"entity_id": ..., "availability": "not_observed", "revision": 0, "stale": true}`; afterwards it is the stored snapshot plus `revision` and `stale`.
+An observation is stale when it is older than `stale_after_seconds` or lies in the local future; overall `stale` uses the last success.
 
-A failed sample raises code `home_poll` with a fixed message, keeps every cached snapshot, and records
-an error code such as `home_http` (refused, failed or oversized read), `home` (malformed or duplicate
-list), `home_secret`, `home_cache` or `database`; anything else is recorded as `internal`. Freshness means
-the age of the **local read**; a successful read does not prove the physical integration is current.
+A failed sample raises code `home_poll` with a fixed message, keeps every cached snapshot, and records an error code such as `home_http` (refused, failed or oversized read), `home` (malformed or duplicate list), `home_secret`, `home_cache` or `database`; anything else is recorded as `internal`.
+Freshness means the age of the **local read**; a successful read does not prove the physical integration is current.
 Polling misses intermediate changes, transient motion or leak signals, downtime and fast toggles.
 
 ## Native versus Python
 
 The Python reference offers twelve tools when speech is enabled; this native adapter offers eleven,
-including the explicit `home_capabilities` read. There is still no speech or quiet-hours support.
+including the explicit `home_capabilities` read.
+There is still no speech or quiet-hours support.
 This is not a drop-in Python configuration port.
 
 | Python reference feature                                   | Native coverage or explicit limit                                                                                                                                                                                             |
@@ -422,21 +407,20 @@ This is not a drop-in Python configuration port.
 | Speech/announcements and provider-privacy declarations     | Not supported. `speech` settings are rejected and `home_announce` is absent. No speech engine or audible-delivery claim.                                                                                                      |
 | Additional device controls                                 | No fan presets/direction/oscillation, climate auto/dry/humidity/presets, media content/seek/source/grouping, light effects/flashes, or unsupported domains. Unknown inputs fail closed.                                       |
 
-The native adapter is stricter about reported groups and known light modes. It checks the effective
-climate mode on temperature readback and does not return the action reply's changed-state list.
+The native adapter is stricter about reported groups and known light modes.
+It checks the effective climate mode on temperature readback and does not return the action reply's changed-state list.
 There is no physical delivery verification in either implementation.
 
 ## Coverage and UNRUN tests
 
-[`native/tests/home.cpp`](../tests/home.cpp) includes `support.hpp`, its deterministic `FakeHttp`,
-and a wrapper that can throw on a fake submission. No test creates a real transport.
-Fixtures, if explicitly run later, create owner-private directories relative to the test's working
-directory, not the shared support helper's system temporary directory. They restore fake environment
-credentials and remove their own fixtures. The fixture clock is adjustable for staleness tests; the
-atomicity test adds and drops temporary SQLite triggers in its own fixture database; one preset test
-installs `ScopedExecutionLimits` around a direct handler call.
+[`native/tests/home.cpp`](../tests/home.cpp) includes `support.hpp`, its deterministic `FakeHttp`, and a wrapper that can throw on a fake submission.
+No test creates a real transport.
+Fixtures, if explicitly run later, create owner-private directories relative to the test's working directory, not the shared support helper's system temporary directory.
+They restore fake environment credentials and remove their own fixtures.
+The fixture clock is adjustable for staleness tests; the atomicity test adds and drops temporary SQLite triggers in its own fixture database; one preset test installs `ScopedExecutionLimits` around a direct handler call.
 
-All 40 test functions below are **authored, UNRUN**. The described assertions are intended coverage,
+All 40 test functions below are **authored, UNRUN**.
+The described assertions are intended coverage,
 not passed results:
 
 | Test function(s)                                               | Authored assertions                                                                                                                                                                                                                            |
@@ -483,10 +467,8 @@ not passed results:
 | `test_runtime_unknown_submission_is_journaled_uncertain`       | Through the runtime, an unknown submission is journaled `uncertain` and blocks an identical request; an observed one is `succeeded`. Depends on the shared journal.                                                                            |
 
 No runtime coverage, physical effects, credentials/file permissions against a real installation,
-Home Assistant version compatibility, network/certificate reachability, build/link success,
-concurrency/races, device quantization, SQLite trigger behavior, or hidden provider integration behavior
-has been verified. Approval and journal tests exercise the shared runtime by authored calls, not by
-running it during development.
+Home Assistant version compatibility, network/certificate reachability, build/link success, concurrency/races, device quantization, SQLite trigger behavior, or hidden provider integration behavior has been verified.
+Approval and journal tests exercise the shared runtime by authored calls, not by running it during development.
 
 ## Syntax-only verification
 
@@ -502,15 +484,13 @@ c++ -std=c++20 -Wall -Wextra -Wpedantic -Werror -fsyntax-only \
 clang-format-14 --dry-run --Werror native/src/home.cpp native/tests/home.cpp
 ```
 
-These check only the two translation units; they neither link the native engine nor execute any
-test. Execution-limit declarations used here are defined in shared runtime sources outside this
-adapter. Do not interpret the checks as provider compatibility or runtime coverage. CMake
-configuration/build and test collection/execution were not performed.
+These check only the two translation units; they neither link the native engine nor execute any test.
+Execution-limit declarations used here are defined in shared runtime sources outside this adapter.
+Do not interpret the checks as provider compatibility or runtime coverage.
+CMake configuration/build and test collection/execution were not performed.
 
-Authoring result on 2026-11-11: the system `c++` 11.4 compiler exited 0 with no diagnostics for either
-translation unit, and the clang-format dry run reported no changes. The example JSON was parsed as data
-only (ASCII, no duplicate keys, preset and polling references consistent), without importing or executing
-project code.
+Authoring result on 2026-11-11: the system `c++` 11.4 compiler exited 0 with no diagnostics for either translation unit, and the clang-format dry run reported no changes.
+The example JSON was parsed as data only (ASCII, no duplicate keys, preset and polling references consistent), without importing or executing project code.
 
 ## Public references
 
@@ -522,12 +502,10 @@ project code.
 - [Media feature flags, states, volume and group membership][media].
 - [Sensor device classes, units and state classes][sensor].
 - [Binary sensor device classes and on/off meanings][binary-sensor].
-- Provider bit constants inspected at commit `0dc24540ce48f65f616230857e2cf21ceec92b80`:
-  [climate][climate-flags], [fan][fan-flags], [media player][media-flags].
-  The adapter uses climate target bits 1/2, fan speed bit 1, and media pause/play/stop/volume/mute
-  bits 1/16384/4096/4/8 respectively. No feature is inferred from entity names.
-- SQLite [trigger `RAISE` semantics][sqlite-trigger] and the [upsert clause][sqlite-upsert], as used by
-  the authored atomicity test.
+- Provider bit constants inspected at commit `0dc24540ce48f65f616230857e2cf21ceec92b80`: [climate][climate-flags], [fan][fan-flags], [media player][media-flags].
+  The adapter uses climate target bits 1/2, fan speed bit 1, and media pause/play/stop/volume/mute bits 1/16384/4096/4/8 respectively.
+  No feature is inferred from entity names.
+- SQLite [trigger `RAISE` semantics][sqlite-trigger] and the [upsert clause][sqlite-upsert], as used by the authored atomicity test.
 
 [rest]: https://contributors.home-assistant.io/core/internals/rest-api/
 [light]: https://contributors.home-assistant.io/core/entities/light/

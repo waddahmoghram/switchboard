@@ -1,10 +1,8 @@
 # Contract fixtures
 
-Each `*.json` file here except [synthetic-tools.json](./synthetic-tools.json) is a case file that both runners
-evaluate: [tests/contracts/test_contracts.py](../../tests/contracts/test_contracts.py) for Python and
-[native/tests/contracts.cpp](../../native/tests/contracts.cpp) for the native engine. The normative rules are in
-the [contract](../README.md); a fixture only demonstrates them. Files use JavaScript Object Notation (JSON),
-duplicate object keys are refused, and no fixture contacts an account, device or network service.
+Each `*.json` file here except [synthetic-tools.json](./synthetic-tools.json) is a case file that both runners evaluate: [tests/contracts/test_contracts.py](../../tests/contracts/test_contracts.py) for Python and [native/tests/contracts.cpp](../../native/tests/contracts.cpp) for the native engine.
+The normative rules are in the [contract](../README.md); a fixture only demonstrates them.
+Files use JavaScript Object Notation (JSON), duplicate object keys are refused, and no fixture contacts an account, device or network service.
 
 | File                                           | Area                                                                    |
 | ---------------------------------------------- | ----------------------------------------------------------------------- |
@@ -26,12 +24,12 @@ duplicate object keys are refused, and no fixture contacts an account, device or
 | `area`, `summary`   | Description only                                                                |
 | `cases`             | Cases, each with a file-unique `id`, a `summary` and `steps`                    |
 
-A case may add `config`, the configuration both engines accept: `switchboard.connectors` (only `tasks` is
-shared), `policy.tools.<name or glob>` with `decision` and `max_per_hour` (1 or more), and `mcp.expose`. Each
-runner adds its own private temporary data directory. Every engine starts with the synthetic tools registered.
+A case may add `config`, the configuration both engines accept: `switchboard.connectors` (only `tasks` is shared), `policy.tools.<name or glob>` with `decision` and `max_per_hour` (1 or more), and `mcp.expose`.
+Each runner adds its own private temporary data directory.
+Every engine starts with the synthetic tools registered.
 
-Steps run in order against one engine instance and stop at the first failed expectation. The engine starts on
-the first step that needs it; `check_schema`, `validate` and `register` never start one.
+Steps run in order against one engine instance and stop at the first failed expectation.
+The engine starts on the first step that needs it; `check_schema`, `validate` and `register` never start one.
 
 | `op`                  | Fields                                                                         | Checks (`expect`)                                     |
 | --------------------- | ------------------------------------------------------------------------------ | ----------------------------------------------------- |
@@ -51,10 +49,10 @@ the first step that needs it; `check_schema`, `validate` and `register` never st
 | `validate`            | `schema`                                                                       | `valid` and `invalid` lists of values                 |
 | `register`            | none                                                                           | `accepted` and `refused` lists of `{name, schema}`    |
 
-`recent_actions` reads the entries from the `actions_recent` tool however each engine shapes its data and
-requires an `ok` outcome. `entries` must match the listed entries in any order, one to one. `insert_stale_action`
-offsets are seconds relative to now and its `save` names the inserted entry's identifier. `rpc` adds the
-modern protocol version to `params._meta`, so no initialization handshake is needed.
+`recent_actions` reads the entries from the `actions_recent` tool however each engine shapes its data and requires an `ok` outcome.
+`entries` must match the listed entries in any order, one to one.
+`insert_stale_action` offsets are seconds relative to now and its `save` names the inserted entry's identifier.
+`rpc` adds the modern protocol version to `params._meta`, so no initialization handshake is needed.
 
 ### Outcome envelope expectations
 
@@ -71,25 +69,21 @@ modern protocol version to `params._meta`, so no initialization handshake is nee
 | `message_contains` | Texts the message must contain                                                         |
 
 Every returned `action` must be `{"id", "state"}` with 32 lowercase hexadecimal characters and a known state.
-Scalars compare as JSON values: `true` never equals `1`, and `1.0` equals `1`. Paths are dot-separated object
-keys and array indexes, such as `data.tasks.0.id`.
+Scalars compare as JSON values: `true` never equals `1`, and `1.0` equals `1`.
+Paths are dot-separated object keys and array indexes, such as `data.tasks.0.id`.
 
-Protocol replies take `error_code` (the error's code) or, for a result, `is_error`, `structured_content` (whether
-`structuredContent` is present), `outcome` (envelope expectations for the JSON text in the first content item),
-`listed`, `not_listed`, `listed_count`, `all_listed_match` and `none_listed_match` (glob patterns).
+Protocol replies take `error_code` (the error's code) or, for a result, `is_error`, `structured_content` (whether `structuredContent` is present), `outcome` (envelope expectations for the JSON text in the first content item), `listed`, `not_listed`, `listed_count`, `all_listed_match` and `none_listed_match` (glob patterns).
 
 ### Values
 
-`{"$saved": "name"}` stands for a value saved earlier in the case: `save` maps names to paths in the step's
-result. `{"$engine": "absent_approval_id"}` is a well-formed approval identifier that names no request in that
-engine. Neither form is substituted inside schemas or values of `check_schema`, `validate` and `register`.
+`{"$saved": "name"}` stands for a value saved earlier in the case: `save` maps names to paths in the step's result.
+`{"$engine": "absent_approval_id"}` is a well-formed approval identifier that names no request in that engine.
+Neither form is substituted inside schemas or values of `check_schema`, `validate` and `register`.
 
 ## Divergences and known violations
 
-A step on which the engines legitimately differ has `divergence` with a `topic` (the start of a row in the
-contract's Known divergences table), a `reason`, and `python` and `native` expectations. Those keys replace the
-same keys of `expect` for that engine; everything else in `expect` is still checked for both.
+A step on which the engines legitimately differ has `divergence` with a `topic` (the start of a row in the contract's Known divergences table), a `reason`, and `python` and `native` expectations.
+Those keys replace the same keys of `expect` for that engine; everything else in `expect` is still checked for both.
 
-A case on which an engine does not yet meet a normative rule has `known_violation`, mapping the engine to the
-reason. That runner reports the case as an expected failure and fails when the case starts passing, so the marker
-is removed once the engine is fixed.
+A case on which an engine does not yet meet a normative rule has `known_violation`, mapping the engine to the reason.
+That runner reports the case as an expected failure and fails when the case starts passing, so the marker is removed once the engine is fixed.
