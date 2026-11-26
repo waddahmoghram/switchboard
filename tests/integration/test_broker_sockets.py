@@ -52,8 +52,8 @@ class Running:
         self.server.close()
 
 
-def _settings(tmp_path: Path, **overrides: Any) -> broker.BrokerSettings:
-    run = tmp_path / "run"
+def _settings(socket_dir: Path, **overrides: Any) -> broker.BrokerSettings:
+    run = socket_dir / "run"
     run.mkdir(exist_ok=True)
     run.chmod(0o700)
     settings = broker.BrokerSettings(
@@ -107,8 +107,8 @@ def _start(
 
 
 @pytest.fixture
-def running(make_app: AppFactory, tmp_path: Path) -> Iterator[Running]:
-    state = _start(make_app, _settings(tmp_path))
+def running(make_app: AppFactory, socket_dir: Path) -> Iterator[Running]:
+    state = _start(make_app, _settings(socket_dir))
     try:
         yield state
     finally:
@@ -137,8 +137,8 @@ def _exchange(path: Path, *messages: Any) -> list[dict[str, Any]]:
         channel.close()
 
 
-def test_sockets_are_group_mode_660_and_removed_on_close(make_app: AppFactory, tmp_path: Path) -> None:
-    state = _start(make_app, _settings(tmp_path))
+def test_sockets_are_group_mode_660_and_removed_on_close(make_app: AppFactory, socket_dir: Path) -> None:
+    state = _start(make_app, _settings(socket_dir))
     try:
         assert state.client.stat().st_mode & 0o777 == 0o660
         assert state.operator.stat().st_mode & 0o777 == 0o660
@@ -178,9 +178,9 @@ def test_the_operator_approves_what_the_assistant_requested_over_separate_socket
 
 
 def test_the_assistant_identity_is_refused_on_the_operator_socket_and_audited(
-    make_app: AppFactory, tmp_path: Path
+    make_app: AppFactory, socket_dir: Path
 ) -> None:
-    state = _start(make_app, _settings(tmp_path), lookup=lambda _conn: ASSISTANT)
+    state = _start(make_app, _settings(socket_dir), lookup=lambda _conn: ASSISTANT)
     try:
         [refusal] = _exchange(state.operator, {"op": "kill_switch", "enable": True})
         assert (refusal["ok"], refusal["op"], refusal["request_id"]) == (False, None, None)
@@ -196,9 +196,9 @@ def test_the_assistant_identity_is_refused_on_the_operator_socket_and_audited(
         state.stop()
 
 
-def test_unlisted_accounts_are_refused_on_the_client_socket(make_app: AppFactory, tmp_path: Path) -> None:
+def test_unlisted_accounts_are_refused_on_the_client_socket(make_app: AppFactory, socket_dir: Path) -> None:
     stranger = broker.PeerCredentials(uid=60003)
-    state = _start(make_app, _settings(tmp_path), lookup=lambda _conn: stranger)
+    state = _start(make_app, _settings(socket_dir), lookup=lambda _conn: stranger)
     try:
         [refusal] = _exchange(
             state.client, {"jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": MODERN}
@@ -209,8 +209,8 @@ def test_unlisted_accounts_are_refused_on_the_client_socket(make_app: AppFactory
         state.stop()
 
 
-def test_connections_beyond_the_limit_are_refused(make_app: AppFactory, tmp_path: Path) -> None:
-    state = _start(make_app, _settings(tmp_path, max_connections=1))
+def test_connections_beyond_the_limit_are_refused(make_app: AppFactory, socket_dir: Path) -> None:
+    state = _start(make_app, _settings(socket_dir, max_connections=1))
     first = broker.connect_unix(state.client)
     try:
         first.send(
@@ -247,8 +247,8 @@ def test_the_shim_relays_a_whole_session(running: Running) -> None:
     assert replies[2]["result"]["structuredContent"]["status"] == "ok"
 
 
-def test_a_stale_socket_is_replaced_and_a_live_one_is_refused(make_app: AppFactory, tmp_path: Path) -> None:
-    settings = _settings(tmp_path)
+def test_a_stale_socket_is_replaced_and_a_live_one_is_refused(make_app: AppFactory, socket_dir: Path) -> None:
+    settings = _settings(socket_dir)
     leftover = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     leftover.bind(os.fspath(settings.client_socket))
     leftover.close()
@@ -265,10 +265,10 @@ def test_a_stale_socket_is_replaced_and_a_live_one_is_refused(make_app: AppFacto
 
 @pytest.mark.skipif(not sys.platform.startswith("linux"), reason="reads SO_PEERCRED from the kernel")
 def test_kernel_peer_credentials_identify_the_connecting_account(
-    make_app: AppFactory, tmp_path: Path
+    make_app: AppFactory, socket_dir: Path
 ) -> None:
     uid = os.getuid()
-    settings = _settings(tmp_path, client_uids=frozenset({uid}), operator_uids=frozenset({uid}))
+    settings = _settings(socket_dir, client_uids=frozenset({uid}), operator_uids=frozenset({uid}))
     state = _start(make_app, settings, lookup=broker.peer_credentials)
     try:
         with broker.open_operator_client(state.operator) as client:

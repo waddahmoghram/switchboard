@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import os
-from collections.abc import Callable
+import shutil
+import tempfile
+from collections.abc import Callable, Iterator
 from pathlib import Path
 from typing import Any
 
@@ -34,6 +36,20 @@ def open_descriptors() -> Callable[[], int]:
     if listing is None:
         pytest.skip("this platform cannot list open file descriptors")
     return lambda: len(os.listdir(listing))
+
+
+@pytest.fixture
+def socket_dir() -> Iterator[Path]:
+    """A new private directory for Unix domain sockets, directly in the system's temporary directory.
+
+    Socket paths are limited to about 100 bytes, which ``tmp_path`` alone can exceed on macOS, where it lies
+    under ``/private/var/folders``.
+    """
+    directory = Path(tempfile.mkdtemp(prefix="sb-"))
+    try:
+        yield directory
+    finally:
+        shutil.rmtree(directory, ignore_errors=True)
 
 
 @pytest.fixture

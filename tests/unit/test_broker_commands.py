@@ -347,11 +347,14 @@ def test_the_operator_client_sends_flat_fields_and_returns_the_result() -> None:
 
 
 def test_broker_serve_refuses_shared_accounts_unless_overridden(
-    make_app: AppFactory, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    make_app: AppFactory,
+    socket_dir: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
 ) -> None:
     table = {
-        "client_socket": str(tmp_path / "c.sock"),
-        "operator_socket": str(tmp_path / "o.sock"),
+        "client_socket": str(socket_dir / "c.sock"),
+        "operator_socket": str(socket_dir / "o.sock"),
         "client_uids": [123456],
         "operator_uids": [123456],
     }
