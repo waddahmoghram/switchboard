@@ -10,6 +10,7 @@ import os
 import queue
 import socket
 import struct
+import sys
 import threading
 import time
 from pathlib import Path
@@ -105,8 +106,10 @@ def _records(app: App, kind: str) -> list[dict[str, Any]]:
 # ---- peer credentials -------------------------------------------------------------------------------
 
 
-@pytest.mark.skipif(not hasattr(socket, "SO_PEERCRED"), reason="SO_PEERCRED is Linux-only")
 def test_linux_peer_credentials_decode_struct_ucred() -> None:
+    # Checked here rather than with a skipif mark, so mypy treats the rest as unreachable off Linux.
+    if not sys.platform.startswith("linux"):
+        pytest.skip("SO_PEERCRED is Linux-only")
     fake = FakeCredentialSocket(struct.pack("=iII", 4242, 1000, 100))
     peer = broker.peer_credentials(fake, platform="linux")
     assert peer == broker.PeerCredentials(uid=1000, gid=100, pid=4242)
