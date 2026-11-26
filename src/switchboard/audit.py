@@ -16,6 +16,7 @@ from __future__ import annotations
 import json
 import os
 import re
+from collections import deque
 from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
@@ -29,6 +30,7 @@ GENESIS = "0" * 64
 _SENSITIVE_KEY = re.compile(r"pass(word)?|secret|token|authori[sz]ation|cookie|api[_-]?key|credential", re.I)
 _MAX_STRING = 300
 _MAX_DEPTH = 6
+_BLOCK_SIZE = 8192
 
 
 def redact(value: Any, depth: int = 0) -> Any:
@@ -99,13 +101,20 @@ class AuditLog:
                 raise AuditError("audit log is not valid UTF-8") from exc
 
     def tail(self, count: int) -> list[dict[str, Any]]:
+        """Return the last ``count`` records, reading the file backwards only as far as they reach.
+
+        Damage before those records does not show here; ``verify`` reads everything. Anything unusual in
+        the lines it reads (a partial or malformed line, invalid UTF-8, a bare carriage return) falls back to
+        a full scan, so errors and results match ``records``.
+        """
         if count < 1:
             return []
-        recent: list[dict[str, Any]] = []
-        for record in self.records():
-            recent.append(record)
-            if len(recent) > count:
-                recent.pop(0)
+        if not self.path.exists():
+            return []
+        with self.path.open("rb") as handle:
+            recent = _tail_records(handle, count)
+        if recent is None:
+            return list(deque(self.records(), maxlen=count))
         return recent
 
     def head(self) -> str:
@@ -152,7 +161,7 @@ def _read_last_line(handle: IO[bytes]) -> bytes | None:
         return None
     buffer = b""
     while position > 0:
-        step = min(8192, position)
+        step = min(_BLOCK_SIZE, position)
         position -= step
         handle.seek(position)
         buffer = handle.read(step) + buffer
@@ -162,3 +171,51 @@ def _read_last_line(handle: IO[bytes]) -> bytes | None:
             return stripped[cut + 1 :]
     stripped = buffer.rstrip(b"\n")
     return stripped or None
+
+
+def _tail_records(handle: IO[bytes], count: int) -> list[dict[str, Any]] | None:
+    """Parse up to ``count`` records from the end of ``handle``, or return None if a line needs a full scan.
+
+    A line needs one when ``AuditLog.records`` would read it differently or reject it: a bare carriage
+    return (a line break in text mode), invalid UTF-8, invalid JSON, or JSON that is not an object.
+    """
+    recent: list[dict[str, Any]] = []
+    for line in _lines_backwards(handle):
+        if line.endswith(b"\r"):
+            line = line[:-1]
+        if b"\r" in line:
+            return None
+        try:
+            text = line.decode("utf-8")
+            if not text.strip():
+                continue
+            record = json.loads(text)
+        except (ValueError, RecursionError):
+            return None
+        if not isinstance(record, dict):
+            return None
+        recent.append(record)
+        if len(recent) == count:
+            break
+    recent.reverse()
+    return recent
+
+
+def _lines_backwards(handle: IO[bytes]) -> Iterator[bytes]:
+    """Yield the newline-separated lines of a binary file from last to first, reading blocks from the end.
+
+    The first line yielded is whatever follows the final newline: empty when the file ends with one.
+    """
+    position = handle.seek(0, os.SEEK_END)
+    pieces: list[bytes] = []  # the line being assembled, its last piece first
+    while position > 0:
+        step = min(_BLOCK_SIZE, position)
+        position -= step
+        handle.seek(position)
+        parts = handle.read(step).split(b"\n")
+        pieces.append(parts[-1])
+        if len(parts) > 1:
+            yield b"".join(reversed(pieces))
+            yield from reversed(parts[1:-1])
+            pieces = [parts[0]]
+    yield b"".join(reversed(pieces))
