@@ -177,6 +177,10 @@ def test_begin_sweeps_before_its_duplicate_check(journal: ActionJournal, clock: 
     with pytest.raises(ActionBlockedError) as blocked:
         begin(journal)
     assert (blocked.value.action_id, blocked.value.state) == (abandoned, "uncertain")
+    # The refusal keeps the sweep it made and records no new attempt.
+    record = journal.get(abandoned)
+    assert record is not None and (record.state, record.error) == ("uncertain", INTERRUPTED)
+    assert journal.counts() == {**dict.fromkeys(STATES, 0), "uncertain": 1}
 
 
 def test_the_owner_may_record_a_late_result_after_a_sweep(db: Database, clock: Clock) -> None:
