@@ -5,7 +5,7 @@ from __future__ import annotations
 import errno
 import os
 import stat
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from contextlib import AbstractContextManager
 from pathlib import Path
 from types import SimpleNamespace
@@ -159,6 +159,22 @@ def test_directory_and_named_pipe_are_not_regular_notes(private_root: Path) -> N
         for name in ("folder.md", "pipe.md"):
             with pytest.raises(NoteUnavailable, match="unsafe_file"):
                 source.read(name, ReadBudget(100))
+
+
+def test_refused_and_completed_reads_close_their_descriptors(
+    private_root: Path, open_descriptors: Callable[[], int]
+) -> None:
+    (private_root / "folder.md").mkdir(mode=0o700)
+    os.mkfifo(private_root / "pipe.md", mode=0o600)
+    _write(private_root, "note.md")
+    with _source(private_root) as source:
+        baseline = open_descriptors()
+        for _ in range(20):
+            for name in ("folder.md", "pipe.md"):
+                with pytest.raises(NoteUnavailable):
+                    source.read(name, ReadBudget(100))
+            source.read("note.md", ReadBudget(100))
+        assert open_descriptors() == baseline
 
 
 @pytest.mark.parametrize("kind", [stat.S_IFSOCK, stat.S_IFCHR, stat.S_IFBLK])
@@ -465,9 +481,9 @@ def test_changes_during_the_raw_read_are_refused_and_file_handles_close(
                     path.symlink_to(outside)
             return raw
 
-    def racing_open(descriptor: int, mode: str) -> Reader:
+    def racing_open(descriptor: int, mode: str, **options: Any) -> Reader:
         assert mode == "rb"
-        handle = cast(BinaryIO, actual(descriptor, mode))
+        handle = cast(BinaryIO, actual(descriptor, mode, **options))
         opened.append(handle)
         return Reader(handle)
 
