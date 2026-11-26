@@ -1,6 +1,6 @@
 # Validation and packaging
 
-This page describes how Switchboard is checked away from the authoring host: a continuous integration (CI) workflow, a local script that runs the same stages on your own machine, CMake presets, sanitizer, fault and fuzz targets, and pinned dependencies.
+This page describes how Switchboard is checked away from the authoring host: a continuous integration (CI) workflow, CodeQL code scanning, a local script that runs the same stages on your own machine, CMake presets, sanitizer, fault and fuzz targets, and pinned dependencies.
 
 **Status: authored and unexecuted.**
 No workflow run, configure, build, link, test, fuzzing session, install or Rust build of anything described here has been observed.
@@ -203,6 +203,14 @@ target_link_libraries(my_program PRIVATE switchboard::native)
 The `package` stage installs a release build into `build/package-install`, then builds and runs a CMake consumer (`find_package`, C and C++ headers) and, when available, a C99 consumer through `pkg-config`.
 Both call only version queries: no runtime, state or network.
 
+## Code scanning
+
+`.github/workflows/codeql.yml` runs CodeQL on pushes to `master`, on pull requests and weekly.
+It analyzes the workflows, the Python sources, and the native C and C++ sources with the default queries, each without a build (build mode `none`), and uploads the results to the repository's code scanning alerts.
+Before the C and C++ analysis it installs the library packages that the native jobs install, so that their headers are in the system include directories.
+If CodeQL default setup is enabled in the repository settings, switch to advanced setup as GitHub's [advanced setup instructions](https://docs.github.com/en/code-security/how-tos/find-and-fix-code-vulnerabilities/configure-code-scanning/configuring-advanced-setup-for-code-scanning) describe; the switch disables default setup.
+The local script does not run CodeQL.
+
 ## Dependency pins
 
 | Dependency                       | Pin                                                                                     |
@@ -217,17 +225,21 @@ Both call only version queries: no runtime, state or network.
 | `actions/checkout`               | `3d3c42e5aac5ba805825da76410c181273ba90b1` (`v7.0.1`)                                   |
 | `astral-sh/setup-uv`             | `68559e99cc807c1eb7e9238fd43a15bba460eec2` (`v10.3.3`)                                  |
 | `actions/upload-artifact`        | `cf430e030ddbb5b0abf93d22962f4752f3646cd9` (`v7.0.2`)                                   |
+| `github/codeql-action`           | `915412ff23e8b7659517e607487dbeae018f2934` (`v4.39.5`), for `init` and `analyze`        |
 
-The action and vcpkg identifiers are full commit Secure Hash Algorithm (SHA) values, resolved on 2026-11-11 through the GitHub application programming interface: each action tag is a lightweight tag on that commit, and the annotated vcpkg tag `2026.10.16` (tagged 2026-10-20) points to a commit dated 2026-10-17.
+The action and vcpkg identifiers are full commit Secure Hash Algorithm (SHA) values.
+Those of `actions/checkout`, `astral-sh/setup-uv`, `actions/upload-artifact` and vcpkg were resolved on 2026-11-11 through the GitHub application programming interface: each of those action tags is a lightweight tag on that commit, and the annotated vcpkg tag `2026.10.16` (tagged 2026-10-20) points to a commit dated 2026-10-17.
 At that baseline the ports are curl 8.23.0, sqlite3 3.53.4 (port version 2), nlohmann-json 3.12.0 (port version 2) and openssl 3.6.5 (port version 2), read from each port's manifest at that commit.
 No vcpkg install was run.
+
+The `github/codeql-action` identifier was resolved on 2026-11-26 with `git ls-remote`: `v4.39.5` is an annotated tag, and the identifier is the commit it points to.
 
 `Cargo.lock` is hand-authored in Cargo's version 3 format, which matches the package's `rust-version` of 1.63; `--locked` fails if Cargo would change it.
 Not pinned: the runner images behind `ubuntu-24.04` and `macos-15`, Ubuntu and Homebrew packages, CMake, the runners' Rust toolchain, and the RustSec advisory database that `cargo audit` fetches.
 
 ## Workflow security notes
 
-- The workflow token is read-only (`permissions: contents: read`); no job uses secrets or deploys anything.
+- The CI workflow's token is read-only (`permissions: contents: read`); no job uses secrets or deploys anything.
 - It runs on `push`, `pull_request` and manual dispatch, never `pull_request_target`, so code from a fork runs without secrets and with a read-only token.
 - Checkout does not persist credentials, every action is pinned to a full commit SHA, and the uv cache is off,
   so one run cannot seed another run's tools.
@@ -238,6 +250,9 @@ Not pinned: the runner images behind `ubuntu-24.04` and `macos-15`, Ubuntu and H
   Dependabot is configured in `.github/dependabot.yml` to check the actions, the uv project and its lockfile, and the Rust wrapper weekly, and to open pull requests that group minor and patch updates.
   Review each proposed update before merging, including the new commit SHA of an action.
   Dependabot does not change `UV_VERSION` or the cargo-audit version in `ci.yml`, so bump those by hand.
+- The CodeQL workflow's token can also upload code scanning results (`security-events: write`) and read workflow runs (`actions: read`); it uses no secrets and deploys nothing.
+  It does not run on `pull_request_target` either.
+  It leaves the CodeQL action's own caching at its defaults, so the cache note above covers only the CI workflow.
 
 ## Review notes from authoring
 
