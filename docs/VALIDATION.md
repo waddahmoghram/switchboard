@@ -25,7 +25,8 @@ The `native` job builds with GNU Compiler Collection (GCC) and Clang on Ubuntu, 
 
 Run the stages from the repository root with your normal account; the script refuses to run as root, because several fault tests rely on file permissions that root ignores.
 Every build, cache and scratch directory goes under `build/`, which `.gitignore` already excludes.
-The first `uv sync` writes `uv.lock` in the repository root; review it before committing.
+The `python` and `contracts` stages install with `uv sync --locked`, which installs exactly the versions in the committed `uv.lock` and stops if `pyproject.toml` no longer matches it.
+After changing a dependency, run `uv lock` with the uv version that CI pins, then review and commit `uv.lock`.
 
 ```bash
 scripts/ci/validate.sh             # every stage, in table order
@@ -67,7 +68,7 @@ cmake --workflow --preset asan-ubsan
 
 ## Python stage
 
-`uv sync` installs the project and the `dev` dependency group, then Ruff checks lint and formatting, mypy checks `src` and `tests`, and pytest runs twice: without and with the `integration` marker.
+`uv sync --locked` installs the project and the `dev` dependency group from `uv.lock`, then Ruff checks lint and formatting, mypy checks `src` and `tests`, and pytest runs twice: without and with the `integration` marker.
 Integration tests start local servers and subprocesses only.
 The `contracts`, `fuzz` and `faults` markers are registered in `pyproject.toml` and run in the first pytest pass; select one alone with, for example, `pytest -m faults`.
 
@@ -198,6 +199,7 @@ Both call only version queries: no runtime, state or network.
 | -------------------------------- | --------------------------------------------------------------------------------------- |
 | Python development tools         | `pytest==9.0.3`, `ruff==0.15.0`, `mypy==1.18.2` in the `dev` group; no runtime packages |
 | pytest plugins                   | `pytest-cov==7.1.0`, `pytest-timeout==2.4.0`, `pytest-xdist==3.8.0` in the `dev` group  |
+| Python lockfile                  | `uv.lock` from uv 0.13.7: exact versions and file hashes of every development package   |
 | uv in CI                         | `0.13.7`                                                                                |
 | vcpkg `builtin-baseline`         | `9eec002df1cd109f8f104cd966a763daf9751489`, release tag `2026.10.16`                    |
 | Rust lockfile                    | `Cargo.lock` version 3, the single dependency-free package `switchboard-native` 0.1.0   |
@@ -210,7 +212,7 @@ At that baseline the ports are curl 8.23.0, sqlite3 3.53.4 (port version 2), nlo
 No vcpkg install was run.
 
 `Cargo.lock` is hand-authored in Cargo's version 3 format, which matches the package's `rust-version` of 1.63; `--locked` fails if Cargo would change it.
-Not pinned: transitive Python development dependencies (no `uv.lock` is committed yet), the runner images behind `ubuntu-24.04` and `macos-15`, Ubuntu and Homebrew packages, CMake, and the runners' Rust toolchain.
+Not pinned: the runner images behind `ubuntu-24.04` and `macos-15`, Ubuntu and Homebrew packages, CMake, and the runners' Rust toolchain.
 
 ## Workflow security notes
 

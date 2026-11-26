@@ -2,7 +2,7 @@
 # Run Switchboard's validation stages on your own trusted machine. Authored and unexecuted.
 #
 # Usage: scripts/ci/validate.sh [STAGE...]
-#   python      uv sync; Ruff lint and format check; mypy; pytest without, then with, the integration marker
+#   python      uv sync --locked; Ruff lint and format check; mypy; pytest without, then with, the integration marker
 #   contracts   the shared fixtures in contracts/cases through the Python and the native engine
 #   native      dev preset: configure, build, and run every native test (warnings are errors)
 #   sanitizers  asan-ubsan preset with every native test, then tsan preset with the concurrency label
@@ -13,7 +13,8 @@
 #
 # Environment: SWITCHBOARD_PYTHON (a Python version for uv), FUZZ_SECONDS (default 30),
 # SWITCHBOARD_SKIP_TSAN=1, CMAKE_BUILD_PARALLEL_LEVEL (default: the processor count).
-# Build output, caches, and scratch files stay under build/; the first uv sync also writes uv.lock.
+# Build output, caches, and scratch files stay under build/.
+# uv sync --locked installs the versions in uv.lock and fails if uv.lock is missing or out of date.
 # No stage contacts an account or a device; uv downloads Python and packages from their public indexes.
 set -euo pipefail
 
@@ -96,9 +97,9 @@ python_sync() {
     export PYTHONPYCACHEPREFIX="$build_dir/pycache"
     stage "python: install the project and the pinned development tools"
     if [[ -n "${SWITCHBOARD_PYTHON:-}" ]]; then
-        in_repo uv sync --python "$SWITCHBOARD_PYTHON"
+        in_repo uv sync --locked --python "$SWITCHBOARD_PYTHON"
     else
-        in_repo uv sync
+        in_repo uv sync --locked
     fi
     python_ready=1
 }

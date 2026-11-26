@@ -46,7 +46,7 @@ jobs:
           python-version: ${{ matrix.python }}
           enable-cache: "false"
       - name: Install the project and pinned development tools
-        run: uv sync
+        run: uv sync --locked
       - name: Lint
         run: uv run --no-sync ruff check src tests
       - name: Check formatting
@@ -78,7 +78,7 @@ jobs:
             libcurl4-openssl-dev libsqlite3-dev nlohmann-json3-dev libssl-dev
       - name: Python engine against the shared fixtures
         run: |
-          uv sync
+          uv sync --locked
           uv run --no-sync pytest tests/contracts
       - name: Configure the native engine
         working-directory: native
