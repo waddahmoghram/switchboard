@@ -468,7 +468,7 @@ void fixed_get_limits_and_http_consent()
     session.check();
     const auto &request = fixture.http.requests.front();
     expect(request.method == "GET" && request.body.empty(), "monitoring must use a bodyless fixed-address read");
-    expect(request.url == check.at("url") && request.allow_http, "only operator-consented plain transport is used");
+    expect(check.at("url") == Json(request.url) && request.allow_http, "only operator-consented plain transport is used");
     expect(request.timeout_seconds == 7 && request.max_bytes == 65536, "request timeout and response size are bounded");
     expect(request.headers.at("Accept") == "application/json" && !request.digest_password, "no optional authentication modes are invented");
 }

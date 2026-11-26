@@ -898,7 +898,7 @@ public:
         {
             const auto identifier = arguments.at("entity_id").get<std::string>();
             require_scope(identifier, arguments);
-            if (arguments.contains("domain") && domain_of(identifier) != arguments.at("domain"))
+            if (arguments.contains("domain") && arguments.at("domain") != Json(domain_of(identifier)))
             {
                 home_error("home entity does not belong to the requested domain");
             }
@@ -911,7 +911,7 @@ public:
                 const auto identifier = raw.at("entity_id").get<std::string>();
                 if (!settings_.visible(identifier) ||
                     (arguments.contains("room") && !includes(settings_.reviewed.at("rooms").at(arguments.at("room").get<std::string>()), identifier)) ||
-                    (arguments.contains("domain") && domain_of(identifier) != arguments.at("domain")))
+                    (arguments.contains("domain") && arguments.at("domain") != Json(domain_of(identifier))))
                 {
                     continue;
                 }

@@ -1149,7 +1149,7 @@ void register_wled(Context &context, Registry &registry)
                 const auto selected = std::find_if(device.presets.begin(), device.presets.end(),
                                                    [&](const WledPreset &preset)
                                                    {
-                                                       return preset.name == arguments.at("preset");
+                                                       return arguments.at("preset") == Json(preset.name);
                                                    });
                 if (selected == device.presets.end())
                 {
