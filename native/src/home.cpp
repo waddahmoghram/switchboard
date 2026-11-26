@@ -17,6 +17,11 @@
 #include <utility>
 #include <vector>
 
+#if !defined(__cpp_lib_to_chars)
+#include <locale>
+#include <sstream>
+#endif
+
 namespace switchboard
 {
 namespace
@@ -620,6 +625,61 @@ bool sensor_domain(const std::string &identifier)
     return domain == "sensor" || domain == "binary_sensor";
 }
 
+// Parses all of text as a decimal number in the general format of std::from_chars. Apple's libc++ lacks the
+// floating-point from_chars, so there the same grammar is checked here and the classic locale converts the text.
+// That path refuses infinity and NaN spellings, which callers reject as non-finite anyway, and subnormal values where
+// strtod reports them as range errors. The stream rethrows an allocation failure instead of reporting a parse failure.
+bool parse_double(const std::string &text, double &value)
+{
+#if defined(__cpp_lib_to_chars)
+    const auto *end = text.data() + text.size();
+    const auto [last, failure] = std::from_chars(text.data(), end, value);
+    return failure == std::errc() && last == end;
+#else
+    std::size_t index = text.starts_with('-') ? 1 : 0;
+    const auto digits = [&]
+    {
+        const auto start = index;
+        while (index < text.size() && std::isdigit(static_cast<unsigned char>(text[index])) != 0)
+        {
+            ++index;
+        }
+        return index - start;
+    };
+    auto mantissa = digits();
+    if (index < text.size() && text[index] == '.')
+    {
+        ++index;
+        mantissa += digits();
+    }
+    if (mantissa == 0)
+    {
+        return false;
+    }
+    if (index < text.size() && (text[index] == 'e' || text[index] == 'E'))
+    {
+        ++index;
+        if (index < text.size() && (text[index] == '+' || text[index] == '-'))
+        {
+            ++index;
+        }
+        if (digits() == 0)
+        {
+            return false;
+        }
+    }
+    if (index != text.size())
+    {
+        return false;
+    }
+    std::istringstream stream(text);
+    stream.imbue(std::locale::classic());
+    stream.exceptions(std::ios_base::badbit);
+    stream >> value;
+    return !stream.fail() && stream.eof();
+#endif
+}
+
 std::optional<double> numeric_state(const Json &state)
 {
     if (!state.is_string() || state.get_ref<const std::string &>().empty())
@@ -628,9 +688,7 @@ std::optional<double> numeric_state(const Json &state)
     }
     const auto &text = state.get_ref<const std::string &>();
     double value = 0;
-    const auto *end = text.data() + text.size();
-    const auto [last, failure] = std::from_chars(text.data(), end, value);
-    if (failure != std::errc() || last != end || !std::isfinite(value))
+    if (!parse_double(text, value) || !std::isfinite(value))
     {
         return std::nullopt;
     }
