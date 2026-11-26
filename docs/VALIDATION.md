@@ -234,7 +234,10 @@ Not pinned: the runner images behind `ubuntu-24.04` and `macos-15`, Ubuntu and H
 - The only uploaded artifact is the fuzzing crash inputs of a failed run, kept for 14 days.
 - `sudo` is used only on disposable runners, for distribution packages and the sanitizer `sysctl` setting.
 - Concurrency groups cancel superseded pull request runs; a running push build is never cancelled.
-- Pinned actions do not update themselves: review new releases and their SHAs deliberately (for example with Dependabot, which is not configured here).
+- Pinned actions do not update themselves.
+  Dependabot is configured in `.github/dependabot.yml` to check the actions, the uv project and its lockfile, and the Rust wrapper weekly, and to open pull requests that group minor and patch updates.
+  Review each proposed update before merging, including the new commit SHA of an action.
+  Dependabot does not change `UV_VERSION` or the cargo-audit version in `ci.yml`, so bump those by hand.
 
 ## Review notes from authoring
 
