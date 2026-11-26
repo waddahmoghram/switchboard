@@ -183,6 +183,10 @@ The Rust stage builds `switchboard_native` with the `release` preset, then runs 
 Cargo builds under `build/rust-target`.
 The tests include `tests/lifecycle.rs` and `tests/outcomes.rs`.
 
+In CI only, the Rust job then installs cargo-audit 0.23.0 with `cargo install --locked`, which builds it from the lockfile published with that release, and runs `cargo audit` on `native/clients/rust/Cargo.lock`.
+The audit fetches the current RustSec advisory database on every run, so a newly published advisory can fail a run of an unchanged commit.
+The local script does not run the audit, because installing cargo-audit would write to your Cargo home directory.
+
 ## Packaging and install
 
 - The shared library is versioned `0.1.0` with shared object name (SONAME) version 1, which tracks `SB_ABI_VERSION` in `switchboard.h`, the C application binary interface (ABI) version.
@@ -209,6 +213,7 @@ Both call only version queries: no runtime, state or network.
 | uv in CI                         | `0.13.7`                                                                                |
 | vcpkg `builtin-baseline`         | `9eec002df1cd109f8f104cd966a763daf9751489`, release tag `2026.10.16`                    |
 | Rust lockfile                    | `Cargo.lock` version 3, the single dependency-free package `switchboard-native` 0.1.0   |
+| cargo-audit in CI                | `0.23.0`, built by `cargo install --locked` from its published lockfile                 |
 | `actions/checkout`               | `3d3c42e5aac5ba805825da76410c181273ba90b1` (`v7.0.1`)                                   |
 | `astral-sh/setup-uv`             | `68559e99cc807c1eb7e9238fd43a15bba460eec2` (`v10.3.3`)                                  |
 | `actions/upload-artifact`        | `cf430e030ddbb5b0abf93d22962f4752f3646cd9` (`v7.0.2`)                                   |
@@ -218,7 +223,7 @@ At that baseline the ports are curl 8.23.0, sqlite3 3.53.4 (port version 2), nlo
 No vcpkg install was run.
 
 `Cargo.lock` is hand-authored in Cargo's version 3 format, which matches the package's `rust-version` of 1.63; `--locked` fails if Cargo would change it.
-Not pinned: the runner images behind `ubuntu-24.04` and `macos-15`, Ubuntu and Homebrew packages, CMake, and the runners' Rust toolchain.
+Not pinned: the runner images behind `ubuntu-24.04` and `macos-15`, Ubuntu and Homebrew packages, CMake, the runners' Rust toolchain, and the RustSec advisory database that `cargo audit` fetches.
 
 ## Workflow security notes
 
