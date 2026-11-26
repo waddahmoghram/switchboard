@@ -53,10 +53,12 @@ jobs:
         run: uv run --no-sync ruff format --check src tests
       - name: Type-check
         run: uv run --no-sync mypy --config-file pyproject.toml src tests
+      # pytest-xdist (-n auto) runs the tests in parallel. A short --basetemp keeps test socket paths
+      # within the broker's 100-byte limit, which the default temporary directory on macOS exceeds.
       - name: Unit, contract, fault, and fuzz tests
-        run: uv run --no-sync pytest -m "not integration"
+        run: uv run --no-sync pytest -n auto --basetemp="$RUNNER_TEMP/unit" -m "not integration"
       - name: Integration tests (local servers and subprocesses only)
-        run: uv run --no-sync pytest -m integration
+        run: uv run --no-sync pytest -n auto --basetemp="$RUNNER_TEMP/integration" -m integration
 
   contracts:
     name: Cross-engine contracts

@@ -112,9 +112,9 @@ python_stage() {
     stage "python: mypy"
     in_repo uv run --no-sync mypy --config-file pyproject.toml src tests
     stage "python: unit, contract, fault and fuzz tests"
-    in_repo uv run --no-sync pytest -o cache_dir="$build_dir/pytest-cache" -m "not integration"
+    in_repo uv run --no-sync pytest -o cache_dir="$build_dir/pytest-cache" -n auto -m "not integration"
     stage "python: integration tests (local servers and subprocesses only)"
-    in_repo uv run --no-sync pytest -o cache_dir="$build_dir/pytest-cache" -m integration
+    in_repo uv run --no-sync pytest -o cache_dir="$build_dir/pytest-cache" -n auto -m integration
 }
 
 contracts_stage() {

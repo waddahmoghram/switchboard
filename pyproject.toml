@@ -38,6 +38,8 @@ markers = [
   "faults: deterministic fault injection at storage, audit, transport, or protocol layers",
 ]
 addopts = "-ra"
+# pytest-timeout: a hung test fails after this many seconds instead of stalling the whole run.
+timeout = 120
 
 [tool.ruff]
 line-length = 110

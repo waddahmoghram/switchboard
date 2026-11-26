@@ -69,8 +69,12 @@ cmake --workflow --preset asan-ubsan
 ## Python stage
 
 `uv sync --locked` installs the project and the `dev` dependency group from `uv.lock`, then Ruff checks lint and formatting, mypy checks `src` and `tests`, and pytest runs twice: without and with the `integration` marker.
+Both pytest passes run in parallel with pytest-xdist (`-n auto`, one worker per available processor), and pytest-timeout fails any test that runs longer than the `timeout` in `pyproject.toml` (120 seconds).
 Integration tests start local servers and subprocesses only.
 The `contracts`, `fuzz` and `faults` markers are registered in `pyproject.toml` and run in the first pytest pass; select one alone with, for example, `pytest -m faults`.
+
+Broker tests create Unix domain sockets under pytest's temporary directories, and those paths must fit the broker's 100-byte limit.
+If they fail with `must be at most 100 bytes long` or `AF_UNIX path too long`, as they can with the long default temporary directory on macOS, pass a new, short `--basetemp` directory for each run; CI uses one under `$RUNNER_TEMP`.
 
 ## Native presets and options
 
