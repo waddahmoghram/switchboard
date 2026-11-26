@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import warnings
 from collections.abc import Callable
 from datetime import UTC, timedelta, timezone
 from pathlib import Path
@@ -106,6 +107,22 @@ def test_date_format_problem() -> None:
     assert date_format_problem("%Y-%m-%d") is None
     assert date_format_problem("%d %b %Y") is None
     assert date_format_problem("%m/%d") is not None
+
+
+def test_date_format_problem_does_not_parse_a_day_without_a_year() -> None:
+    # Python 3.13 deprecates that parse. strptime warns only when it first compiles a format, so these
+    # formats appear in no other test.
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        assert (
+            date_format_problem("%d of %B")
+            == "date_format '%d of %B' must include a year, a month, and a day"
+        )
+        assert date_format_problem("%d of %Q") == "date_format '%d of %Q' is not a valid strptime format"
+
+
+def test_date_format_problem_reports_a_repeated_directive() -> None:
+    assert date_format_problem("%d/%m/%Y %d") == "date_format '%d/%m/%Y %d' is not a valid strptime format"
 
 
 def test_timezone_setting() -> None:
