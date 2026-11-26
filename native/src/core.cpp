@@ -594,7 +594,7 @@ void Registry::add(Tool tool)
         throw Error("schema", "native tool has an invalid or repeated definition");
     }
     check_schema(tool.schema);
-    if (!tool.schema.contains("type") || tool.schema["type"] != "object")
+    if (!tool.schema.contains("type") || tool.schema["type"] != Json("object"))
     {
         throw Error("schema", "native tool arguments must use an object schema");
     }
@@ -883,7 +883,7 @@ public:
             audit({{"event", "tool.blocked"}, {"tool", name}, {"blocking_action", blocker}, {"at", context.timestamp()}});
             return outcome(
                 "denied", name,
-                blocking["state"] == "in_flight"
+                blocking["state"] == Json("in_flight")
                     ? "an identical earlier request is still in flight (action " + blocker + "); wait for it to finish or for a sweep to mark it uncertain"
                     : "an identical earlier request has an uncertain outcome (action " + blocker + "); the operator must reconcile it before it is repeated");
         }
@@ -978,7 +978,7 @@ public:
         try
         {
             Transaction transaction(database);
-            database.execute("UPDATE native_calls SET state = ? WHERE id = ?", {execution.report.at("status") == "ok" ? "ok" : "error", call_id});
+            database.execute("UPDATE native_calls SET state = ? WHERE id = ?", {execution.report.at("status") == Json("ok") ? "ok" : "error", call_id});
             std::string state;
             if (!action_id.empty())
             {
@@ -1052,8 +1052,8 @@ public:
             report = outcome("error", name, "native approved execution could not be completed; inspect state before retrying");
         }
         database.execute("UPDATE native_approvals SET status = ?, result = ?, error = ? WHERE id = ? AND status = 'running'",
-                         {report["status"] == "ok" ? "executed" : "failed", report.dump(),
-                          report["status"] == "ok" ? Json(nullptr) : Json(report.value("message", "native execution failed")), id});
+                         {report["status"] == Json("ok") ? "executed" : "failed", report.dump(),
+                          report["status"] == Json("ok") ? Json(nullptr) : Json(report.value("message", "native execution failed")), id});
         return report;
     }
 
@@ -1679,7 +1679,7 @@ Json Runtime::verify_backup(const std::filesystem::path &source)
         const std::vector<std::string> fields = {"format", "format_version", "engine",         "engine_version", "created_at",   "database",
                                                  "bytes",  "sha256",         "schema_version", "audit_head",     "audit_records"};
         check_object(manifest, fields, fields);
-        if (manifest["format"] != BACKUP_FORMAT || manifest["format_version"] != 1 || manifest["database"] != BACKUP_DATABASE)
+        if (manifest["format"] != Json(BACKUP_FORMAT) || manifest["format_version"] != 1 || manifest["database"] != Json(BACKUP_DATABASE))
         {
             return failure("the backup manifest has an unsupported format");
         }
@@ -1739,7 +1739,7 @@ Json Runtime::rpc(const Json &message)
     {
         return rpc_error(nullptr, -32600, "native request contains unsupported values or nesting");
     }
-    if (!message.is_object() || message.value("jsonrpc", Json()) != "2.0" || !message.contains("method") || !message["method"].is_string())
+    if (!message.is_object() || message.value("jsonrpc", Json()) != Json("2.0") || !message.contains("method") || !message["method"].is_string())
     {
         return rpc_error(nullptr, -32600, "expected a native JSON-RPC 2.0 request");
     }
@@ -1775,7 +1775,7 @@ Json Runtime::rpc(const Json &message)
     bool modern = false;
     if (parameters.contains("_meta") && parameters["_meta"].is_object() && parameters["_meta"].contains("io.modelcontextprotocol/protocolVersion"))
     {
-        if (parameters["_meta"]["io.modelcontextprotocol/protocolVersion"] != "2026-07-28")
+        if (parameters["_meta"]["io.modelcontextprotocol/protocolVersion"] != Json("2026-07-28"))
         {
             return rpc_error(id, -32022, "native modern protocol version is unsupported");
         }
@@ -1825,8 +1825,8 @@ Json Runtime::rpc(const Json &message)
         // A returned report whose journal entry is not succeeded (for example effect_unknown) is still flagged.
         const auto action = report.contains("action") ? report["action"].value("state", "") : std::string();
         result = {{"content", Json::array({{{"type", "text"}, {"text", report.dump()}}})},
-                  {"isError",
-                   report["status"] == "error" || report["status"] == "invalid" || report["status"] == "denied" || (!action.empty() && action != "succeeded")}};
+                  {"isError", report["status"] == Json("error") || report["status"] == Json("invalid") || report["status"] == Json("denied") ||
+                                  (!action.empty() && action != "succeeded")}};
         if (modern)
         {
             result["resultType"] = "complete";

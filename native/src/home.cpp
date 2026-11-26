@@ -482,7 +482,7 @@ bool reported_leaf(const Json &raw)
 
 bool available(const Json &raw)
 {
-    return raw.at("state") != "unknown" && raw.at("state") != "unavailable";
+    return raw.at("state") != Json("unknown") && raw.at("state") != Json("unavailable");
 }
 
 bool feature(const Json &attributes, const std::int64_t wanted)
@@ -673,9 +673,9 @@ std::optional<Json> sensor_reading(const Json &snapshot, const bool source_faile
         kind = found->second.first;
         meaning = found->second.second;
         unit = nullptr;
-        if (state == "on" || state == "off")
+        if (state == Json("on") || state == Json("off"))
         {
-            value = state == "on";
+            value = state == Json("on");
         }
         else
         {
@@ -709,7 +709,7 @@ std::optional<Json> sensor_reading(const Json &snapshot, const bool source_faile
         }
     }
     const auto availability = snapshot.value("availability", Json());
-    const bool current = availability == "available";
+    const bool current = availability == Json("available");
     const bool is_stale = snapshot.value("stale", true);
     return Json{{"entity_id", identifier},
                 {"kind", kind},
@@ -1071,7 +1071,7 @@ public:
             not_attempted.push_back(plans[index].entities.front());
         }
         const bool confirmed = readback && matched && not_attempted.empty();
-        const bool rejected = accepted == 0 && stop_reason == "rejected";
+        const bool rejected = accepted == 0 && stop_reason == Json("rejected");
         Json report = {{"name", name},
                        {"fingerprint", preset.at("fingerprint")},
                        {"entity_ids", keys(preset.at("targets"))},
@@ -1602,7 +1602,7 @@ private:
     {
         HomePlan plan;
         plan.domain = "light";
-        plan.service = arguments.at("state") == "on" ? "turn_on" : "turn_off";
+        plan.service = arguments.at("state") == Json("on") ? "turn_on" : "turn_off";
         plan.entities = arguments.at("entity_ids").get<std::vector<std::string>>();
         std::set<std::string> seen;
         for (const auto &identifier : plan.entities)
@@ -1613,7 +1613,7 @@ private:
                 home_error("home light targets must be distinct reviewed lights");
             }
         }
-        if ((arguments.at("state") == "off" &&
+        if ((arguments.at("state") == Json("off") &&
              (arguments.contains("brightness_pct") || arguments.contains("rgb_color") || arguments.contains("color_temp_kelvin"))) ||
             (arguments.contains("rgb_color") && arguments.contains("color_temp_kelvin")))
         {

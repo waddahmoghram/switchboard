@@ -782,7 +782,7 @@ Json public_task(Json row, const bool preview = false)
     row["untrusted_content"] = true;
     row["reminder_delivery"] = !row["reminder_event_queued_at"].is_null() ? "event_queued"
                                : row["remind_at"].is_null()               ? "not_scheduled"
-                               : row["status"] != "open"                  ? "suppressed_inactive"
+                               : row["status"] != Json("open")            ? "suppressed_inactive"
                                                                           : "not_queued";
     return row;
 }

@@ -167,7 +167,7 @@ Json operator_status(Runtime &runtime)
     auto report = runtime.call("switchboard_status", Json::object(), Origin::human);
     const auto *status = member(report, "status");
     const auto *data = member(report, "data");
-    const auto complete = status != nullptr && *status == "ok" && data != nullptr &&
+    const auto complete = status != nullptr && *status == Json("ok") && data != nullptr &&
                           std::all_of(STATUS_FIELDS.begin(), STATUS_FIELDS.end(),
                                       [data](const char *key)
                                       {
