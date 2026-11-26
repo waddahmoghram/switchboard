@@ -10,10 +10,11 @@
 // SWITCHBOARD_ALLOC_FAULT_STRIDE (a positive integer, default 1) samples every Nth allocation in one-shot mode;
 // sticky mode always samples every 13th stride. Exit code 77 means the replacement did not reach the library.
 //
-// An allocation made while nlohmann::json destroys an array or object is never failed. Its noexcept destructor moves
-// the children onto a heap-allocated stack in json_value::destroy, so a failure there terminates the process whatever
-// the caller does. The failure moves to the next allocation outside that frame, which is found by its mangled name in
-// a backtrace; that needs the unoptimized Debug build in which this test runs.
+// Allocations whose failure no caller could survive are never failed. nlohmann::json's noexcept destructor moves the
+// children of an array or object onto a heap-allocated stack in json_value::destroy, so a failure there terminates
+// the process. libc++'s basic_regex::__parse deletes its end state twice when the shared_ptr control block of its
+// start state cannot be allocated. The failure moves to the next allocation outside those frames, which are found by
+// their mangled names in a backtrace; that needs the unoptimized Debug build in which this test runs.
 #include "support.hpp"
 #include "switchboard/switchboard.h"
 
@@ -44,7 +45,10 @@ std::atomic<bool> sticky{false};
 std::atomic<bool> triggered{false};
 thread_local bool inspecting = false;
 
-bool inside_json_destructor() noexcept
+// Fragments of the mangled names of nlohmann::json's json_value::destroy and libc++'s basic_regex<char>::__parse.
+constexpr const char *UNRECOVERABLE_FRAMES[] = {"10json_value7destroy", "11basic_regexIcNS_12regex_traitsIcEEE7__parseI"};
+
+bool inside_unrecoverable_frame() noexcept
 {
     constexpr int DEPTH = 64;
     void *frames[DEPTH];
@@ -54,7 +58,14 @@ bool inside_json_destructor() noexcept
     for (int index = 0; index < depth && !found; ++index)
     {
         Dl_info info{};
-        found = dladdr(frames[index], &info) != 0 && info.dli_sname != nullptr && std::strstr(info.dli_sname, "10json_value7destroy") != nullptr;
+        if (dladdr(frames[index], &info) == 0 || info.dli_sname == nullptr)
+        {
+            continue;
+        }
+        for (const auto *fragment : UNRECOVERABLE_FRAMES)
+        {
+            found = found || std::strstr(info.dli_sname, fragment) != nullptr;
+        }
     }
     inspecting = false;
     return found;
@@ -74,7 +85,7 @@ bool inject() noexcept
             return false;
         }
     }
-    if (current < 0 || inside_json_destructor())
+    if (current < 0 || inside_unrecoverable_frame())
     {
         return false;
     }
@@ -507,7 +518,7 @@ int main()
     try
     {
         // The first backtrace loads the unwinder; do it before any allocation can fail.
-        (void)inside_json_destructor();
+        (void)inside_unrecoverable_frame();
         if (!replacement_reaches_library())
         {
             std::cout << "SKIP: replacing global operator new does not reach the shared library on this platform\n";
