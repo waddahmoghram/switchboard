@@ -247,7 +247,8 @@ void journal_tool_and_status()
     test::SyntheticProbe probe;
     Runtime runtime(test::configuration(directory, {}), std::make_unique<FakeHttp>(), {}, test::synthetic_tools(probe));
     bool listed = false;
-    for (const auto &tool : runtime.catalog()["tools"])
+    const auto catalog = runtime.catalog();
+    for (const auto &tool : catalog.at("tools"))
     {
         if (tool["name"] == "actions_recent")
         {
@@ -348,7 +349,8 @@ void bounded_tick_and_backoff()
     (void)runtime.tick();
     expect(order.size() == 9 && order[6] == "slow" && order[7] == "later" && order[8] == "flaky", "the least overdue job must run last");
     Json flaky;
-    for (const auto &job : runtime.call("jobs_status", Json::object())["data"])
+    const auto jobs_report = runtime.call("jobs_status", Json::object());
+    for (const auto &job : jobs_report.at("data"))
     {
         if (job["name"] == "test.flaky")
         {
