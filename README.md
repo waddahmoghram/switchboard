@@ -70,7 +70,7 @@ The reasons are in [Tradeoffs](./docs/TRADEOFFS.md#money-movement-and-checkout).
 * **Deadlines** bound each tool call (`tool_timeout_seconds`) and each polling-job run (`job_timeout_seconds`);
   the runner runs up to `job_workers` jobs at once, never two from the same connector.
 * **The optional broker** (`switchboard broker serve`) serves the assistant and the operator on separate local sockets under a dedicated account; the assistant connects with `switchboard serve-mcp --broker SOCKET`.
-* **Data lifecycle commands** create and verify backups, export or purge stored data under `[retention]`, and archive the audit log.
+* **Data lifecycle commands** create and verify backups, export or purge stored data under `[retention]`, and archive and anchor the audit log.
   See [Data lifecycle](./docs/DATA_LIFECYCLE.md).
 
 Every tool call goes through the same dispatcher: argument validation, policy, audit, then execution.
@@ -146,7 +146,7 @@ These controls do not identify a human independently of the local user account.
 * [Deployment](./docs/DEPLOYMENT.md) — install, test, connect assistants, run as a service, revoke
 * [Recovery](./docs/RECOVERY.md) — the action journal, reconciling unknown outcomes, deadlines, and the runner
 * [Isolation](./docs/ISOLATION.md) — the broker, separate service, assistant, and operator accounts
-* [Data lifecycle](./docs/DATA_LIFECYCLE.md) — backups, restores, exports, retention, and audit archives
+* [Data lifecycle](./docs/DATA_LIFECYCLE.md) — backups, restores, exports, retention, audit archives, and audit anchors
 * [Validation](./docs/VALIDATION.md) — the off-host checks, pinned toolchains, fuzzing, and fault tests
 * [Security policy](./SECURITY.md) — reporting a vulnerability privately, supported versions, and scope
 * [Connector guide](./docs/CONNECTOR_GUIDE.md) — how to write a new connector

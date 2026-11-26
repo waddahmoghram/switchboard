@@ -259,7 +259,7 @@ see [webhooks](./connectors/webhooks.md) before exposing it through a tunnel.
   Stop their processes or disable their connectors to stop that activity.
 * Revoke at the source: delete app passwords, revoke OAuth grants, rotate bot tokens and webhook secrets, and remove the long-lived Home Assistant token.
   Then delete the matching secret references.
-* Check the record: `switchboard audit verify` and `switchboard audit tail -n 50`.
+* Check the record: `switchboard audit verify`, with `--anchor SEQ:HASH` for each [anchor](./DATA_LIFECYCLE.md#audit-anchors) you kept, and `switchboard audit tail -n 50`.
 
 ## Failures, retries, and retained data
 
@@ -288,7 +288,8 @@ Processed event payloads are pruned after `event_retention_days` (14 by default)
 Data without a hook, such as mail cursors, contact caches, and imported files, is not purged.
 Original bank statements in `processed/` and `failed/` can contain full account numbers even though the ledger masks them; see [Data lifecycle](./DATA_LIFECYCLE.md#retention).
 
-Audit verification detects changed records and interior deletions, but cannot detect removal of a valid tail unless you compare with an independently saved head hash, such as the one `backup create` prints.
+Audit verification detects changed records and interior deletions.
+Records cut from the end of the log are detected only up to an anchor kept where Switchboard cannot write: record anchors with `switchboard audit anchor` and check them with `switchboard audit verify --anchor SEQ:HASH`, as [Data lifecycle](./DATA_LIFECYCLE.md#audit-anchors) describes.
 It cannot stop the same user rewriting the entire chain.
 `switchboard audit-archive rotate` archives a long log and keeps the chain linked.
 

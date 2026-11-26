@@ -171,7 +171,7 @@ Neither compiler checks nor shared interfaces prove runtime or hardware compatib
 | Dual-era MCP                   | Targets `2026-07-28`, `2025-11-25`, `2025-06-18`, and `2025-03-26` | Two paths to maintain; real-client conformance is untested                                            |
 | One SQLite file                | Simple backups; write-ahead logging lets processes share it        | Events are not claimed across processes; a lock file allows one `switchboard run` per data directory  |
 | Approvals in the terminal      | Nothing new to expose; exact arguments are bound                   | You must be at a terminal; phone approvals are future work and need careful design                    |
-| Hash-chained audit log         | Edits, interior deletions, and reordering can be detected          | Valid tail truncation needs an independent head hash; a complete rewrite is still possible            |
+| Hash-chained audit log         | Edits, interior deletions, and reordering can be detected          | Cuts after the newest external anchor go unnoticed, as does a rewrite that also replaces the anchors  |
 | Polling with long intervals    | Polite to providers; no public endpoint                            | Minutes of delay instead of seconds                                                                   |
 | Python 3.11+ on Linux or macOS | `tomllib`, `zoneinfo`, and `fcntl` in the standard library         | Windows is unsupported: without `fcntl`, Switchboard refuses to start before it writes anything       |
 | Unknown outcomes stay unknown  | A possibly delivered write is never repeated blindly               | A dropped connection or 5xx reply blocks an identical request until you check and reconcile it        |

@@ -18,7 +18,7 @@ from pathlib import Path
 from types import FrameType, ModuleType
 from typing import Any
 
-from switchboard import __version__, cli_broker, cli_data, mcp_server
+from switchboard import __version__, cli_broker, cli_data, lifecycle, mcp_server
 from switchboard.actions import STATES, ActionStateError, normalize_note
 from switchboard.app import App, build_app, load_connectors
 from switchboard.config import default_config_path, ensure_config_dir, ensure_private_dir, load_config
@@ -137,7 +137,22 @@ def build_parser(connector_modules: list[ModuleType] | None = None) -> argparse.
 
     audit = sub.add_parser("audit", help="inspect the hash-chained audit log")
     audit_sub = audit.add_subparsers(dest="audit_command", metavar="<action>", required=True)
-    audit_sub.add_parser("verify", help="recompute the hash chain").set_defaults(app_handler=cmd_audit_verify)
+    verify = audit_sub.add_parser("verify", help="recompute the hash chain")
+    verify.add_argument(
+        "--anchor",
+        action="append",
+        type=_audit_anchor,
+        metavar="SEQ:HASH",
+        help="an anchor from 'audit anchor' kept elsewhere (repeatable); also verifies the linked archives",
+    )
+    verify.set_defaults(app_handler=cmd_audit_verify)
+    anchor = audit_sub.add_parser(
+        "anchor", help="print SEQ:HASH for the latest record, to keep where Switchboard cannot write"
+    )
+    anchor.add_argument(
+        "--notify", action="store_true", help="also send it to every channel of the notify connector"
+    )
+    anchor.set_defaults(app_handler=cmd_audit_anchor)
     tail = audit_sub.add_parser("tail", help="print the latest records")
     tail.add_argument("-n", type=int, default=20)
     tail.set_defaults(app_handler=cmd_audit_tail)
@@ -385,12 +400,52 @@ def cmd_actions_resolve(args: argparse.Namespace, app: App) -> int:
 
 
 def cmd_audit_verify(args: argparse.Namespace, app: App) -> int:
+    if args.anchor:
+        return _verify_audit_anchors(app, args.anchor)
     result = app.ctx.audit.verify()
     if result.ok:
         print(f"ok: {result.records} records, head {result.head}")
         return 0
     print(f"BROKEN: {result.problem}", file=sys.stderr)
     return 1
+
+
+def _audit_anchor(text: str) -> lifecycle.AuditAnchor:
+    try:
+        return lifecycle.parse_audit_anchor(text)
+    except lifecycle.LifecycleError as exc:
+        raise argparse.ArgumentTypeError(str(exc)) from None
+
+
+def _verify_audit_anchors(app: App, anchors: list[lifecycle.AuditAnchor]) -> int:
+    archive_dir = app.ctx.data_dir / lifecycle.ARCHIVE_DIR
+    report = lifecycle.check_audit_anchors(app.ctx.audit.path, archive_dir, anchors)
+    for warning in report.warnings:
+        print(f"warning: {warning}")
+    if not report.ok:
+        for problem in report.problems:
+            print(f"BROKEN: {problem}", file=sys.stderr)
+        return 1
+    print(
+        f"ok: {report.records} records in {len(report.segments)} segment(s), "
+        f"head {report.segments[0].head}; {len(set(anchors))} anchor(s) match"
+    )
+    return 0
+
+
+def cmd_audit_anchor(args: argparse.Namespace, app: App) -> int:
+    """Print the anchor alone on standard output, so a scheduled job can pipe it to another store."""
+    notify = app.ctx.require("notify") if args.notify else None
+    anchor = lifecycle.current_audit_anchor(app.ctx.audit.path, app.ctx.data_dir / lifecycle.ARCHIVE_DIR)
+    print(anchor, flush=True)
+    if notify is None:
+        return 0
+    sent = notify.send("Switchboard audit anchor", str(anchor), priority="low")
+    if not sent:
+        print("error: no notify channel accepted the anchor", file=sys.stderr)
+        return 1
+    print(f"sent to {', '.join(sent)}", file=sys.stderr)
+    return 0
 
 
 def cmd_audit_tail(args: argparse.Namespace, app: App) -> int:

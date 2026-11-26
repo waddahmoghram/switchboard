@@ -65,6 +65,7 @@ MAX_LINKED_ARCHIVES = 10_000
 _CHUNK = 1024 * 1024
 _ARCHIVE_NAME = re.compile(r"audit-[0-9]{8}T[0-9]{6}Z-[0-9a-f]{16}\.jsonl")
 _HASH = re.compile(r"[0-9a-f]{64}")
+_ANCHOR = re.compile(r"([1-9][0-9]{0,17}):([0-9a-f]{64})")
 _TABLE = re.compile(r"[a-z][a-z0-9_]{0,63}")
 _NOFOLLOW = getattr(os, "O_NOFOLLOW", 0)
 _CLOEXEC = getattr(os, "O_CLOEXEC", 0)
@@ -1177,3 +1178,100 @@ def verify_audit_chain(audit_path: Path, archive_dir: Path) -> AuditChainReport:
             if _ARCHIVE_NAME.fullmatch(name) and name not in linked:
                 warnings.append(f"{name} is not linked from the current chain")
     return AuditChainReport(tuple(segments), tuple(problems), tuple(warnings))
+
+
+# ---- audit anchors ----------------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class AuditAnchor:
+    """A record's position in the linked chain and its hash, to keep where Switchboard cannot write.
+
+    Positions count from the first record of the oldest linked archive, rotation records included, so an
+    anchor names the same record after later rotations.
+    """
+
+    sequence: int
+    hash: str
+
+    def __str__(self) -> str:
+        return f"{self.sequence}:{self.hash}"
+
+
+def parse_audit_anchor(text: str) -> AuditAnchor:
+    """Parse ``SEQ:HASH``, the form ``switchboard audit anchor`` prints."""
+    match = _ANCHOR.fullmatch(text.strip().lower())
+    if match is None:
+        raise LifecycleError("an anchor is SEQ:HASH, a record number and a 64-digit hexadecimal hash")
+    return AuditAnchor(int(match.group(1)), match.group(2))
+
+
+def current_audit_anchor(audit_path: Path, archive_dir: Path) -> AuditAnchor:
+    """Verify the linked chain while appends wait, and return the position and hash of its last record."""
+    with _locked_audit(audit_path, exclusive=False) as fd:
+        report = _locked_chain(fd, audit_path, archive_dir)
+    if not report.ok:
+        raise LifecycleError(
+            f"the audit chain does not verify ({'; '.join(report.problems)}); investigate before anchoring it"
+        )
+    if report.records == 0:
+        raise LifecycleError("the audit log is empty; there is nothing to anchor yet")
+    return AuditAnchor(report.records, report.segments[0].head)
+
+
+def check_audit_anchors(
+    audit_path: Path, archive_dir: Path, anchors: Iterable[AuditAnchor]
+) -> AuditChainReport:
+    """Verify the linked chain, then check that each anchored record is still there with the same hash.
+
+    A chain shorter than an anchor lost records from its end or was replaced. A different hash at the
+    anchored position means the chain was rewritten at or before it. Positions in a chain that does not
+    verify are unknown, so its anchors are reported as not checked.
+    """
+    wanted = list(dict.fromkeys(anchors))
+    with _locked_audit(audit_path, exclusive=False) as fd:
+        report = _locked_chain(fd, audit_path, archive_dir)
+        if not report.ok:
+            problems = (*report.problems, f"{len(wanted)} anchor(s) not checked: the chain must verify first")
+            return AuditChainReport(report.segments, problems, report.warnings)
+        found = _hashes_at(report, audit_path, archive_dir, {anchor.sequence for anchor in wanted})
+    mismatches: list[str] = []
+    for anchor in wanted:
+        if anchor.sequence > report.records:
+            mismatches.append(
+                f"anchor {anchor}: the chain has only {report.records} records; "
+                "records were removed from its end, or the log was replaced"
+            )
+        elif found.get(anchor.sequence) != anchor.hash:
+            mismatches.append(
+                f"anchor {anchor}: record {anchor.sequence} has a different hash; "
+                "the chain was rewritten at or before it"
+            )
+    return AuditChainReport(report.segments, tuple(mismatches), report.warnings)
+
+
+def _locked_chain(fd: int | None, audit_path: Path, archive_dir: Path) -> AuditChainReport:
+    """Verify the chain while ``fd`` holds the live log's lock; without a live log the chain is empty."""
+    if fd is None:
+        return AuditChainReport((), (), ())
+    return verify_audit_chain(audit_path, archive_dir)
+
+
+def _hashes_at(
+    report: AuditChainReport, audit_path: Path, archive_dir: Path, positions: set[int]
+) -> dict[int, str]:
+    """Read the hash at each position of a verified chain, in one pass over each segment holding one."""
+    found: dict[int, str] = {}
+    offset = 0
+    for newest_first in reversed(range(len(report.segments))):
+        segment = report.segments[newest_first]
+        path = archive_dir / segment.name if newest_first else audit_path
+        local = {position - offset for position in positions if offset < position <= offset + segment.records}
+        if local:
+            for number, record in enumerate(AuditLog(path).records(), start=1):
+                if number in local:
+                    found[offset + number] = str(record.get("hash"))
+                if number >= max(local):
+                    break
+        offset += segment.records
+    return found

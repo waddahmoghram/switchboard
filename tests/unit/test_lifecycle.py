@@ -614,3 +614,97 @@ def test_archives_that_nothing_links_are_warnings(make_app: AppFactory) -> None:
 
     assert chain.ok
     assert chain.warnings == (f"{stray.name} is not linked from the current chain",)
+
+
+# ---- audit anchors ----------------------------------------------------------------------------------
+
+
+def _cut_message(anchor: lifecycle.AuditAnchor, records: int) -> str:
+    return (
+        f"anchor {anchor}: the chain has only {records} records; "
+        "records were removed from its end, or the log was replaced"
+    )
+
+
+def test_an_anchor_names_the_same_record_across_rotations(make_app: AppFactory) -> None:
+    app = make_app()
+    path, archive_dir = app.ctx.audit.path, app.ctx.data_dir / "audit-archive"
+    for index in range(3):
+        app.ctx.audit.append("test.event", index=index)
+    first = lifecycle.current_audit_anchor(path, archive_dir)
+    assert first == lifecycle.AuditAnchor(3, app.ctx.audit.head())
+
+    lifecycle.rotate_audit(app)
+    app.ctx.audit.append("test.after")
+    second = lifecycle.current_audit_anchor(path, archive_dir)
+    lifecycle.rotate_audit(app)
+
+    assert second == lifecycle.AuditAnchor(5, second.hash)  # the rotation record counts
+    report = lifecycle.check_audit_anchors(path, archive_dir, [first, second, first])
+    assert report.ok, report.problems
+    assert (report.records, len(report.segments)) == (6, 3)
+
+
+def test_anchors_reveal_records_cut_from_the_end_and_a_regrown_chain(make_app: AppFactory) -> None:
+    app = make_app()
+    path, archive_dir = app.ctx.audit.path, app.ctx.data_dir / "audit-archive"
+    for index in range(4):
+        app.ctx.audit.append("test.event", index=index)
+    anchor = lifecycle.current_audit_anchor(path, archive_dir)
+    path.write_bytes(b"".join(path.read_bytes().splitlines(keepends=True)[:2]))
+    assert app.ctx.audit.verify().ok
+
+    assert lifecycle.check_audit_anchors(path, archive_dir, [anchor]).problems == (_cut_message(anchor, 2),)
+
+    app.ctx.audit.append("test.forged", index=2)
+    app.ctx.audit.append("test.forged", index=3)
+    assert lifecycle.check_audit_anchors(path, archive_dir, [anchor]).problems == (
+        f"anchor {anchor}: record 4 has a different hash; the chain was rewritten at or before it",
+    )
+
+
+def test_anchors_are_not_checked_against_a_chain_that_does_not_verify(make_app: AppFactory) -> None:
+    app = make_app()
+    app.ctx.audit.append("test.event", value=1)
+    rotation = lifecycle.rotate_audit(app)
+    path, archive_dir = app.ctx.audit.path, rotation.archive.parent
+    anchor = lifecycle.current_audit_anchor(path, archive_dir)
+    rotation.archive.unlink()
+
+    with pytest.raises(lifecycle.LifecycleError, match="does not verify"):
+        lifecycle.current_audit_anchor(path, archive_dir)
+    report = lifecycle.check_audit_anchors(path, archive_dir, [anchor])
+    assert not report.ok
+    assert "which is missing" in report.problems[0]
+    assert report.problems[-1] == "1 anchor(s) not checked: the chain must verify first"
+
+
+@pytest.mark.parametrize("content", [None, b"", b"\n\n"])
+def test_an_empty_or_missing_log_has_no_anchor_and_fails_every_anchor(
+    make_app: AppFactory, content: bytes | None
+) -> None:
+    app = make_app()
+    path, archive_dir = app.ctx.audit.path, app.ctx.data_dir / "audit-archive"
+    path.unlink(missing_ok=True)
+    if content is not None:
+        path.write_bytes(content)
+    anchor = lifecycle.AuditAnchor(1, "ab" * 32)
+
+    with pytest.raises(lifecycle.LifecycleError, match="nothing to anchor"):
+        lifecycle.current_audit_anchor(path, archive_dir)
+    assert lifecycle.check_audit_anchors(path, archive_dir, [anchor]).problems == (_cut_message(anchor, 0),)
+
+
+def test_anchors_parse_from_their_printed_form() -> None:
+    anchor = lifecycle.AuditAnchor(42, "ab" * 32)
+    assert lifecycle.parse_audit_anchor(str(anchor)) == anchor
+    assert lifecycle.parse_audit_anchor(f" {str(anchor).upper()}\n") == anchor
+
+
+@pytest.mark.parametrize(
+    "text",
+    ["", "ab" * 32, "0:" + "ab" * 32, "-1:" + "ab" * 32, "1;" + "ab" * 32, "1:" + "a" * 63, "1:" + "g" * 64],
+)
+def test_malformed_anchors_are_refused(text: str) -> None:
+    with pytest.raises(lifecycle.LifecycleError, match="SEQ:HASH"):
+        lifecycle.parse_audit_anchor(text)

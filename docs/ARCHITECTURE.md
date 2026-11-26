@@ -258,7 +258,7 @@ Already queued events cannot be withdrawn by a later completion, cancellation or
 | Your own mistakes             | A bad rule or approval                                                        | Kill switch, deny rules that override approvals, approval expiry, audit verification           |
 
 The audit log is tamper-evident, not tamper-proof: anyone who can rewrite the whole file can recompute the chain.
-Interior deletions can break the chain; removing a valid tail cannot be detected without an independently stored head hash.
+Interior deletions can break the chain; records cut from its end are detected only up to an [anchor](./DATA_LIFECYCLE.md#audit-anchors) kept where Switchboard cannot write.
 Audit records, approval arguments, and results can contain personal data; credential-key redaction is not universal content redaction.
 
 ## Connectors

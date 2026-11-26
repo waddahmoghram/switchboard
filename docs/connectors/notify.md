@@ -41,6 +41,7 @@ Set `decision = "ask"` for the tool in that case.
   One failing channel never stops the others; `send` returns the names of the channels that accepted the note and logs the reasons for the rest.
 * Uses the `mail.sender` service from the mail connector for `email` channels, looked up each time a note is sent.
   Without the mail connector, email channels fail with a clear message.
+* `switchboard audit anchor --notify` sends audit anchors through the `notify` service; see [Data lifecycle](../DATA_LIFECYCLE.md#audit-anchors).
 
 Input from other connectors is normalized rather than refused: titles become one line of at most 120 characters, messages are capped at 4,000 characters, an unknown priority becomes `default`, and a link that is not a plain `https://` address is dropped.
 

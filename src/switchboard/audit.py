@@ -1,8 +1,9 @@
 """Append-only, hash-chained audit log.
 
 Every record stores the hash of the previous record (``prev``) and its own hash over its canonical
-JSON (``hash``). ``verify`` detects edits, interior deletions, and reordering. Tail truncation needs an
-independently stored head hash to detect. Someone who can rewrite the whole file can recompute its chain.
+JSON (``hash``). ``verify`` detects edits, interior deletions, and reordering. Records cut from the end
+show only against an anchor kept elsewhere (``switchboard audit anchor``, then ``audit verify --anchor``).
+Someone who can rewrite the whole file can recompute its chain.
 
 Records are redacted before writing: keys that look like credentials are replaced, and long strings
 are abbreviated with a prefix, length, and short hash. Short message bodies and prefixes remain personal data.
