@@ -45,12 +45,8 @@ from switchboard.audit import GENESIS, AuditLog
 from switchboard.config import ensure_private_dir
 from switchboard.db import CORE_MIGRATIONS, Database
 from switchboard.errors import SwitchboardError
+from switchboard.locking import fcntl
 from switchboard.util import canonical_json, iso, json_equal, json_loads, now, sha256_hex
-
-try:
-    import fcntl
-except ImportError:  # pragma: no cover - Windows is not supported in v0.1
-    fcntl = None  # type: ignore[assignment]
 
 log = logging.getLogger(__name__)
 
@@ -225,8 +221,7 @@ def _locked_audit(path: Path, *, exclusive: bool) -> Iterator[int | None]:
     try:
         if not stat.S_ISREG(os.fstat(fd).st_mode):
             raise LifecycleError(f"{path} is not a regular file")
-        if fcntl is not None:
-            fcntl.flock(fd, fcntl.LOCK_EX if exclusive else fcntl.LOCK_SH)
+        fcntl.flock(fd, fcntl.LOCK_EX if exclusive else fcntl.LOCK_SH)
         yield fd
     finally:
         os.close(fd)  # closing the descriptor releases the lock
@@ -235,9 +230,6 @@ def _locked_audit(path: Path, *, exclusive: bool) -> Iterator[int | None]:
 @contextmanager
 def hold_runner_lock(data_dir: Path) -> Iterator[bool]:
     """Hold ``runner.lock``, the lock ``switchboard run`` takes; yields False while another process has it."""
-    if fcntl is None:
-        yield True
-        return
     fd = os.open(data_dir / RUNNER_LOCK, os.O_RDWR | os.O_CREAT | _NOFOLLOW | _CLOEXEC, 0o600)
     try:
         try:

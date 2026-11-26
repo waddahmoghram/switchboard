@@ -30,7 +30,9 @@ No native program or test has been executed on the authoring host.
 
 Requirements: Python 3.11 or newer (for `tomllib`) on Linux or macOS.
 Windows is unsupported in this prototype:
-the audit log and runner lock depend on `fcntl`.
+the audit log and runner lock depend on `fcntl`,
+and without it Switchboard refuses to start before it writes anything,
+rather than write the audit log unlocked.
 Runtime and platform compatibility remain untested.
 
 ```bash

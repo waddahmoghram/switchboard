@@ -173,7 +173,7 @@ Neither compiler checks nor shared interfaces prove runtime or hardware compatib
 | Approvals in the terminal      | Nothing new to expose; exact arguments are bound                   | You must be at a terminal; phone approvals are future work and need careful design                    |
 | Hash-chained audit log         | Edits, interior deletions, and reordering can be detected          | Valid tail truncation needs an independent head hash; a complete rewrite is still possible            |
 | Polling with long intervals    | Polite to providers; no public endpoint                            | Minutes of delay instead of seconds                                                                   |
-| Python 3.11+ on Linux or macOS | `tomllib`, `zoneinfo`, and `fcntl` in the standard library         | Windows is untested                                                                                   |
+| Python 3.11+ on Linux or macOS | `tomllib`, `zoneinfo`, and `fcntl` in the standard library         | Windows is unsupported: without `fcntl`, Switchboard refuses to start before it writes anything       |
 | Unknown outcomes stay unknown  | A possibly delivered write is never repeated blindly               | A dropped connection or 5xx reply blocks an identical request until you check and reconcile it        |
 | Deadlines in the web client    | Calls and job runs stop waiting on a slow provider                 | Other handler code cannot be interrupted; a stuck job holds its connector's lane until it returns     |
 | Worker lanes per connector     | One slow connector no longer delays every other job                | Services shared between connectors must be thread-safe; separate processes are not serialized         |

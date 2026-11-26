@@ -22,12 +22,8 @@ from pathlib import Path
 from typing import IO, Any
 
 from switchboard.errors import AuditError
+from switchboard.locking import fcntl
 from switchboard.util import canonical_json, now_iso, sha256_hex
-
-try:
-    import fcntl
-except ImportError:  # pragma: no cover - Windows is not supported in v0.1
-    fcntl = None  # type: ignore[assignment]
 
 GENESIS = "0" * 64
 _SENSITIVE_KEY = re.compile(r"pass(word)?|secret|token|authori[sz]ation|cookie|api[_-]?key|credential", re.I)
@@ -72,8 +68,7 @@ class AuditLog:
         fd = os.open(self.path, os.O_RDWR | os.O_CREAT | os.O_APPEND | getattr(os, "O_NOFOLLOW", 0), 0o600)
         with os.fdopen(fd, "r+b") as handle:
             os.fchmod(handle.fileno(), 0o600)
-            if fcntl is not None:
-                fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+            fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
             try:
                 last = _read_last_line(handle)
                 record["prev"] = GENESIS if last is None else json.loads(last)["hash"]
@@ -82,8 +77,7 @@ class AuditLog:
                 handle.flush()
                 os.fsync(handle.fileno())
             finally:
-                if fcntl is not None:
-                    fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+                fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
         return record
 
     def records(self) -> Iterator[dict[str, Any]]:
@@ -122,9 +116,8 @@ class AuditLog:
         # fdopen leaves a descriptor it refuses (a directory) open, so close it here on every path.
         try:
             with os.fdopen(fd, "rb", closefd=False) as handle:
-                if fcntl is not None:
-                    # Appenders hold an exclusive lock: no thread or process reads a half-written line.
-                    fcntl.flock(handle.fileno(), fcntl.LOCK_SH)
+                # Appenders hold an exclusive lock: no thread or process reads a half-written line.
+                fcntl.flock(handle.fileno(), fcntl.LOCK_SH)
                 last = _read_last_line(handle)
         finally:
             os.close(fd)

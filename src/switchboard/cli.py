@@ -23,13 +23,9 @@ from switchboard.actions import STATES, ActionStateError, normalize_note
 from switchboard.app import App, build_app, load_connectors
 from switchboard.config import default_config_path, ensure_config_dir, ensure_private_dir, load_config
 from switchboard.errors import ConfigError, SwitchboardError
+from switchboard.locking import fcntl
 from switchboard.policy import Origin
 from switchboard.util import json_loads, printable
-
-try:
-    import fcntl
-except ImportError:  # pragma: no cover - Windows is not supported in v0.1
-    fcntl = None  # type: ignore[assignment]
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -430,9 +426,6 @@ def cmd_events(args: argparse.Namespace, app: App) -> int:
 @contextmanager
 def runner_lock(data_dir: Path) -> Iterator[bool]:
     """Hold ``runner.lock`` so only one process polls and processes events; yields False if taken."""
-    if fcntl is None:
-        yield True
-        return
     fd = os.open(data_dir / "runner.lock", os.O_RDWR | os.O_CREAT | getattr(os, "O_NOFOLLOW", 0), 0o600)
     try:
         try:
