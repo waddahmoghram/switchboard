@@ -9,6 +9,11 @@
 //
 // SWITCHBOARD_ALLOC_FAULT_STRIDE (a positive integer, default 1) samples every Nth allocation in one-shot mode;
 // sticky mode always samples every 13th stride. Exit code 77 means the replacement did not reach the library.
+//
+// An allocation made while nlohmann::json destroys an array or object is never failed. Its noexcept destructor moves
+// the children onto a heap-allocated stack in json_value::destroy, so a failure there terminates the process whatever
+// the caller does. The failure moves to the next allocation outside that frame, which is found by its mangled name in
+// a backtrace; that needs the unoptimized Debug build in which this test runs.
 #include "support.hpp"
 #include "switchboard/switchboard.h"
 
@@ -26,6 +31,8 @@
 #include <string>
 #include <system_error>
 
+#include <dlfcn.h>
+#include <execinfo.h>
 #include <sys/stat.h>
 #include <unistd.h>
 
@@ -35,9 +42,30 @@ namespace
 std::atomic<std::int64_t> remaining{-1};
 std::atomic<bool> sticky{false};
 std::atomic<bool> triggered{false};
+thread_local bool inspecting = false;
+
+bool inside_json_destructor() noexcept
+{
+    constexpr int DEPTH = 64;
+    void *frames[DEPTH];
+    inspecting = true;
+    const int depth = backtrace(frames, DEPTH);
+    bool found = false;
+    for (int index = 0; index < depth && !found; ++index)
+    {
+        Dl_info info{};
+        found = dladdr(frames[index], &info) != 0 && info.dli_sname != nullptr && std::strstr(info.dli_sname, "10json_value7destroy") != nullptr;
+    }
+    inspecting = false;
+    return found;
+}
 
 bool inject() noexcept
 {
+    if (inspecting)
+    {
+        return false;
+    }
     auto current = remaining.load(std::memory_order_relaxed);
     while (current > 0)
     {
@@ -46,7 +74,7 @@ bool inject() noexcept
             return false;
         }
     }
-    if (current < 0)
+    if (current < 0 || inside_json_destructor())
     {
         return false;
     }
@@ -478,6 +506,8 @@ int main()
 {
     try
     {
+        // The first backtrace loads the unwinder; do it before any allocation can fail.
+        (void)inside_json_destructor();
         if (!replacement_reaches_library())
         {
             std::cout << "SKIP: replacing global operator new does not reach the shared library on this platform\n";

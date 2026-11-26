@@ -135,6 +135,8 @@ Native, in `native/tests/alloc_faults.cpp` (label `faults`): global `operator ne
 `sb_runtime_create`, `sb_runtime_destroy`, `sb_runtime_catalog`, `sb_runtime_call`, `sb_runtime_call_outcome` and `sb_runtime_rpc` run with the failure placed at every allocation (one-shot mode) and at sampled points with every later allocation failing too (sticky mode).
 Each call must return one of the four documented status codes, publish a JavaScript Object Notation (JSON) report exactly when its status promises one, keep exceptions inside the C boundary, and leave the runtime usable with a verifiable audit chain.
 Every buffer and runtime is released, so LSan can attribute leaks on error paths.
+An allocation made while `nlohmann::json` destroys an array or object is never failed, because that noexcept destructor allocates a temporary stack and a failure there terminates the process whatever the caller does.
+The test recognizes that frame by its symbol name in a backtrace, which relies on the unoptimized Debug presets in which the tests are built.
 `SWITCHBOARD_ALLOC_FAULT_STRIDE=<n>` samples every nth allocation to shorten a run.
 Exit code 77, which CTest reports as skipped, means the replacement did not reach the shared library on that platform.
 
