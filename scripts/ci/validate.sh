@@ -2,7 +2,8 @@
 # Run Switchboard's validation stages on your own trusted machine. Authored and unexecuted.
 #
 # Usage: scripts/ci/validate.sh [STAGE...]
-#   python      uv sync --locked; Ruff lint and format check; mypy; pytest without, then with, the integration marker
+#   python      uv sync --locked; Ruff lint and format check; mypy; pytest without, then with, the
+#               integration marker, measuring line coverage, which must reach fail_under in pyproject.toml
 #   contracts   the shared fixtures in contracts/cases through the Python and the native engine
 #   native      dev preset: configure, build, and run every native test (warnings are errors)
 #   sanitizers  asan-ubsan preset with every native test, then tsan preset with the concurrency label
@@ -95,6 +96,7 @@ python_sync() {
     export RUFF_CACHE_DIR="$build_dir/ruff-cache"
     export MYPY_CACHE_DIR="$build_dir/mypy-cache"
     export PYTHONPYCACHEPREFIX="$build_dir/pycache"
+    export COVERAGE_FILE="$build_dir/python-coverage"
     stage "python: install the project and the pinned development tools"
     if [[ -n "${SWITCHBOARD_PYTHON:-}" ]]; then
         in_repo uv sync --locked --python "$SWITCHBOARD_PYTHON"
@@ -112,9 +114,13 @@ python_stage() {
     stage "python: mypy"
     in_repo uv run --no-sync mypy --config-file pyproject.toml src tests
     stage "python: unit, contract, fault and fuzz tests"
-    in_repo uv run --no-sync pytest -o cache_dir="$build_dir/pytest-cache" -n auto -m "not integration"
+    in_repo uv run --no-sync pytest -o cache_dir="$build_dir/pytest-cache" -n auto \
+        --cov --cov-report= --cov-fail-under=0 -m "not integration"
     stage "python: integration tests (local servers and subprocesses only)"
-    in_repo uv run --no-sync pytest -o cache_dir="$build_dir/pytest-cache" -n auto -m integration
+    in_repo uv run --no-sync pytest -o cache_dir="$build_dir/pytest-cache" -n auto \
+        --cov --cov-append --cov-report= --cov-fail-under=0 -m integration
+    stage "python: line coverage of both passes against fail_under in pyproject.toml"
+    in_repo uv run --no-sync coverage report
 }
 
 contracts_stage() {

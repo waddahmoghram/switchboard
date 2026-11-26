@@ -36,6 +36,13 @@ jobs:
       matrix:
         os: [ubuntu-24.04, macos-15]
         python: ["3.11", "3.12", "3.13"]
+        include:
+          - os: ubuntu-24.04
+            python: "3.12"
+            coverage: true
+    env:
+      # Only the coverage leg measures: both pytest passes add to one data file, and the last step gates it.
+      PYTEST_ADDOPTS: ${{ matrix.coverage && '--cov --cov-append --cov-report= --cov-fail-under=0' || '' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -59,6 +66,9 @@ jobs:
         run: uv run --no-sync pytest -n auto --basetemp="$RUNNER_TEMP/unit" -m "not integration"
       - name: Integration tests (local servers and subprocesses only)
         run: uv run --no-sync pytest -n auto --basetemp="$RUNNER_TEMP/integration" -m integration
+      - name: Line coverage of both passes against fail_under in pyproject.toml
+        if: matrix.coverage
+        run: uv run --no-sync coverage report
 
   contracts:
     name: Cross-engine contracts

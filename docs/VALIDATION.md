@@ -70,6 +70,8 @@ cmake --workflow --preset asan-ubsan
 
 `uv sync --locked` installs the project and the `dev` dependency group from `uv.lock`, then Ruff checks lint and formatting, mypy checks `src` and `tests`, and pytest runs twice: without and with the `integration` marker.
 Both pytest passes run in parallel with pytest-xdist (`-n auto`, one worker per available processor), and pytest-timeout fails any test that runs longer than the `timeout` in `pyproject.toml` (120 seconds).
+Both passes also record line coverage of the `switchboard` package with pytest-cov, and `coverage report` then fails the stage if the two passes together cover less than `fail_under` in `pyproject.toml`, a ratchet to raise as coverage grows.
+CI measures coverage only in its Ubuntu, Python 3.12 leg; the script writes the data to `build/python-coverage`.
 Integration tests start local servers and subprocesses only.
 The `contracts`, `fuzz` and `faults` markers are registered in `pyproject.toml` and run in the first pytest pass; select one alone with, for example, `pytest -m faults`.
 

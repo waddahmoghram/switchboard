@@ -41,6 +41,16 @@ addopts = "-ra"
 # pytest-timeout: a hung test fails after this many seconds instead of stalling the whole run.
 timeout = 120
 
+[tool.coverage.run]
+source = ["switchboard"]
+
+[tool.coverage.report]
+# Line coverage of both pytest selections together: a ratchet to raise as coverage grows.
+fail_under = 92
+precision = 1
+show_missing = true
+skip_covered = true
+
 [tool.ruff]
 line-length = 110
 target-version = "py311"
