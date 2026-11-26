@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2021"
 rust-version = "1.63"
 description = "Safe Rust ownership and error bindings for the C++ Switchboard engine"
+license = "MIT"
 publish = false
 
 [lib]

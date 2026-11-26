@@ -153,5 +153,4 @@ These controls do not identify a human independently of the local user account.
 
 ## License
 
-No license has been chosen yet.
-Until one is added, all rights are reserved by the author.
+Switchboard is released under the [MIT License](./LICENSE).
