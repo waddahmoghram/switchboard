@@ -196,7 +196,8 @@ Both call only version queries: no runtime, state or network.
 
 | Dependency                       | Pin                                                                                     |
 | -------------------------------- | --------------------------------------------------------------------------------------- |
-| Python development tools         | `pytest==8.4.2`, `ruff==0.15.0`, `mypy==1.18.2` in the `dev` group; no runtime packages |
+| Python development tools         | `pytest==9.0.3`, `ruff==0.15.0`, `mypy==1.18.2` in the `dev` group; no runtime packages |
+| pytest plugins                   | `pytest-cov==7.1.0`, `pytest-timeout==2.4.0`, `pytest-xdist==3.8.0` in the `dev` group  |
 | uv in CI                         | `0.13.7`                                                                                |
 | vcpkg `builtin-baseline`         | `9eec002df1cd109f8f104cd966a763daf9751489`, release tag `2026.10.16`                    |
 | Rust lockfile                    | `Cargo.lock` version 3, the single dependency-free package `switchboard-native` 0.1.0   |
