@@ -225,3 +225,22 @@ def test_doctor_reports_an_invalid_table_as_start_up_would(
     with pytest.raises(ConfigError) as raised:
         make_app({"switchboard": {"connectors": ["webhooks"]}, "connectors": {"webhooks": table}})
     assert problems == [str(raised.value)]
+
+
+@pytest.mark.parametrize("port", ["65536", "70000", "-1", "http"])
+def test_an_impossible_port_is_a_usage_error_instead_of_a_crash(
+    port: str, capsys: pytest.CaptureFixture[str]
+) -> None:
+    # Regression: socket.bind raised OverflowError for ports above 65535 or below 0, which the
+    # command did not catch, so the user saw a traceback.
+    with pytest.raises(SystemExit) as stopped:
+        build_parser([webhooks]).parse_args(["webhooks", "serve", "--port", port])
+
+    assert stopped.value.code == 2
+    assert f"argument --port: {port!r} is not a port number from 0 to 65535" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("port", [0, 65535])
+def test_the_lowest_and_highest_ports_are_accepted(port: int) -> None:
+    args = build_parser([webhooks]).parse_args(["webhooks", "serve", "--port", str(port)])
+    assert args.port == port

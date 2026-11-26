@@ -88,9 +88,20 @@ def add_cli(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) -> 
     serve = actions.add_parser("serve", help="run the receiver until Ctrl+C")
     serve.add_argument("--host", default=DEFAULT_HOST, help=f"address to bind (default: {DEFAULT_HOST})")
     serve.add_argument(
-        "--port", type=int, default=DEFAULT_PORT, help=f"port to bind (default: {DEFAULT_PORT})"
+        "--port", type=_port, default=DEFAULT_PORT, help=f"port to bind (default: {DEFAULT_PORT})"
     )
     serve.set_defaults(app_handler=_serve)
+
+
+def _port(value: str) -> int:
+    # socket.bind raises OverflowError, not OSError, for a port outside this range.
+    try:
+        port = int(value)
+    except ValueError:
+        port = -1
+    if not 0 <= port <= 65535:
+        raise argparse.ArgumentTypeError(f"{value!r} is not a port number from 0 to 65535")
+    return port
 
 
 def _serve(args: argparse.Namespace, app: App) -> int:
