@@ -82,10 +82,14 @@ def read_file(path: Path, *, follow_symlinks: bool = False, limit: int = MAX_FIL
         fd = os.open(path, flags)
     except OSError as exc:
         raise FormatError(f"cannot open the file: {exc.strerror}") from exc
-    with os.fdopen(fd, "rb") as handle:
-        if not stat.S_ISREG(os.fstat(handle.fileno()).st_mode):
+    try:
+        # Check before fdopen, which refuses a directory without closing the descriptor.
+        if not stat.S_ISREG(os.fstat(fd).st_mode):
             raise FormatError("not a regular file")
-        data = handle.read(limit + 1)
+        with os.fdopen(fd, "rb", closefd=False) as handle:
+            data = handle.read(limit + 1)
+    finally:
+        os.close(fd)
     if len(data) > limit:
         raise FormatError(f"the file is larger than {limit // (1024 * 1024)} MB")
     return data

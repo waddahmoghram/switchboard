@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from pathlib import Path
 
 import pytest
@@ -84,6 +85,17 @@ def test_log_file_is_private(tmp_path: Path) -> None:
     log = AuditLog(tmp_path / "audit.jsonl")
     log.append("event")
     assert log.path.stat().st_mode & 0o777 == 0o600
+
+
+def test_head_closes_the_descriptor_of_an_unreadable_log(
+    tmp_path: Path, open_descriptors: Callable[[], int]
+) -> None:
+    log = AuditLog(tmp_path / "audit.jsonl")
+    log.path.mkdir()
+    baseline = open_descriptors()
+    with pytest.raises(IsADirectoryError):
+        log.head()
+    assert open_descriptors() == baseline
 
 
 @pytest.mark.parametrize("body", [b'{"broken":', b"[]\n", b"\xff\n"])

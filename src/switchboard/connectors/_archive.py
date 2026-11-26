@@ -70,6 +70,7 @@ def read_import_file(directory: Path | None, filename: str, suffixes: tuple[str,
         raise ToolError("choose a supported export filename, not a path")
     path = private_import_dir(directory)
     directory_fd: int | None = None
+    fd: int | None = None
     try:
         directory_fd = os.open(path, os.O_RDONLY | os.O_DIRECTORY | getattr(os, "O_NOFOLLOW", 0))
         directory_info = os.fstat(directory_fd)
@@ -77,16 +78,19 @@ def read_import_file(directory: Path | None, filename: str, suffixes: tuple[str,
             raise ToolError("the opened import folder must be owned by you with mode 700")
         flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0)
         fd = os.open(filename, flags, dir_fd=directory_fd)
-        with os.fdopen(fd, "rb") as handle:
-            info = os.fstat(handle.fileno())
-            if not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid() or info.st_mode & 0o022:
-                raise ToolError("the export must be an owned regular file, not writable by others")
-            if info.st_size > MAX_IMPORT_BYTES:
-                raise ImportFormatError(f"exports must not exceed {MAX_IMPORT_BYTES} bytes")
+        # Check before fdopen, which refuses a directory without closing the descriptor.
+        info = os.fstat(fd)
+        if not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid() or info.st_mode & 0o022:
+            raise ToolError("the export must be an owned regular file, not writable by others")
+        if info.st_size > MAX_IMPORT_BYTES:
+            raise ImportFormatError(f"exports must not exceed {MAX_IMPORT_BYTES} bytes")
+        with os.fdopen(fd, "rb", closefd=False) as handle:
             body = handle.read(MAX_IMPORT_BYTES + 1)
     except OSError as exc:
         raise ToolError(f"cannot read the export ({exc.strerror}); symbolic links are refused") from exc
     finally:
+        if fd is not None:
+            os.close(fd)
         if directory_fd is not None:
             os.close(directory_fd)
     if len(body) > MAX_IMPORT_BYTES:

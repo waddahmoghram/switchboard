@@ -119,11 +119,15 @@ class AuditLog:
             fd = os.open(self.path, os.O_RDONLY)
         except FileNotFoundError:
             return GENESIS
-        with os.fdopen(fd, "rb") as handle:
-            if fcntl is not None:
-                # Appenders hold an exclusive lock: no thread or process reads a half-written line.
-                fcntl.flock(handle.fileno(), fcntl.LOCK_SH)
-            last = _read_last_line(handle)
+        # fdopen leaves a descriptor it refuses (a directory) open, so close it here on every path.
+        try:
+            with os.fdopen(fd, "rb", closefd=False) as handle:
+                if fcntl is not None:
+                    # Appenders hold an exclusive lock: no thread or process reads a half-written line.
+                    fcntl.flock(handle.fileno(), fcntl.LOCK_SH)
+                last = _read_last_line(handle)
+        finally:
+            os.close(fd)
         return GENESIS if last is None else str(json.loads(last)["hash"])
 
     def verify(self) -> VerifyResult:

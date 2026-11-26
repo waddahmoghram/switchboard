@@ -5,6 +5,7 @@ from __future__ import annotations
 import base64
 import json
 import stat
+from collections.abc import Callable
 from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
 
@@ -258,6 +259,17 @@ def test_token_files_readable_by_others_are_refused(tmp_path: Path) -> None:
     store.save("personal", TokenSet("access-1", "refresh-1", 1.0)).chmod(0o644)
     with pytest.raises(OAuthError, match="mode 600"):
         store.load("personal")
+
+
+def test_a_directory_in_place_of_a_token_file_is_refused_and_closed(
+    tmp_path: Path, open_descriptors: Callable[[], int]
+) -> None:
+    store = TokenStore(tmp_path)
+    store.path("personal").mkdir(parents=True)
+    baseline = open_descriptors()
+    with pytest.raises(OAuthError, match="must be a regular file"):
+        store.load("personal")
+    assert open_descriptors() == baseline
 
 
 def test_xoauth2_string_format() -> None:
