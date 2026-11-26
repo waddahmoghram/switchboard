@@ -148,6 +148,7 @@ These controls do not identify a human independently of the local user account.
 * [Isolation](./docs/ISOLATION.md) — the broker, separate service, assistant, and operator accounts
 * [Data lifecycle](./docs/DATA_LIFECYCLE.md) — backups, restores, exports, retention, and audit archives
 * [Validation](./docs/VALIDATION.md) — the off-host checks, pinned toolchains, fuzzing, and fault tests
+* [Security policy](./SECURITY.md) — reporting a vulnerability privately, supported versions, and scope
 * [Connector guide](./docs/CONNECTOR_GUIDE.md) — how to write a new connector
 * Connector pages: [mail](./docs/connectors/mail.md), [calendar](./docs/connectors/calendar.md), [contacts](./docs/connectors/contacts.md), [finance](./docs/connectors/finance.md), [shopping](./docs/connectors/shopping.md), [notify](./docs/connectors/notify.md), [webhooks](./docs/connectors/webhooks.md), [home](./docs/connectors/home.md), [Telegram](./docs/connectors/telegram.md), [LinkedIn](./docs/connectors/linkedin.md), and [WhatsApp exports](./docs/connectors/whatsapp.md), [WLED](./docs/connectors/wled.md), [Shelly](./docs/connectors/shelly.md), [documents](./docs/connectors/documents.md), [tasks](./docs/connectors/tasks.md), and [monitoring](./docs/connectors/monitoring.md)
 
