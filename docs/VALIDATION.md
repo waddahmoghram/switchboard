@@ -321,6 +321,10 @@ From the next run on, failed tests also appear as annotations; see [Workflow sec
 Hosted CI on pull request #2 at `36c2203`, which adds the backup fix, the failure annotations and the native audit-redaction port: all 16 CI jobs passed, Apple Clang and Python 3.11 on macOS included, and so did CodeQL's three analyses.
 That commit does not contain the `EPROTOTYPE` handling, so Python 3.11's earlier failure did not recur without it; that fits an intermittent cause, but does not identify one.
 
+At `6a87158`, Python 3.11 on macOS failed the webhook serve-command integration test because it did not signal startup within ten seconds.
+The server constructor calls `socket.getfqdn` before that signal; the test now replaces that display-name lookup with the literal loopback address, so it does not depend on an external resolver.
+A local check passes even when the underlying resolver raises an error, but the hosted annotation does not prove which startup operation consumed the timeout.
+
 What has not run:
 
 - Hosted CI has not run the commits after `36c2203`: the `EPROTOTYPE` handling and this record.

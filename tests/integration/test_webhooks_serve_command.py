@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import socket
 import threading
 import urllib.request
 
@@ -22,6 +23,8 @@ OPENER = urllib.request.build_opener(urllib.request.ProxyHandler({}))
 def test_serve_turns_a_verified_delivery_into_an_event_and_closes_its_socket_when_stopped(
     make_app: AppFactory, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
+    # HTTPServer resolves its display name before serving; this loopback test needs no external resolver.
+    monkeypatch.setattr(socket, "getfqdn", lambda host: host)
     monkeypatch.setenv("SB_TEST_HOOK_SECRET", SECRET)
     hook = {"verify": "token-header", "header": "X-Backup-Token", "secret": "env:SB_TEST_HOOK_SECRET"}
     app = make_app(
