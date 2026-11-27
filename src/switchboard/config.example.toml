@@ -38,6 +38,13 @@ event_retention_days = 14
 # client_uids = [1001]
 # operator_uids = [1000]
 
+# Optional: the audit log keeps only the length and a short hash of text under these field names, at any
+# depth and in any letter case, instead of a prefix. These cover message bodies (mail body; Telegram,
+# LinkedIn, and announcement text; notification message) and approval summaries, which quote them.
+# Secret-shaped values are scrubbed from every field either way. See docs/DATA_LIFECYCLE.md.
+# [audit]
+# hash_only = ["body", "text", "message", "summary"]
+
 [policy]
 # Pending approvals expire after this many minutes.
 approval_ttl_minutes = 60

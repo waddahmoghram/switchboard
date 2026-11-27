@@ -31,6 +31,7 @@ _CORE_KEYS = {
     "mcp": frozenset({"expose", "instructions"}),
     "retention": frozenset({"tool_calls_days", "approvals_days", "actions_days", "connectors"}),
     "broker": frozenset({"client_socket", "operator_socket", "client_uids", "operator_uids"}),
+    "audit": frozenset({"hash_only"}),
 }
 
 # (section, key): (minimum, maximum, default)
@@ -85,6 +86,7 @@ class Config:
             self.bounded(section, key)
         self.retention_connector_days()
         self.broker_settings()
+        self.audit_hash_only()
 
     def bounded(self, section: str, key: str) -> int:
         """A validated whole number from a documented range, or its documented default."""
@@ -123,6 +125,17 @@ class Config:
             ):
                 raise ConfigError(f"[broker] {key} must list 1 to 64 numeric user identifiers")
         return dict(table)
+
+    def audit_hash_only(self) -> frozenset[str]:
+        """Field names whose text the audit log keeps only as a length and hash, lowercased."""
+        value = self.section("audit").get("hash_only", [])
+        if (
+            not isinstance(value, list)
+            or len(value) > 64
+            or not all(isinstance(name, str) and name and name == name.strip() for name in value)
+        ):
+            raise ConfigError("[audit] hash_only must list up to 64 field names")
+        return frozenset(name.lower() for name in value)
 
     def section(self, *keys: str) -> dict[str, Any]:
         """Return a nested table; missing tables are empty, malformed tables are errors."""

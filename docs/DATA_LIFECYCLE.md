@@ -191,6 +191,59 @@ A hook must not contact the network, must leave open or in-progress work alone, 
 `purge_transaction` comes from `switchboard.lifecycle`; it commits, or rolls back for a dry run.
 Database hooks run in one transaction; a hook that removes files, like finance, removes them one at a time and counts failures.
 
+## What audit records keep
+
+An audit record keeps the fields its event passes, such as a tool call's arguments or an approval's summary, after `audit.py` redacts them.
+The rules apply as a record is written, so changing them never alters existing records or their hashes, and older logs still verify.
+
+* **Credential keys.**
+  A value under a key that contains `pass`, `secret`, `token`, `authorization` or `authorisation`, `cookie`, `api_key`, `credential`, or `private_key` (with `_`, `-`, or nothing between the words) becomes `[redacted]`.
+  So does a value under a key with a segment, split at punctuation and case changes, of `otp`, `totp`, `hotp`, `mfa`, `2fa`, `pin`, `session`, `private`, `auth`, `cvv`, or `cvc`.
+  Segments match whole, so `card_pin`, `userPin`, and `session_id` are redacted, while `pinned`, `spinner`, `mapping`, `sessions`, and `author` are kept.
+* **Secret-shaped text.**
+  Every other string, at any depth and under any key, loses the secrets that the rules below recognize.
+* **Long text.**
+  A string still longer than 300 characters keeps its first 120 characters, its length, and the first 16 hexadecimal digits of its SHA-256 hash, as in `…[1000 chars, sha256:0123456789abcdef]`.
+  Scrubbing runs first, so the prefix holds no recognized secret, and the length and hash describe the scrubbed text, so they cannot confirm a guess at a removed secret.
+
+The scrubbing rules run in this order:
+
+1. Private keys in Privacy-Enhanced Mail (PEM) form, from `-----BEGIN … PRIVATE KEY-----` to the matching end line or the end of the text, become `[redacted:private-key]`.
+2. JSON Web Tokens (JWTs), three dot-separated parts of which the first two start with `eyJ`, become `[redacted:jwt]`.
+3. A password in a web address, as in `postgres://alice:…@db.example.com`, becomes `[redacted]`.
+4. The values of query parameters named `access_token`, `refresh_token`, `id_token`, `token`, `api_key`, `apikey`, `key`, `secret`, `client_secret`, `password`, `passwd`, `auth`, `sig`, `signature`, `X-Amz-Signature`, `X-Amz-Credential`, `X-Amz-Security-Token`, `X-Goog-Signature`, or `X-Goog-Credential` become `[redacted]`.
+5. Labeled values such as `password: hunter2`, `api_key = 'k-1'`, or `"token": "…"` become `[redacted]` up to the next space or the closing quote, for the labels `password`, `passwd`, `passphrase`, `passcode`, `secret`, `client_secret`, `api_key`, `access_token`, `refresh_token`, `auth_token`, `token`, `otp`, and `pin`.
+6. The values of `Authorization`, `Proxy-Authorization`, `X-Api-Key`, and `X-Auth-Token` headers, and of `Cookie` and `Set-Cookie` headers that hold a `name=value` pair, become `[redacted]` up to their closing quote or the end of the line, keeping a leading `Basic`, `Bearer`, `Digest`, `Negotiate`, or `token`.
+7. A token after `Bearer` becomes `[redacted]` when it has at least 16 characters and a digit, or at least 32 characters.
+8. GitHub tokens (`ghp_`, `gho_`, `ghu_`, `ghs_`, `ghr_`, and `github_pat_`) become `[redacted:github-token]`, Slack tokens (`xoxa-`, `xoxb-`, `xoxp-`, `xoxr-`, and `xoxs-`) become `[redacted:slack-token]`, and Amazon Web Services (AWS) access key identifiers (`AKIA` or `ASIA` and 16 capitals or digits) become `[redacted:aws-key-id]`.
+9. Keys with a digit that start with `sk-`, `sk_live_`, `sk_test_`, `rk_live_`, `rk_test_`, or `AIza` become `[redacted:api-key]`, and the secret half of a Telegram bot token (`123456789:…`) becomes `[redacted]`.
+10. Runs of 32 or more hexadecimal characters with at least one digit and one letter become `[redacted:hex]`.
+    Runs of 40 or more letters, digits, `-`, and `_` become `[redacted:base64]` when they mix capitals, lower case, and digits in pieces that average under three characters, as random tokens do.
+
+The last rule skips values under identifier keys: keys whose last segment is `id`, `ids`, `uid`, `uuid`, `hash`, `digest`, `sha1`, `sha256`, `sha512`, `checksum`, `fingerprint`, `head`, `binding`, `etag`, `revision`, `action`, or `target`.
+Those keys hold action and message identifiers, approval bindings, and digests; the other rules still apply to them.
+
+Ordinary words, abbreviated commit hashes, universally unique identifiers (UUIDs) with their dashes, file names, and CamelCase or snake_case names are kept.
+A full 40-character commit hash or a 64-character SHA-256 digest in free text is redacted.
+Known false positives are the word after a label such as `password:` in prose, the rest of a line that uses `Authorization:` as a label, keys such as `mfa_enabled`, and long names made mostly of short numbers and single letters, such as `2025-11-26T12-00-00-backup-Archive-File-v3`.
+The rules miss secrets without a recognizable shape: an unlabeled password in a sentence, standard base64 with `+` and `/` (it looks like a file path), random text in one letter case that is not hexadecimal, random runs shorter than the thresholds, and a secret split across fields.
+
+### Keeping only a hash of message text
+
+`[audit] hash_only` names fields whose text the log keeps only as a length and hash, such as `[11 chars, sha256:…]`, instead of a prefix:
+
+```toml
+[audit]
+hash_only = ["body", "text", "message", "summary"]
+```
+
+Names match at any depth and in any letter case, so `body` also covers `args.body`; numbers and true-or-false values are kept.
+These four names cover the mail `body`, the Telegram, LinkedIn, and home announcement `text`, the notification `message`, and approval summaries, which quote message text.
+They also cover other fields with those names, such as the mail search `text` and the calendar event `summary`; add `description`, `notes`, and `note` for calendar descriptions, task notes, and shopping notes.
+Up to 64 names are allowed, and an empty name or one with surrounding spaces is refused.
+The hash is an unkeyed SHA-256 prefix: it can match a record to a message you hold, and short or predictable text can be confirmed by guessing.
+The setting applies to new records only, and the approval queue in the database still stores exact arguments and summaries until [retention](#retention) removes them.
+
 ## Audit archives
 
 `audit-archive rotate` holds the log's exclusive lock while it copies the log into `audit-archive/` and verifies the copy, refusing a broken chain without changing anything.
@@ -313,6 +366,7 @@ Anchors have limits:
 
 * Nothing here has been executed; the tests are authored for the reader's own machine.
 * Backups and exports are clear text; encrypting and storing them elsewhere is up to you.
+* Audit redaction recognizes secrets by key name and shape only; a secret without a recognized shape stays in the record, as [What audit records keep](#what-audit-records-keep) lists.
 * The finance hook relies on file-system times.
   Where a rename does not update the status-change time, a statement downloaded long ago becomes eligible soon after it is imported.
 * Data without a hook is not purged, including mail cursors, calendar and contact caches, home and monitoring snapshots, LinkedIn drafts, and imported files in connector folders.

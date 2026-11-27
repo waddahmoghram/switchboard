@@ -105,6 +105,18 @@ def test_connector_retention_overrides_are_bounded_days(tmp_path: Path, value: A
         config_from_dict({"retention": {"connectors": {"telegram": value}}}, tmp_path)
 
 
+@pytest.mark.parametrize("value", ["body", [""], [" body"], [1], ["field"] * 65, {"body": True}])
+def test_audit_hash_only_must_list_field_names(tmp_path: Path, value: Any) -> None:
+    with pytest.raises(ConfigError, match=r"\[audit\] hash_only must list up to 64 field names"):
+        config_from_dict({"audit": {"hash_only": value}}, tmp_path)
+
+
+def test_audit_hash_only_names_ignore_letter_case(tmp_path: Path) -> None:
+    assert config_from_dict({}, tmp_path).audit_hash_only() == frozenset()
+    config = config_from_dict({"audit": {"hash_only": ["Body", "summary"]}}, tmp_path)
+    assert config.audit_hash_only() == {"body", "summary"}
+
+
 def test_a_malformed_data_path_does_not_fall_back_to_another_database(tmp_path: Path) -> None:
     path = tmp_path / "config.toml"
     path.write_text("[switchboard]\ndata_dir = 42\n", encoding="utf-8")

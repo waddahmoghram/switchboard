@@ -255,7 +255,7 @@ No events include credentials or full post bodies.
 Source exports remain in the private import directory until you remove them yourself.
 Imported records, full draft bodies, actor identifiers, hashes, and attempt state remain in the private SQLite database indefinitely; there is no connector retention job or per-record deletion tool.
 Core event retention does not remove these tables.
-Approval records retain exact text, and the core audit log retains short argument strings or longer prefixes with hashes.
+Approval records retain exact text, and the core audit log retains short argument strings or longer prefixes with hashes, unless [`[audit] hash_only`](../DATA_LIFECYCLE.md#keeping-only-a-hash-of-message-text) lists `text` and `summary`.
 Protect the entire data directory, database sidecars, source files, and backups as personal data.
 Neither hashes nor local file permissions provide encryption or prove identity.
 

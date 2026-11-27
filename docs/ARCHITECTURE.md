@@ -87,7 +87,7 @@ The diagram was written for Markdown previews with Mermaid support; it has not b
 | ---------------- | ----------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
 | Configuration    | `config.py`, `secrets.py`     | Table-based settings; `env:`, `file:` (mode 600, no symbolic links), and `cmd:` secret references                                |
 | Storage          | `db.py`                       | One SQLite file, write-ahead logging, versioned migrations per component                                                         |
-| Audit log        | `audit.py`                    | Hash-chained records; redacts credential-like keys but can retain message text and body prefixes                                 |
+| Audit log        | `audit.py`                    | Hash-chained records; redacts credential-like keys and secret-shaped text but can retain message text and body prefixes          |
 | Policy gate      | `policy.py`                   | Tier defaults, per-tool rules, recipient allowlists, amount caps, rate limits, kill switch                                       |
 | Tools            | `tools.py`, `jsonschema.py`   | Tool registry, argument validation, the dispatcher every call goes through                                                       |
 | Action journal   | `actions.py`                  | Records each non-read attempt before it runs; classifies results; refuses identical repeats of open attempts; reconciliation     |
@@ -259,7 +259,7 @@ Already queued events cannot be withdrawn by a later completion, cancellation or
 
 The audit log is tamper-evident, not tamper-proof: anyone who can rewrite the whole file can recompute the chain.
 Interior deletions can break the chain; records cut from its end are detected only up to an [anchor](./DATA_LIFECYCLE.md#audit-anchors) kept where Switchboard cannot write.
-Audit records, approval arguments, and results can contain personal data; credential-key redaction is not universal content redaction.
+Audit records, approval arguments, and results can contain personal data; redacting credential-like keys and secret-shaped text is not universal content redaction, and [`[audit] hash_only`](./DATA_LIFECYCLE.md#what-audit-records-keep) keeps named message fields only as a length and hash.
 
 ## Connectors
 

@@ -146,7 +146,7 @@ These controls do not identify a human independently of the local user account.
 * [Deployment](./docs/DEPLOYMENT.md) — install, test, connect assistants, run as a service, revoke
 * [Recovery](./docs/RECOVERY.md) — the action journal, reconciling unknown outcomes, deadlines, and the runner
 * [Isolation](./docs/ISOLATION.md) — the broker, separate service, assistant, and operator accounts
-* [Data lifecycle](./docs/DATA_LIFECYCLE.md) — backups, restores, exports, retention, audit archives, and audit anchors
+* [Data lifecycle](./docs/DATA_LIFECYCLE.md) — backups, restores, exports, retention, what audit records keep, audit archives, and audit anchors
 * [Validation](./docs/VALIDATION.md) — the off-host checks, pinned toolchains, fuzzing, and fault tests
 * [Security policy](./SECURITY.md) — reporting a vulnerability privately, supported versions, and scope
 * [Connector guide](./docs/CONNECTOR_GUIDE.md) — how to write a new connector
