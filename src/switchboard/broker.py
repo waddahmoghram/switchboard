@@ -22,6 +22,7 @@ configuration, data directory, or secrets.
 
 from __future__ import annotations
 
+import errno
 import json
 import logging
 import os
@@ -1030,7 +1031,14 @@ class SocketChannel:
         self._reader = sock.makefile("rb")
 
     def send(self, data: bytes) -> None:
-        self._sock.sendall(data)
+        try:
+            self._sock.sendall(data)
+        except OSError as exc:
+            # macOS can fail a send with EPROTOTYPE while the peer closes the connection; like libuv,
+            # report the reset that it stands for, so a refusal reads the same on every system.
+            if exc.errno == errno.EPROTOTYPE:
+                raise ConnectionResetError(errno.ECONNRESET, os.strerror(errno.ECONNRESET)) from exc
+            raise
 
     def end_input(self) -> None:
         with suppress(OSError):

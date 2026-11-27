@@ -286,7 +286,7 @@ The other stages ran in a local container built from `ubuntu:24.04` with the pac
 | Stage                   | Configuration                      | Result                                                                                                           |
 | ----------------------- | ---------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
 | `python` lint and types | CPython 3.11, 3.12 and 3.13        | Ruff 0.15.0 lint and format check, and mypy 1.18.2 for Linux and `--platform darwin`: no findings on any version |
-| `python` tests          | CPython 3.11, 3.12 and 3.13        | pytest 9.0.3: 3,142 passed without the `integration` marker and 296 with it, on each version                     |
+| `python` tests          | CPython 3.11, 3.12 and 3.13        | pytest 9.0.3: 3,144 passed without the `integration` marker and 296 with it, on each version                     |
 | `python` coverage       | CPython 3.12                       | 94.4% line coverage, against the `fail_under` gate of 92%                                                        |
 | `contracts`             | Python and native runners          | Both runners passed 101 of 101 cases; the Python runner runs in the first pytest pass                            |
 | `native`                | `dev`, GCC 13.3.0 and Clang 18.1.3 | 14 of 14 tests passed with each compiler; 0 compiler warnings                                                    |
@@ -314,6 +314,8 @@ Apple Clang configured and built the native engine with warnings as errors, and 
 A later commit resolves the parent directory before SQLite's no-follow open, and the symbolic-link row above checks it.
 Python 3.11 on macOS passed its unit tests and failed in its integration tests.
 Which test failed is not known: job logs need a GitHub sign-in, and the failure did not reproduce on Linux with a linked temporary directory, three processors, a 256-file limit or twelve repeated runs.
+One macOS-only race fits a fast failure there: while the broker closes a refused connection, macOS can fail the client's send with `EPROTOTYPE` instead of a reset, which the broker socket tests did not expect.
+A later commit reports that error as a reset; whether it was this run's cause is unconfirmed.
 From the next run on, failed tests also appear as annotations; see [Workflow security notes](#workflow-security-notes).
 
 What has not run:

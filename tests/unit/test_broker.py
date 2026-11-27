@@ -4,6 +4,7 @@ shim relay. Uses fakes, in-memory streams, and temporary directories.
 
 from __future__ import annotations
 
+import errno
 import io
 import json
 import os
@@ -14,7 +15,7 @@ import sys
 import threading
 import time
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import pytest
 
@@ -761,6 +762,40 @@ def test_the_relay_reports_a_broker_that_closes_first() -> None:
         assert broker.relay(stdin, io.BytesIO(), ClosedChannel()) == "the broker closed the connection"
     finally:
         stdin.release.set()
+
+
+class SendFailsSocket:
+    """A connected socket stand-in whose sends fail with one error."""
+
+    def __init__(self, error: OSError) -> None:
+        self.error = error
+
+    def makefile(self, _mode: str) -> io.BytesIO:
+        return io.BytesIO()
+
+    def sendall(self, _data: bytes) -> None:
+        raise self.error
+
+
+def test_a_send_that_macos_fails_with_eprototype_is_reported_as_a_reset() -> None:
+    error = OSError(errno.EPROTOTYPE, os.strerror(errno.EPROTOTYPE))
+    channel = broker.SocketChannel(cast("socket.socket", SendFailsSocket(error)))
+
+    with pytest.raises(ConnectionResetError) as caught:
+        channel.send(b"{}\n")
+
+    assert caught.value.errno == errno.ECONNRESET
+    assert caught.value.__cause__ is error
+
+
+def test_other_send_failures_pass_through_unchanged() -> None:
+    error = BrokenPipeError(errno.EPIPE, os.strerror(errno.EPIPE))
+    channel = broker.SocketChannel(cast("socket.socket", SendFailsSocket(error)))
+
+    with pytest.raises(BrokenPipeError) as caught:
+        channel.send(b"{}\n")
+
+    assert caught.value is error
 
 
 def test_the_relay_stops_on_an_oversized_request_line() -> None:

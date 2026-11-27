@@ -119,7 +119,8 @@ def _exchange(path: Path, *messages: Any) -> list[dict[str, Any]]:
     """Send lines, half-close, and read every reply until the broker closes.
 
     A refused connection is closed with the request unread, so the kernel can report a reset (or a broken
-    pipe while sending) after the refusal line; that ends the exchange like end of input.
+    pipe while sending) after the refusal line; that ends the exchange like end of input. macOS can fail
+    the send with EPROTOTYPE instead, which the channel reports as a reset.
     """
     channel = broker.connect_unix(path)
     replies: list[dict[str, Any]] = []
