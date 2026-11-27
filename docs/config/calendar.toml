@@ -24,7 +24,7 @@ url = "file:~/.config/switchboard/secrets/google-calendar-address"
 type = "caldav"
 url = "https://caldav.icloud.com/"              # Fastmail: https://caldav.fastmail.com/
 username = "you@example.com"                    # your Apple Account or Fastmail login
-password = "cmd:pass show switchboard/icloud-app-password"
+password = "cmd:/usr/bin/pass show switchboard/icloud-app-password"
 writable = false                                # true lets calendar_create_event add (never change) events
 
 # A self-hosted server on your own network.

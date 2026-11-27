@@ -1,7 +1,6 @@
 """Command modules for the broker: parsers, configuration-free operator commands, and the operator client.
 
-Operator commands run against an in-process operator interface instead of a socket. Authored, not run on the
-authoring host.
+Operator commands run against an in-process operator interface instead of a socket.
 """
 
 from __future__ import annotations
@@ -296,13 +295,16 @@ def test_operator_reconciles_an_uncertain_action_only_when_confirmed(
     assert _run(resolve) == 1
     assert "without a terminal" in capsys.readouterr().err
     record = journal.get(attempt.id)
-    assert record is not None and record.state == "uncertain"
+    assert record is not None
+    assert record.state == "uncertain"
 
     assert _run([*resolve, "--yes"]) == 0
     output = capsys.readouterr().out
-    assert "did NOT happen" in output and "reconciled_not_applied" in output
+    assert "did NOT happen" in output
+    assert "reconciled_not_applied" in output
     record = journal.get(attempt.id)
-    assert record is not None and record.resolution_note == "not in sent mail"
+    assert record is not None
+    assert record.resolution_note == "not in sent mail"
 
     assert _run([*resolve, "--yes"]) == 1
     assert "only uncertain actions are reconciled" in capsys.readouterr().err
@@ -347,11 +349,14 @@ def test_the_operator_client_sends_flat_fields_and_returns_the_result() -> None:
 
 
 def test_broker_serve_refuses_shared_accounts_unless_overridden(
-    make_app: AppFactory, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    make_app: AppFactory,
+    socket_dir: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
 ) -> None:
     table = {
-        "client_socket": str(tmp_path / "c.sock"),
-        "operator_socket": str(tmp_path / "o.sock"),
+        "client_socket": str(socket_dir / "c.sock"),
+        "operator_socket": str(socket_dir / "o.sock"),
         "client_uids": [123456],
         "operator_uids": [123456],
     }

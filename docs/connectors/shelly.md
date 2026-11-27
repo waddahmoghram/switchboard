@@ -5,10 +5,9 @@ It can additionally control two narrowly allowlisted generation 2 plug models, b
 low-power, nonessential lighting.
 It does not use a cloud account or another home-automation connector.
 
-**Validation status: all Shelly tests are authored and UNRUN.
-No device/account endpoint was contacted.
-No application launch, test collection or test execution was performed.
-Public documentation inspection and scoped static checks are not hardware validation or proof that a command works on your firmware.**
+**Validation status:** [Validation](../VALIDATION.md#current-status) records where these tests have run.
+No device or account endpoint has been contacted.
+**Passing synthetic tests are not hardware validation or proof that a command works on your firmware.**
 
 ## Scope and compatibility
 
@@ -198,7 +197,7 @@ There is no connector database upgrade or background network work at startup.
 The tradeoff is extra identity/authentication requests and no historical charts, change notifications or offline readings.
 A process crash after a device write can still leave the physical result uncertain; core approval claiming is not an exactly-once device guarantee.
 
-## Authored checks and evidence limits
+## Checks and evidence limits
 
 The synthetic cases in `tests/unit/test_shelly_*.py`, `tests/integration/test_shelly_flow.py`, and
 `tests/fixtures/shelly/` cover offline registration, opt-in/root wiring, strict configuration and schemas,
@@ -208,8 +207,7 @@ absolute payloads, acceptance/readback mismatches, transport uncertainty, approv
 changes, kill switch, denial policy and rate caps. Integration cases use the real core dispatcher and
 `FakeHttp`, not a listener or physical device.
 
-**These are UNRUN specifications, not passing tests.** Static analysis cannot verify firmware behavior,
-network/proxy behavior, credentials, the actual load, real readback timing or device safety.
+Passing synthetic tests cannot verify firmware behavior, network/proxy behavior, credentials, the actual load, real readback timing or device safety.
 
 ## Primary references
 

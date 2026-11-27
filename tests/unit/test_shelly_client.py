@@ -1,4 +1,4 @@
-"""Synthetic HTTP and Digest protocol cases. Authored only: UNRUN, no real device traffic."""
+"""Synthetic HTTP and Digest protocol cases; no real device traffic."""
 
 from __future__ import annotations
 
@@ -57,9 +57,12 @@ def test_unauthenticated_status_uses_only_fixed_full_frame_posts(
     assert device.status(0)["apower"] == 6.5
     assert methods(fake_http) == ["Shelly.GetDeviceInfo", "Switch.GetStatus"]
     for request in fake_http.requests:
-        assert request.url == BASE + "/rpc" and request.method == "POST"
-        assert request.follow_redirects is False and request.max_bytes == MAX_RESPONSE_BYTES
-        assert request.timeout == 5 and "authorization" not in request.headers
+        assert request.url == BASE + "/rpc"
+        assert request.method == "POST"
+        assert request.follow_redirects is False
+        assert request.max_bytes == MAX_RESPONSE_BYTES
+        assert request.timeout == 5
+        assert "authorization" not in request.headers
 
 
 @pytest.mark.parametrize("nonce", ["60dc59c6", "AAAAAABnSyntheticToken=="])
@@ -75,9 +78,12 @@ def test_old_and_new_nonce_formats_use_http_sha256_digest_not_websocket_dummy_va
     device.status(0)
     assert "authorization" not in fake_http.requests[1].headers
     fields = auth_fields(fake_http.requests[2])
-    assert fields["username"] == "admin" and fields["realm"] == DEVICE_ID
-    assert fields["nonce"] == nonce and fields["uri"] == "/rpc"
-    assert fields["algorithm"] == "SHA-256" and fields["qop"] == "auth"
+    assert fields["username"] == "admin"
+    assert fields["realm"] == DEVICE_ID
+    assert fields["nonce"] == nonce
+    assert fields["uri"] == "/rpc"
+    assert fields["algorithm"] == "SHA-256"
+    assert fields["qop"] == "auth"
     assert fields["nc"] == "00000001"
     ha1 = hashlib.sha256(f"admin:{DEVICE_ID}:{PASSWORD}".encode()).hexdigest()
     ha2 = hashlib.sha256(b"POST:/rpc").hexdigest()
@@ -123,7 +129,8 @@ def test_explicit_new_nonce_401_can_negotiate_once_without_an_unsigned_control(
         for request in fake_http.requests
         if json.loads(request.body or b"{}")["method"] == "Switch.Set"
     ]
-    assert len(writes) == 2 and writes[0].body == writes[1].body
+    assert len(writes) == 2
+    assert writes[0].body == writes[1].body
     assert [auth_fields(request)["nonce"] for request in writes] == ["old-nonce", "new-nonce"]
     assert [auth_fields(request)["nc"] for request in writes] == ["00000002", "00000001"]
 
@@ -156,7 +163,8 @@ def test_wrong_password_is_refused_after_one_authenticated_attempt(
     device.identify()
     with pytest.raises(ShellyError) as raised:
         device.status(0)
-    assert raised.value.code == "authentication_failed" and len(fake_http.requests) == 3
+    assert raised.value.code == "authentication_failed"
+    assert len(fake_http.requests) == 3
 
 
 def test_password_resolution_is_lazy_and_sanitizes_secret_resolver_errors(
@@ -179,7 +187,8 @@ def test_password_resolution_is_lazy_and_sanitizes_secret_resolver_errors(
         device.status(0)
     assert raised.value.code == "secret_unavailable"
     assert "synthetic-secret" not in str(raised.value)
-    assert len(calls) == 1 and len(fake_http.requests) == 2
+    assert len(calls) == 1
+    assert len(fake_http.requests) == 2
 
 
 @pytest.mark.parametrize("password", ["", "a" * 1025, "invalid\npassword", "invalid\x00password", "\ud800"])
@@ -263,7 +272,8 @@ def test_digest_supports_auth_among_qop_choices_and_opaque_tokens() -> None:
         'algorithm=SHA-256, opaque="abc123", charset=UTF-8'
     )
     parsed = parse_challenge(header, DEVICE_ID)
-    assert parsed.nonce == "60dc59c6" and parsed.opaque == "abc123"
+    assert parsed.nonce == "60dc59c6"
+    assert parsed.opaque == "abc123"
 
 
 @pytest.mark.parametrize("http_status", [301, 302, 307, 308])
@@ -307,8 +317,10 @@ def test_transport_errors_are_sanitized_and_not_retried(make_app: AppFactory, fa
     device.identify()
     with pytest.raises(ShellyError) as raised:
         device.status(0)
-    assert raised.value.code == "transport_error" and raised.value.uncertain is True
-    assert "synthetic-secret" not in str(raised.value) and len(fake_http.requests) == 2
+    assert raised.value.code == "transport_error"
+    assert raised.value.uncertain is True
+    assert "synthetic-secret" not in str(raised.value)
+    assert len(fake_http.requests) == 2
 
 
 @pytest.mark.parametrize(
@@ -334,7 +346,8 @@ def test_mismatched_or_ambiguous_frames_are_rejected(
     device.identify()
     with pytest.raises(ShellyError) as raised:
         device.status(0)
-    assert raised.value.code == "protocol_error" and "synthetic-secret" not in str(raised.value)
+    assert raised.value.code == "protocol_error"
+    assert "synthetic-secret" not in str(raised.value)
 
 
 @pytest.mark.parametrize(
@@ -370,7 +383,8 @@ def test_device_identity_must_match_before_a_switch_can_be_used(
     identity(fake_http, **overrides)
     with pytest.raises(ShellyError) as raised:
         device.identify()
-    assert raised.value.code == "identity_mismatch" and len(fake_http.requests) == 1
+    assert raised.value.code == "identity_mismatch"
+    assert len(fake_http.requests) == 1
 
 
 def test_client_cannot_issue_controls_before_identification_or_authentication(
@@ -384,7 +398,8 @@ def test_client_cannot_issue_controls_before_identification_or_authentication(
     device.identify()
     with pytest.raises(ShellyError) as raised:
         device.set_output(0, True)
-    assert raised.value.code == "authentication_required" and len(fake_http.requests) == 1
+    assert raised.value.code == "authentication_required"
+    assert len(fake_http.requests) == 1
 
 
 def test_client_refuses_hidden_components_and_arbitrary_operations(
@@ -414,7 +429,8 @@ def test_transport_response_url_changes_are_rejected_even_without_a_redirect_sta
     fake_http.add_handler("POST", BASE + "/rpc", moved, repeat=False)
     with pytest.raises(ShellyError) as raised:
         device.identify()
-    assert raised.value.code == "redirect_refused" and len(fake_http.requests) == 1
+    assert raised.value.code == "redirect_refused"
+    assert len(fake_http.requests) == 1
 
 
 def test_a_challenge_for_another_realm_never_resolves_or_sends_credentials(

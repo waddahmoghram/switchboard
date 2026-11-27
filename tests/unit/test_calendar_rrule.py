@@ -190,14 +190,16 @@ def test_unsupported_rules_warn_and_keep_only_the_first_instance(rule: str, part
     )
     assert [item.start for item in found] == [start]
     assert len(warnings) == 1
-    assert part in warnings[0] and "first instance" in warnings[0]
+    assert part in warnings[0]
+    assert "first instance" in warnings[0]
 
 
 def test_expansion_stops_at_the_instance_cap() -> None:
     start = _utc(2026, 1, 1, 9, 0)
     found, warnings = rrule.expand([_event("FREQ=DAILY", start)], _utc(2026, 1, 1), _utc(2030, 1, 1))
     assert len(found) == rrule.MAX_INSTANCES == 1000
-    assert len(warnings) == 1 and "1000" in warnings[0]
+    assert len(warnings) == 1
+    assert "1000" in warnings[0]
 
 
 def test_far_window_is_reached_without_walking_every_period() -> None:

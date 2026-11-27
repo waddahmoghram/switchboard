@@ -4,7 +4,7 @@ project(SwitchboardNative VERSION 0.1.0 LANGUAGES C CXX)
 include(GNUInstallDirs)
 include(CMakePackageConfigHelpers)
 
-option(SWITCHBOARD_BUILD_TESTS "Build authored native tests; running them is a separate step" OFF)
+option(SWITCHBOARD_BUILD_TESTS "Build the native tests; running them is a separate step" OFF)
 option(SWITCHBOARD_BUILD_FUZZERS "Build libFuzzer targets; requires LLVM Clang and SWITCHBOARD_SANITIZE" OFF)
 option(SWITCHBOARD_WARNINGS_AS_ERRORS "Treat compiler warnings in Switchboard targets as errors" OFF)
 option(SWITCHBOARD_COVERAGE "Instrument Switchboard targets for gcov-format line coverage" OFF)
@@ -74,6 +74,7 @@ find_package(Threads REQUIRED)
 
 add_library(switchboard_native SHARED
     src/foundation.cpp
+    src/audit.cpp
     src/core.cpp
     src/transport.cpp
     src/digest.cpp
@@ -86,8 +87,9 @@ add_library(switchboard_native SHARED
 )
 add_library(switchboard::native ALIAS switchboard_native)
 # Symbols keep the default visibility on purpose: the installed C++ interface (native.hpp) has no export
-# macros, and native/tests/broker.cpp links internal broker functions declared in src/broker_internal.hpp
-# from this shared library. Hiding symbols would require building such tests from an object library instead.
+# macros, and native/tests/broker.cpp, audit.cpp and contracts.cpp link internal functions declared in
+# src/broker_internal.hpp and src/audit_internal.hpp from this shared library. Hiding symbols would require
+# building such tests from an object library instead.
 target_include_directories(switchboard_native PUBLIC
     "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>"
     "$<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>"
@@ -127,6 +129,7 @@ if(SWITCHBOARD_BUILD_TESTS)
     enable_testing()
     set(SWITCHBOARD_TEST_SUITES
         core
+        audit
         home
         devices
         personal
@@ -150,6 +153,10 @@ if(SWITCHBOARD_BUILD_TESTS)
         add_test(NAME native-${suite} COMMAND native-test-${suite})
         set_tests_properties(native-${suite} PROPERTIES LABELS "native" TIMEOUT 300)
     endforeach()
+    if(TARGET native-test-alloc_faults)
+        # dladdr, used to recognize allocations inside the JSON library's destructor, needs libdl before glibc 2.34.
+        target_link_libraries(native-test-alloc_faults PRIVATE ${CMAKE_DL_LIBS})
+    endif()
     add_executable(native-test-c-client tests/c_client.c)
     target_link_libraries(native-test-c-client PRIVATE switchboard_native)
     set_target_properties(native-test-c-client PROPERTIES LINKER_LANGUAGE CXX)

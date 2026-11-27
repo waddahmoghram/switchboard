@@ -1,4 +1,4 @@
-"""Authored UNRUN measurement tests using only fake transport and substituted operating-system interfaces."""
+"""Measurement tests using only fake transport and substituted operating-system interfaces."""
 
 from __future__ import annotations
 
@@ -49,7 +49,8 @@ def app(make_app: AppFactory) -> App:
 
 def _check(app: App, name: str = "server") -> dict[str, Any]:
     service: MonitoringService = app.ctx.require("monitoring")
-    return service.check({"name": name})["check"]
+    check: dict[str, Any] = service.check({"name": name})["check"]
+    return check
 
 
 def test_endpoint_readiness_uses_only_the_configured_criterion(app: App, fake_http: FakeHttp) -> None:
@@ -62,9 +63,12 @@ def test_endpoint_readiness_uses_only_the_configured_criterion(app: App, fake_ht
     assert result["measurements"]["http_status"] == 200
     assert "unused secret" not in json.dumps(result)
     [request] = fake_http.requests
-    assert request.method == "GET" and request.url == ENDPOINT and request.body is None
+    assert request.method == "GET"
+    assert request.url == ENDPOINT
+    assert request.body is None
     assert request.follow_redirects is request.public_only is False
-    assert request.timeout == 5 and request.max_bytes == checks.MAX_RESPONSE_BYTES
+    assert request.timeout == 5
+    assert request.max_bytes == checks.MAX_RESPONSE_BYTES
 
 
 @pytest.mark.parametrize(
@@ -93,7 +97,8 @@ def test_http_response_is_not_automatically_readiness(
     result = _check(app)
     assert result["status"] in {"unhealthy", "error"}
     assert result["error"] == error
-    assert result["reachable"] is True and result["ready"] is readiness
+    assert result["reachable"] is True
+    assert result["ready"] is readiness
     assert len(fake_http.requests) == 1
     assert PRIVATE_MARKER not in json.dumps(result)
     assert all(PRIVATE_MARKER not in json.dumps(event.payload) for event in app.ctx.events.recent())
@@ -104,7 +109,8 @@ def test_http_200_without_a_criterion_is_reachability_only(make_app: AppFactory,
     fake_http.add("GET", ENDPOINT, body=PRIVATE_MARKER)
     result = _check(app)
     assert result["status"] == "reachable"
-    assert result["reachable"] is True and result["ready"] is None
+    assert result["reachable"] is True
+    assert result["ready"] is None
     assert result["report"] == {}
     assert PRIVATE_MARKER not in json.dumps(result)
 
@@ -121,8 +127,10 @@ def test_final_address_changes_are_refused_even_with_a_successful_body(app: App,
 def test_network_failures_are_distinct_from_reached_but_unready(app: App, fake_http: FakeHttp) -> None:
     fake_http.add_error("GET", ENDPOINT, PRIVATE_MARKER)
     result = _check(app)
-    assert result["status"] == "error" and result["error"] == "endpoint_unreachable"
-    assert result["reachable"] is False and result["ready"] is None
+    assert result["status"] == "error"
+    assert result["error"] == "endpoint_unreachable"
+    assert result["reachable"] is False
+    assert result["ready"] is None
     assert PRIVATE_MARKER not in json.dumps(result)
 
 
@@ -146,7 +154,8 @@ def test_secrets_are_resolved_only_at_request_time_and_never_appear_in_results(
         return TOKEN
 
     monkeypatch.setattr(app.ctx, "secret", secret)
-    assert calls == [] and fake_http.requests == []
+    assert calls == []
+    assert fake_http.requests == []
     fake_http.add("GET", ENDPOINT, body=f'{{"health":{{"ready":true}},"secret":"{TOKEN}"}}')
     result = _check(app)
     assert calls == ["env:SB_SYNTHETIC_MONITORING"]
@@ -162,7 +171,8 @@ def test_invalid_header_secrets_never_reach_the_transport(
     app = make_app(config({"server": endpoint(bearer_token="env:SB_SYNTHETIC_MONITORING")}))
     monkeypatch.setattr(app.ctx, "secret", lambda _reference: token)
     result = _check(app)
-    assert result["error"] == "secret_invalid" and result["reachable"] is None
+    assert result["error"] == "secret_invalid"
+    assert result["reachable"] is None
     assert fake_http.requests == []
 
 
@@ -202,7 +212,8 @@ def test_owned_completion_report_schema_with_synthetic_fixtures(
     raw = (Path(__file__).parents[1] / "fixtures" / "monitoring" / filename).read_bytes()
     monkeypatch.setattr(checks, "read_report", lambda _check: raw)
     result = _check(app, "backup")
-    assert result["status"] == status and result["error"] == error
+    assert result["status"] == status
+    assert result["error"] == error
     assert result["measurements"]["age_seconds"] == 3600
     assert result["measurements"]["duration_seconds"] == 3600
     assert result["report"]["finished_at"] == "2030-01-02T11:00:00.000000+00:00"
@@ -217,10 +228,12 @@ def test_backup_freshness_boundary_and_stale_failed_report_are_explicit(
     service: MonitoringService = app.ctx.require("monitoring")
     service.clock = lambda: NOW + timedelta(microseconds=1)
     stale = _check(app, "backup")
-    assert stale["status"] == "stale" and stale["error"] == "backup_report_stale"
+    assert stale["status"] == "stale"
+    assert stale["error"] == "backup_report_stale"
     monkeypatch.setattr(checks, "read_report", lambda _check: report(status="failed"))
     failed = _check(app, "backup")
-    assert failed["status"] == "stale" and failed["report"]["status"] == "failed"
+    assert failed["status"] == "stale"
+    assert failed["report"]["status"] == "failed"
 
 
 @pytest.mark.parametrize(
@@ -244,7 +257,8 @@ def test_report_dates_must_be_valid_aware_nonfuture_and_bounded(
 ) -> None:
     monkeypatch.setattr(checks, "read_report", lambda _check: report(finished_at=value))
     result = _check(app, "backup")
-    assert result["status"] == "error" and result["error"] == "report_time_invalid"
+    assert result["status"] == "error"
+    assert result["error"] == "report_time_invalid"
 
 
 def test_report_started_after_finished_is_invalid(app: App, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -281,7 +295,8 @@ def test_report_published_during_the_read_uses_the_post_read_clock(
 
     monkeypatch.setattr(checks, "read_report", completed_during_read)
     result = _check(app, "backup")
-    assert result["status"] == "healthy" and result["measurements"]["age_seconds"] == 0
+    assert result["status"] == "healthy"
+    assert result["measurements"]["age_seconds"] == 0
     assert result["checked_at"] == current[0].isoformat(timespec="microseconds")
 
 
@@ -290,7 +305,8 @@ def test_naive_observation_clocks_are_refused_before_any_measurement(app: App, f
     service.clock = lambda: NOW.replace(tzinfo=None)
     with pytest.raises(ToolError, match="timezone aware"):
         service.check({"name": "server"})
-    assert fake_http.requests == [] and app.ctx.events.recent() == []
+    assert fake_http.requests == []
+    assert app.ctx.events.recent() == []
 
 
 @pytest.mark.parametrize(
@@ -392,7 +408,8 @@ def test_unavailable_or_invalid_disk_data_is_never_zero_free_space(
 ) -> None:
     monkeypatch.setattr(checks, "disk_usage", lambda _path: usage)
     result = _check(app, "disk")
-    assert result["status"] == "error" and result["error"] == "disk_data_invalid"
+    assert result["status"] == "error"
+    assert result["error"] == "disk_data_invalid"
     assert result["measurements"] == {}
 
 
@@ -405,5 +422,6 @@ def test_disk_unavailability_is_explicit_and_sanitized(
 
     monkeypatch.setattr(checks, "disk_usage", unavailable)
     result = _check(app, "disk")
-    assert result["error"] == "disk_unavailable" and result["measurements"] == {}
+    assert result["error"] == "disk_unavailable"
+    assert result["measurements"] == {}
     assert PRIVATE_MARKER not in json.dumps(result)

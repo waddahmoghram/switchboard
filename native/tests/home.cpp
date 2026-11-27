@@ -16,7 +16,7 @@ namespace switchboard::test
 {
 namespace
 {
-// Authored UNRUN. These fixtures never use accounts or real transports.
+// These fixtures never use accounts or real transports.
 constexpr const char *TOKEN_NAME = "SWITCHBOARD_NATIVE_HOME_TEST_TOKEN";
 constexpr const char *BASE_URL = "https://ha.example";
 constexpr std::int64_t BASE_TIME = 1794433200LL;

@@ -486,11 +486,15 @@ class TokenStore:
             return None
         except OSError as exc:
             raise OAuthError(f"cannot open {path} (symbolic links are refused): {exc.strerror}") from exc
-        with os.fdopen(fd, "rb") as handle:
-            info = os.fstat(handle.fileno())
+        try:
+            # Check before fdopen, which refuses a directory without closing the descriptor.
+            info = os.fstat(fd)
             if not stat.S_ISREG(info.st_mode) or info.st_mode & 0o077:
                 raise OAuthError(f"{path} must be a regular file with mode 600; run: chmod 600 {path}")
-            raw = handle.read(_MAX_TOKEN_FILE_BYTES + 1)
+            with os.fdopen(fd, "rb", closefd=False) as handle:
+                raw = handle.read(_MAX_TOKEN_FILE_BYTES + 1)
+        finally:
+            os.close(fd)
         try:
             if len(raw) > _MAX_TOKEN_FILE_BYTES:
                 raise ValueError("token file is too large")
@@ -515,7 +519,7 @@ class TokenStore:
                 handle.write(json.dumps(tokens.to_json(), sort_keys=True).encode("utf-8"))
                 handle.flush()
                 os.fsync(handle.fileno())
-            os.replace(temporary, path)
+            os.replace(temporary, path)  # noqa: PTH105 - atomic publish of the fsynced file
         except BaseException:
             with contextlib.suppress(OSError):
                 temporary.unlink()

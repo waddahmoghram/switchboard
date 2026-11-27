@@ -164,6 +164,8 @@ def test_archive_row_bound_is_aggregate_across_datasets(monkeypatch: pytest.Monk
             ]
         ),
     ],
+    # The archives embed the time they were built, so byte-derived ids would differ between xdist workers.
+    ids=["not-a-zip", "unsupported", "unsafe-path", "ambiguous"],
 )
 def test_unsupported_unsafe_or_ambiguous_archives_are_refused(raw: bytes) -> None:
     with pytest.raises(ImportFormatError):

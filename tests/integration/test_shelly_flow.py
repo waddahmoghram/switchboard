@@ -1,4 +1,4 @@
-"""Core policy and approval integration with FakeHttp only. Every case is authored and UNRUN."""
+"""Core policy and approval integration with FakeHttp only."""
 
 from __future__ import annotations
 
@@ -41,10 +41,13 @@ def test_default_action_policy_queues_the_exact_absolute_control_without_network
     app = make_app(config(controls=True))
     args = action(app, on=False)
     outcome = app.call("shelly_switch_set", args, origin)
-    assert outcome.status == "pending" and outcome.approval_id is not None
+    assert outcome.status == "pending"
+    assert outcome.approval_id is not None
     stored = app.approvals.get(outcome.approval_id)
-    assert stored is not None and stored.args == args
-    assert "desk_lamp switch:0 OFF" in stored.summary and args["target"][:12] in stored.summary
+    assert stored is not None
+    assert stored.args == args
+    assert "desk_lamp switch:0 OFF" in stored.summary
+    assert args["target"][:12] in stored.summary
     assert fake_http.requests == []
 
 
@@ -53,18 +56,23 @@ def test_human_approval_executes_once_and_returns_acceptance_separately_from_obs
 ) -> None:
     app = make_app(config(controls=True))
     pending = app.call("shelly_switch_set", action(app), Origin.ASSISTANT)
-    assert pending.approval_id is not None and fake_http.requests == []
+    assert pending.approval_id is not None
+    assert fake_http.requests == []
     identity(fake_http)
     status(fake_http)
     accepted(fake_http)
     status(fake_http, output=True)
     result = app.dispatcher.approve(pending.approval_id)
-    assert result.status == "ok" and result.data["ok"] is True
-    assert result.data["command_accepted"] is True and result.data["observation"]["output"] is True
+    assert result.status == "ok"
+    assert result.data["ok"] is True
+    assert result.data["command_accepted"] is True
+    assert result.data["observation"]["output"] is True
     again = app.dispatcher.approve(pending.approval_id)
-    assert again.status == "error" and methods(fake_http).count("Switch.Set") == 1
+    assert again.status == "error"
+    assert methods(fake_http).count("Switch.Set") == 1
     stored = app.approvals.get(pending.approval_id)
-    assert stored is not None and stored.result["matches_requested"] is True
+    assert stored is not None
+    assert stored.result["matches_requested"] is True
 
 
 def test_uncertain_delivery_survives_in_the_approval_report_without_automatic_retry(
@@ -80,11 +88,14 @@ def test_uncertain_delivery_survives_in_the_approval_report_without_automatic_re
     fake_http.add_error("POST", BASE + "/rpc", "synthetic-timeout")
     status(fake_http, output=True)
     reported = app.dispatcher.approve(pending.approval_id)
-    assert reported.status == "ok" and reported.data["ok"] is False
+    assert reported.status == "ok"
+    assert reported.data["ok"] is False
     stored = app.approvals.get(pending.approval_id)
-    assert stored is not None and stored.status == "executed"
+    assert stored is not None
+    assert stored.status == "executed"
     assert stored.result["command_accepted"] is None
-    assert stored.result["status"] == "uncertain" and stored.result["matches_requested"] is True
+    assert stored.result["status"] == "uncertain"
+    assert stored.result["matches_requested"] is True
     assert app.dispatcher.approve(pending.approval_id).status == "error"
     assert methods(fake_http).count("Switch.Set") == 1
 
@@ -100,7 +111,8 @@ def test_read_only_configuration_cannot_acquire_a_control_by_policy_override(
         {"device": "desk_lamp", "switch_id": 0, "target": "0" * 64, "on": True},
         Origin.HUMAN,
     )
-    assert outcome.status == "invalid" and fake_http.requests == []
+    assert outcome.status == "invalid"
+    assert fake_http.requests == []
 
 
 def test_policy_deny_and_kill_switch_override_an_approved_control_configuration(
@@ -136,7 +148,8 @@ def test_bad_action_arguments_never_queue_an_approval_or_contact_a_device(
     app = make_app(config(controls=True))
     args = {**action(app), **changes}
     assert app.call("shelly_switch_set", args, Origin.ASSISTANT).status == "invalid"
-    assert app.approvals.list("pending") == [] and fake_http.requests == []
+    assert app.approvals.list("pending") == []
+    assert fake_http.requests == []
 
 
 @pytest.mark.parametrize(

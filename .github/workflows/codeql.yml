@@ -1,0 +1,56 @@
+# CodeQL code scanning for Switchboard.
+# Analyzes the workflows (actions), the Python package and tests (python), and the native C and C++ sources
+# (c-cpp), each without a build (build mode none), and uploads the results to code scanning.
+# Security: no secrets, no deployment, credentials not persisted after checkout, and every action pinned to a
+# full commit SHA (release tag in the trailing comment). Besides reading the repository, the token can read
+# workflow runs and write the security events that the upload needs. CodeQL's own caching keeps its defaults.
+name: CodeQL
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+  schedule:
+    - cron: "31 4 * * 1"
+
+permissions:
+  contents: read
+  security-events: write
+  actions: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  analyze:
+    name: Analyze (${{ matrix.language }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        language: [actions, python, c-cpp]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # Without a build, CodeQL infers include paths. Installing the library packages that the native jobs
+      # in ci.yml install puts their headers in the system include directories, where CodeQL can find them.
+      - name: Install native dependencies
+        if: matrix.language == 'c-cpp'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libcurl4-openssl-dev libsqlite3-dev nlohmann-json3-dev libssl-dev
+      - uses: github/codeql-action/init@915412ff23e8b7659517e607487dbeae018f2934 # v4.39.5
+        with:
+          languages: ${{ matrix.language }}
+          build-mode: none
+      - uses: github/codeql-action/analyze@915412ff23e8b7659517e607487dbeae018f2934 # v4.39.5
+        with:
+          category: /language:${{ matrix.language }}

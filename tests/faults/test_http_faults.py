@@ -1,4 +1,4 @@
-"""HTTP faults injected through a fault transport; authored and unrun.
+"""HTTP faults injected through a fault transport.
 
 Every request fails in one configured way: an ``HttpError`` (connection reset, timeout, response byte cap)
 or a response with a server error, a client error, or a malformed, truncated, non-object, non-UTF-8, or

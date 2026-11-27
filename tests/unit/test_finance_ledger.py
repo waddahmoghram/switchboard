@@ -63,7 +63,8 @@ def checking_ofx() -> bytes:
 
 
 def all_rows(runtime: FinanceRuntime, **filters: Any) -> list[dict[str, Any]]:
-    return runtime.transactions(TransactionQuery(limit=200, **filters))["transactions"]
+    rows: list[dict[str, Any]] = runtime.transactions(TransactionQuery(limit=200, **filters))["transactions"]
+    return rows
 
 
 def test_importing_the_same_file_twice_is_a_no_op(make_app: Callable[..., App]) -> None:
@@ -233,7 +234,8 @@ def test_accounts_are_masked_and_numbers_never_stored(make_app: Callable[..., Ap
     assert "123456789" not in dump
     assert "ECU-20261015-001" not in dump
     salt = app.ctx.db.kv_get("finance", "identity_salt")
-    assert salt is not None and len(salt) == 32
+    assert salt is not None
+    assert len(salt) == 32
 
 
 def test_masking_helpers() -> None:

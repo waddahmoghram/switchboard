@@ -9,7 +9,7 @@
 #include <optional>
 #include <string>
 
-// Shared helpers for the libFuzzer targets. Authored and unrun: no target has been built or fuzzed yet.
+// Shared helpers for the libFuzzer targets.
 namespace switchboard::fuzz
 {
 // Reports a violated invariant and aborts, so libFuzzer records the current input as a crash.

@@ -312,7 +312,7 @@ def _number(value: Any, label: str, minimum: float, maximum: float) -> float:
     return float(value)
 
 
-def _integer(value: Any, label: str, minimum: int, maximum: int) -> int:
+def _integer(value: object, label: str, minimum: int, maximum: int) -> int:
     if isinstance(value, bool) or not isinstance(value, int) or not minimum <= value <= maximum:
         raise ConfigError(f"{_LABEL} {label} must be a whole number from {minimum} to {maximum}")
     return value

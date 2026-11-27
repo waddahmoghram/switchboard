@@ -1,4 +1,4 @@
-# Continuous integration for Switchboard. Authored and unexecuted: no run of this workflow has been observed.
+# Continuous integration for Switchboard.
 # Security: read-only token, no secrets, no deployment, no caches, credentials not persisted after checkout,
 # and every action pinned to a full commit SHA (release tag in the trailing comment).
 name: CI
@@ -36,27 +36,42 @@ jobs:
       matrix:
         os: [ubuntu-24.04, macos-15]
         python: ["3.11", "3.12", "3.13"]
+        include:
+          - os: ubuntu-24.04
+            python: "3.12"
+            coverage: true
+    env:
+      # Only the coverage leg measures: both pytest passes add to one data file, and the last step gates it.
+      PYTEST_ADDOPTS: ${{ matrix.coverage && '--cov --cov-append --cov-report= --cov-fail-under=0' || '' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      # Annotations name failed pytest and CTest tests on the run; unlike job logs, they need no sign-in.
+      - name: Show failed tests as annotations
+        run: echo "::add-matcher::$GITHUB_WORKSPACE/.github/problem-matchers/tests.json"
       - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
         with:
           version: ${{ env.UV_VERSION }}
           python-version: ${{ matrix.python }}
           enable-cache: "false"
       - name: Install the project and pinned development tools
-        run: uv sync
+        run: uv sync --locked
       - name: Lint
         run: uv run --no-sync ruff check src tests
       - name: Check formatting
         run: uv run --no-sync ruff format --check src tests
       - name: Type-check
         run: uv run --no-sync mypy --config-file pyproject.toml src tests
+      # pytest-xdist (-n auto) runs the tests in parallel. A short --basetemp keeps test socket paths
+      # within the broker's 100-byte limit, which the default temporary directory on macOS exceeds.
       - name: Unit, contract, fault, and fuzz tests
-        run: uv run --no-sync pytest -m "not integration"
+        run: uv run --no-sync pytest -n auto --basetemp="$RUNNER_TEMP/unit" -m "not integration"
       - name: Integration tests (local servers and subprocesses only)
-        run: uv run --no-sync pytest -m integration
+        run: uv run --no-sync pytest -n auto --basetemp="$RUNNER_TEMP/integration" -m integration
+      - name: Line coverage of both passes against fail_under in pyproject.toml
+        if: matrix.coverage
+        run: uv run --no-sync coverage report
 
   contracts:
     name: Cross-engine contracts
@@ -66,6 +81,8 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      - name: Show failed tests as annotations
+        run: echo "::add-matcher::$GITHUB_WORKSPACE/.github/problem-matchers/tests.json"
       - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
         with:
           version: ${{ env.UV_VERSION }}
@@ -78,7 +95,7 @@ jobs:
             libcurl4-openssl-dev libsqlite3-dev nlohmann-json3-dev libssl-dev
       - name: Python engine against the shared fixtures
         run: |
-          uv sync
+          uv sync --locked
           uv run --no-sync pytest tests/contracts
       - name: Configure the native engine
         working-directory: native
@@ -117,6 +134,8 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      - name: Show failed tests as annotations
+        run: echo "::add-matcher::$GITHUB_WORKSPACE/.github/problem-matchers/tests.json"
       - name: Install native dependencies (Ubuntu)
         if: runner.os == 'Linux'
         run: |
@@ -170,6 +189,8 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      - name: Show failed tests as annotations
+        run: echo "::add-matcher::$GITHUB_WORKSPACE/.github/problem-matchers/tests.json"
       - name: Install native dependencies
         run: |
           sudo apt-get update
@@ -222,6 +243,13 @@ jobs:
           cargo --version
           cargo build --locked --all-targets --manifest-path native/clients/rust/Cargo.toml
           cargo test --locked --manifest-path native/clients/rust/Cargo.toml
+      # cargo-audit is built at an exact version from its published lockfile; Dependabot does not bump it.
+      # Each run fetches the current RustSec advisory database, so a new advisory can fail an unchanged commit.
+      - name: Audit Cargo.lock against the RustSec advisory database
+        run: |
+          cargo install cargo-audit --version 0.23.0 --locked
+          cargo audit --version
+          cargo audit --file native/clients/rust/Cargo.lock
 
   fuzz:
     name: Fuzz smoke (libFuzzer)
@@ -231,6 +259,8 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      - name: Show failed tests as annotations
+        run: echo "::add-matcher::$GITHUB_WORKSPACE/.github/problem-matchers/tests.json"
       - name: Install native dependencies and the LLVM fuzzing runtime
         run: |
           sudo apt-get update

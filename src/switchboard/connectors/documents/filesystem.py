@@ -167,22 +167,26 @@ class LiveCollection:
         try:
             flags = os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK
             descriptor = os.open(name, flags, dir_fd=self.descriptor)
-            with os.fdopen(descriptor, "rb") as handle:
-                before = os.fstat(handle.fileno())
+            try:
+                # Check before fdopen, which refuses a directory without closing the descriptor.
+                before = os.fstat(descriptor)
                 _check_file(before, self.settings.max_file_bytes)
-                if before.st_size >= budget.remaining:
-                    raise SearchBudgetExhausted
-                maximum = min(self.settings.max_file_bytes + 1, budget.remaining)
-                raw = handle.read(maximum)
-                budget.consume(len(raw))
-                if len(raw) > self.settings.max_file_bytes:
-                    raise NoteUnavailable("too_large")
-                if len(raw) == maximum:
-                    raise SearchBudgetExhausted
-                after = os.fstat(handle.fileno())
-                _check_file(after, self.settings.max_file_bytes)
-                if _fingerprint(before) != _fingerprint(after) or len(raw) != after.st_size:
-                    raise NoteUnavailable("changed")
+                with os.fdopen(descriptor, "rb", closefd=False) as handle:
+                    if before.st_size >= budget.remaining:
+                        raise SearchBudgetExhausted
+                    maximum = min(self.settings.max_file_bytes + 1, budget.remaining)
+                    raw = handle.read(maximum)
+                    budget.consume(len(raw))
+                    if len(raw) > self.settings.max_file_bytes:
+                        raise NoteUnavailable("too_large")
+                    if len(raw) == maximum:
+                        raise SearchBudgetExhausted
+                    after = os.fstat(handle.fileno())
+                    _check_file(after, self.settings.max_file_bytes)
+                    if _fingerprint(before) != _fingerprint(after) or len(raw) != after.st_size:
+                        raise NoteUnavailable("changed")
+            finally:
+                os.close(descriptor)
             current = self.inspect(name)
             if _fingerprint(current) != _fingerprint(after):
                 raise NoteUnavailable("changed")

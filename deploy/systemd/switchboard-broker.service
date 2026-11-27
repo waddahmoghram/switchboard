@@ -1,7 +1,7 @@
 # Switchboard broker: owns the configuration, credentials, database, and audit log under a dedicated
 # account. The assistant's account reaches only the client socket and your account only the operator
 # socket; see docs/ISOLATION.md for the accounts, groups, and configuration this unit expects.
-# Install as /etc/systemd/system/switchboard-broker.service. Authored, not yet started on any host.
+# Install as /etc/systemd/system/switchboard-broker.service.
 
 [Unit]
 Description=Switchboard broker (assistant and operator sockets)

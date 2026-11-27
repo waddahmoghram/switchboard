@@ -1,0 +1,1161 @@
+{
+  "format": "switchboard-contract-cases",
+  "version": 1,
+  "contract_revision": 2,
+  "area": "audit-redaction",
+  "summary": "What audit redaction keeps of a value: the credential-key rules, the identifier exemption, every value pattern in order, and hash_only. Checked through each engine's redaction function; no engine instance is started. Provider-shaped samples break their prefix with one \\u escape so that repository secret scanners skip them; the parsed strings are unchanged.",
+  "cases": [
+    {
+      "id": "credential-key-substrings",
+      "summary": "A key containing pass, secret, token, authorization or authorisation, cookie, api key, credential or private key (with _, - or nothing between two words) anywhere, in any case, has its value replaced by [redacted], whatever the value's type.",
+      "steps": [
+        {
+          "op": "redact",
+          "value": {
+            "password": "hunter2",
+            "Passwd": 42,
+            "user_pass": null,
+            "SECRET": true,
+            "client_secret": {"value": "x"},
+            "access_token": ["a", "b"],
+            "Authorization": "Basic abc123",
+            "authorisation": "x",
+            "Set-Cookie": "sid=1",
+            "api_key": "x",
+            "apiKey": "x",
+            "API-KEY": "x",
+            "credentials": "x",
+            "private_key": "x",
+            "privatekey": "x",
+            "Private-Key": "x"
+          },
+          "expect": {
+            "result": {
+              "password": "[redacted]",
+              "Passwd": "[redacted]",
+              "user_pass": "[redacted]",
+              "SECRET": "[redacted]",
+              "client_secret": "[redacted]",
+              "access_token": "[redacted]",
+              "Authorization": "[redacted]",
+              "authorisation": "[redacted]",
+              "Set-Cookie": "[redacted]",
+              "api_key": "[redacted]",
+              "apiKey": "[redacted]",
+              "API-KEY": "[redacted]",
+              "credentials": "[redacted]",
+              "private_key": "[redacted]",
+              "privatekey": "[redacted]",
+              "Private-Key": "[redacted]"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": "credential-substring-surprises",
+      "summary": "Credential words match inside longer keys, so these ordinary names are redacted too; keyword is kept because key alone is not a credential word.",
+      "steps": [
+        {
+          "op": "redact",
+          "value": {
+            "secretary": "x",
+            "compass": "x",
+            "bypass": "x",
+            "passive": "x",
+            "tokens": "x",
+            "Passwort": "x",
+            "cookies_enabled": "x",
+            "passenger": "x",
+            "keyword": "kept"
+          },
+          "expect": {
+            "result": {
+              "secretary": "[redacted]",
+              "compass": "[redacted]",
+              "bypass": "[redacted]",
+              "passive": "[redacted]",
+              "tokens": "[redacted]",
+              "Passwort": "[redacted]",
+              "cookies_enabled": "[redacted]",
+              "passenger": "[redacted]",
+              "keyword": "kept"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": "sensitive-segments",
+      "summary": "Short names (otp, totp, hotp, mfa, 2fa, pin, session, private, auth, cvv, cvc) redact as whole key segments: keys split at separators, at camelCase humps and after acronyms, and compare in lower case.",
+      "steps": [
+        {
+          "op": "redact",
+          "value": {
+            "pin": "1234",
+            "card_pin": "1234",
+            "userPin": "1234",
+            "PIN": "1234",
+            "otp": "1234",
+            "totpCode": "1234",
+            "hotp_counter": "1234",
+            "mfa_code": "1234",
+            "MFAEnabled": "1234",
+            "2fa": "1234",
+            "session": "1234",
+            "session_id": "1234",
+            "private": "1234",
+            "auth": "1234",
+            "basic_auth": "1234",
+            "OAuth": "1234",
+            "AUTHServer": "1234",
+            "cvv": "1234",
+            "card-cvc": "1234",
+            "PIN_12": "1234",
+            "pin_2": "1234",
+            "MFA2x": "1234"
+          },
+          "expect": {
+            "result": {
+              "pin": "[redacted]",
+              "card_pin": "[redacted]",
+              "userPin": "[redacted]",
+              "PIN": "[redacted]",
+              "otp": "[redacted]",
+              "totpCode": "[redacted]",
+              "hotp_counter": "[redacted]",
+              "mfa_code": "[redacted]",
+              "MFAEnabled": "[redacted]",
+              "2fa": "[redacted]",
+              "session": "[redacted]",
+              "session_id": "[redacted]",
+              "private": "[redacted]",
+              "auth": "[redacted]",
+              "basic_auth": "[redacted]",
+              "OAuth": "[redacted]",
+              "AUTHServer": "[redacted]",
+              "cvv": "[redacted]",
+              "card-cvc": "[redacted]",
+              "PIN_12": "[redacted]",
+              "pin_2": "[redacted]",
+              "MFA2x": "[redacted]"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": "segment-near-misses",
+      "summary": "Keys that only contain or extend a short name are kept.",
+      "steps": [
+        {
+          "op": "redact",
+          "value": {
+            "pinned": "kept",
+            "spinner": "kept",
+            "mapping": "kept",
+            "shipping": "kept",
+            "opinion": "kept",
+            "sessions": "kept",
+            "author": "kept",
+            "authority": "kept",
+            "oauth_provider": "kept",
+            "privacy": "kept",
+            "hotpink": "kept",
+            "hotpot": "kept",
+            "topic": "kept"
+          },
+          "expect": {
+            "result": {
+              "pinned": "kept",
+              "spinner": "kept",
+              "mapping": "kept",
+              "shipping": "kept",
+              "opinion": "kept",
+              "sessions": "kept",
+              "author": "kept",
+              "authority": "kept",
+              "oauth_provider": "kept",
+              "privacy": "kept",
+              "hotpink": "kept",
+              "hotpot": "kept",
+              "topic": "kept"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": "segment-digit-and-acronym-quirks",
+      "summary": "Segments follow [A-Z]+[0-9]*(?![a-z])|[A-Z]?[a-z0-9]+ with its backtracking: PINs is PI and Ns, 2FA is 2 and FA, digits join the letters before them (MFA2, Pin2), and PIN12def is PIN1 and 2def.",
+      "steps": [
+        {
+          "op": "redact",
+          "value": {
+            "PINs": "kept",
+            "2FA": "kept",
+            "MFA2": "kept",
+            "MFA2X": "kept",
+            "PIN12def": "kept",
+            "Pin2": "kept",
+            "AUTH2": "kept",
+            "HTTPServer": "kept",
+            "mfa2": "kept"
+          },
+          "expect": {
+            "result": {
+              "PINs": "kept",
+              "2FA": "kept",
+              "MFA2": "kept",
+              "MFA2X": "kept",
+              "PIN12def": "kept",
+              "Pin2": "kept",
+              "AUTH2": "kept",
+              "HTTPServer": "kept",
+              "mfa2": "kept"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": "identifier-keys-keep-long-runs",
+      "summary": "When a key's last segment names an identifier or digest, its value keeps long hexadecimal and base64url runs; other keys lose them.",
+      "steps": [
+        {
+          "op": "redact",
+          "value": {
+            "id": "51a9cb1edd4430ebc2b9bf14dc736934",
+            "action": "51a9cb1edd4430ebc2b9bf14dc736934",
+            "manifest_sha256": "51a9cb1edd4430ebc2b9bf14dc73693481ccba52df9393befae4fb221a7beae3",
+            "audit_head": "51a9cb1edd4430ebc2b9bf14dc73693481ccba52df9393befae4fb221a7beae3",
+            "commit_hash": "da39a3ee5e6b4b0d3255bfef95601890afd80709",
+            "userId": "P82y2v9MqP87-YgS1jKHuyzzeQqYd48NJ7ksfA0yj34",
+            "draft_ids": ["51a9cb1edd4430ebc2b9bf14dc736934", "P82y2v9MqP87-YgS1jKHuyzzeQqYd48NJ7ksfA0yj34"],
+            "ETAG": "51a9cb1edd4430ebc2b9bf14dc736934",
+            "approval_binding": "51a9cb1edd4430ebc2b9bf14dc73693481ccba52df9393befae4fb221a7beae3",
+            "target": "P82y2v9MqP87-YgS1jKHuyzzeQqYd48NJ7ksfA0yj34"
+          },
+          "expect": {
+            "result": {
+              "id": "51a9cb1edd4430ebc2b9bf14dc736934",
+              "action": "51a9cb1edd4430ebc2b9bf14dc736934",
+              "manifest_sha256": "51a9cb1edd4430ebc2b9bf14dc73693481ccba52df9393befae4fb221a7beae3",
+              "audit_head": "51a9cb1edd4430ebc2b9bf14dc73693481ccba52df9393befae4fb221a7beae3",
+              "commit_hash": "da39a3ee5e6b4b0d3255bfef95601890afd80709",
+              "userId": "P82y2v9MqP87-YgS1jKHuyzzeQqYd48NJ7ksfA0yj34",
+              "draft_ids": ["51a9cb1edd4430ebc2b9bf14dc736934", "P82y2v9MqP87-YgS1jKHuyzzeQqYd48NJ7ksfA0yj34"],
+              "ETAG": "51a9cb1edd4430ebc2b9bf14dc736934",
+              "approval_binding": "51a9cb1edd4430ebc2b9bf14dc73693481ccba52df9393befae4fb221a7beae3",
+              "target": "P82y2v9MqP87-YgS1jKHuyzzeQqYd48NJ7ksfA0yj34"
+            }
+          }
+        },
+        {
+          "op": "redact",
+          "value": {"note": "51a9cb1edd4430ebc2b9bf14dc736934", "summary": "P82y2v9MqP87-YgS1jKHuyzzeQqYd48NJ7ksfA0yj34"},
+          "expect": {"result": {"note": "[redacted:hex]", "summary": "[redacted:base64]"}}
+        }
+      ]
+    },
+    {
+      "id": "identifier-near-misses",
+      "summary": "Only a whole last segment counts: ETag splits into E and Tag, userid is one word, and ids_count and hash_value end in other words. Ids, Id and messageID end in identifier segments.",
+      "steps": [
+        {
+          "op": "redact",
+          "value": {
+            "ETag": "51a9cb1edd4430ebc2b9bf14dc736934",
+            "userid": "51a9cb1edd4430ebc2b9bf14dc736934",
+            "ids_count": "51a9cb1edd4430ebc2b9bf14dc736934",
+            "hash_value": "51a9cb1edd4430ebc2b9bf14dc736934",
+            "Ids": "51a9cb1edd4430ebc2b9bf14dc736934",
+            "Id": "51a9cb1edd4430ebc2b9bf14dc736934",
+            "messageID": "51a9cb1edd4430ebc2b9bf14dc736934"
+          },
+          "expect": {
+            "result": {
+              "ETag": "[redacted:hex]",
+              "userid": "[redacted:hex]",
+              "ids_count": "[redacted:hex]",
+              "hash_value": "[redacted:hex]",
+              "Ids": "51a9cb1edd4430ebc2b9bf14dc736934",
+              "Id": "51a9cb1edd4430ebc2b9bf14dc736934",
+              "messageID": "51a9cb1edd4430ebc2b9bf14dc736934"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": "identifier-flag-through-arrays-and-nested-objects",
+      "summary": "Arrays inherit the identifier exemption from their key; every key of a nested object decides it afresh.",
+      "steps": [
+        {
+          "op": "redact",
+          "value": {
+            "ids": ["51a9cb1edd4430ebc2b9bf14dc736934", ["P82y2v9MqP87-YgS1jKHuyzzeQqYd48NJ7ksfA0yj34"]],
+            "action_ids": [{"value": "51a9cb1edd4430ebc2b9bf14dc736934"}, {"id": "51a9cb1edd4430ebc2b9bf14dc736934"}],
+            "id": {"note": "51a9cb1edd4430ebc2b9bf14dc736934"},
+            "notes": ["51a9cb1edd4430ebc2b9bf14dc736934"]
+          },
+          "expect": {
+            "result": {
+              "ids": ["51a9cb1edd4430ebc2b9bf14dc736934", ["P82y2v9MqP87-YgS1jKHuyzzeQqYd48NJ7ksfA0yj34"]],
+              "action_ids": [{"value": "[redacted:hex]"}, {"id": "51a9cb1edd4430ebc2b9bf14dc736934"}],
+              "id": {"note": "[redacted:hex]"},
+              "notes": ["[redacted:hex]"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": "identifier-keys-still-apply-value-patterns",
+      "summary": "The identifier exemption covers only the two random-run rules; every other value pattern still applies.",
+      "steps": [
+        {
+          "op": "redact",
+          "value": {
+            "draft_id": "gh\u0070_A1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6Q7r8",
+            "message_id": "<P82y2v9MqP87-YgS1jKHuyzzeQqYd48NJ7ksfA0yj34@example.com>",
+            "note": "<P82y2v9MqP87-YgS1jKHuyzzeQqYd48NJ7ksfA0yj34@example.com>",
+            "target": "https://bob:hunter2@example.com/inbox",
+            "id": "ey\u004ahbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0In0.c2lnbmF0dXJl",
+            "hash": "password=hunter2"
+          },
+          "expect": {
+            "result": {
+              "draft_id": "[redacted:github-token]",
+              "message_id": "<P82y2v9MqP87-YgS1jKHuyzzeQqYd48NJ7ksfA0yj34@example.com>",
+              "note": "<[redacted:base64]@example.com>",
+              "target": "https://bob:[redacted]@example.com/inbox",
+              "id": "[redacted:jwt]",
+              "hash": "password=[redacted]"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": "private-key-blocks",
+      "summary": "A private key block is replaced from its BEGIN line through the first END line naming any private key type, or to the end of the text when none follows; the markers are case-sensitive.",
+      "steps": [
+        {
+          "op": "redact",
+          "value": "-----BEGIN RSA PRIVATE\u0020KEY-----\nMIIEowIBAAKCAQEA\n-----END RSA PRIVATE KEY-----\nafter",
+          "expect": {"result": "[redacted:private-key]\nafter"}
+        },
+        {
+          "op": "redact",
+          "value": "key:\n-----BEGIN OPENSSH PRIVATE\u0020KEY-----\nb3BlbnNzaC1rZXktdjEAAAAA",
+          "expect": {"result": "key:\n[redacted:private-key]"}
+        },
+        {
+          "op": "redact",
+          "value": "-----BEGIN PGP PRIVATE\u0020KEY BLOCK-----\nlQOYBF\n-----END PGP PRIVATE KEY BLOCK-----",
+          "expect": {"result": "[redacted:private-key]"}
+        },
+        {
+          "op": "redact",
+          "value": "-----BEGIN EC PRIVATE\u0020KEY-----\nMHcCAQEE\n-----END RSA PRIVATE KEY----- tail",
+          "expect": {"result": "[redacted:private-key] tail"}
+        },
+        {
+          "op": "redact",
+          "value": "-----BEGIN PRIVATE\u0020KEY-----\nA\n-----END PRIVATE KEY-----\nmiddle\n-----BEGIN PRIVATE\u0020KEY-----\nB\n-----END PRIVATE KEY-----",
+          "expect": {"result": "[redacted:private-key]\nmiddle\n[redacted:private-key]"}
+        },
+        {"op": "redact", "value": "------BEGIN PRIVATE\u0020KEY-----\nA\n-----END PRIVATE KEY-----", "expect": {"result": "-[redacted:private-key]"}},
+        {"op": "redact", "value": "-----BEGIN PRIVATE\u0020KEY-----\nA\n-----end private key-----\nafter", "expect": {"result": "[redacted:private-key]"}},
+        {
+          "op": "redact",
+          "value": [
+            "-----BEGIN PUBLIC KEY-----\nMFkw\n-----END PUBLIC KEY-----",
+            "----BEGIN PRIVATE KEY-----\nA",
+            "-----BEGIN RSA-PRIVATE\u0020KEY-----\nA",
+            "-----begin private\u0020key-----\nA",
+            "-----BEGIN PRIVATE\u0020KEY----\nA"
+          ],
+          "expect": {
+            "result": [
+              "-----BEGIN PUBLIC KEY-----\nMFkw\n-----END PUBLIC KEY-----",
+              "----BEGIN PRIVATE KEY-----\nA",
+              "-----BEGIN RSA-PRIVATE\u0020KEY-----\nA",
+              "-----begin private\u0020key-----\nA",
+              "-----BEGIN PRIVATE\u0020KEY----\nA"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "json-web-tokens",
+      "summary": "A JSON web token is a base64url header and payload that both start with eyJ, then a possibly empty signature; it must not follow a base64url character.",
+      "steps": [
+        {"op": "redact", "value": "jwt ey\u004ahbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0In0.c2lnbmF0dXJl end", "expect": {"result": "jwt [redacted:jwt] end"}},
+        {"op": "redact", "value": "ey\u004ahbGciOiJub25lIn0.eyJzdWIiOiIxIn0.", "expect": {"result": "[redacted:jwt]"}},
+        {"op": "redact", "value": "(ey\u004ahbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0In0.c2lnbmF0dXJl)", "expect": {"result": "([redacted:jwt])"}},
+        {
+          "op": "redact",
+          "value": [
+            "xey\u004ahbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0In0.c2lnbmF0dXJl",
+            "-ey\u004ahbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0In0.c2lnbmF0dXJl",
+            "eyJhbGciOiJIUzI1NiJ9.abc.def",
+            "ey\u004ahbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0In0",
+            "eyJ.eyJ.sig"
+          ],
+          "expect": {
+            "result": [
+              "xey\u004ahbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0In0.c2lnbmF0dXJl",
+              "-ey\u004ahbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0In0.c2lnbmF0dXJl",
+              "eyJhbGciOiJIUzI1NiJ9.abc.def",
+              "ey\u004ahbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0In0",
+              "eyJ.eyJ.sig"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "web-address-passwords",
+      "summary": "A web address keeps its scheme, user and host but loses the password before @; the scheme starts at a word boundary and has at most 31 characters.",
+      "steps": [
+        {"op": "redact", "value": "postgres://app:hunter2@db.internal:5432/app", "expect": {"result": "postgres://app:[redacted]@db.internal:5432/app"}},
+        {"op": "redact", "value": "HTTPS://Bob:pa:ss@Host/x", "expect": {"result": "HTTPS://Bob:[redacted]@Host/x"}},
+        {"op": "redact", "value": "redis://:hunter2@cache:6379", "expect": {"result": "redis://:[redacted]@cache:6379"}},
+        {"op": "redact", "value": "git+ssh://git:hunter2@example.com/repo.git", "expect": {"result": "git+ssh://git:[redacted]@example.com/repo.git"}},
+        {"op": "redact", "value": "abcdefghijklmnopqrstuvwxyzabcde://u:pw@h", "expect": {"result": "abcdefghijklmnopqrstuvwxyzabcde://u:[redacted]@h"}},
+        {
+          "op": "redact",
+          "value": [
+            "https://bob@example.com",
+            "https://bob:@example.com",
+            "_http://u:pw@h",
+            "9http://u:pw@h",
+            "https://bob smith:pw@host",
+            "https://bob:pa/ss@host",
+            "abcdefghijklmnopqrstuvwxyzabcdef://u:pw@h"
+          ],
+          "expect": {
+            "result": [
+              "https://bob@example.com",
+              "https://bob:@example.com",
+              "_http://u:pw@h",
+              "9http://u:pw@h",
+              "https://bob smith:pw@host",
+              "https://bob:pa/ss@host",
+              "abcdefghijklmnopqrstuvwxyzabcdef://u:pw@h"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "credential-query-parameters",
+      "summary": "A credential-named parameter after ?, & or ; loses its value up to &, #, whitespace, a quote, < or >; names compare without case.",
+      "steps": [
+        {
+          "op": "redact",
+          "value": "https://example.com/cb?code=abc&access_token=xyz123&state=ok",
+          "expect": {"result": "https://example.com/cb?code=abc&access_token=[redacted]&state=ok"}
+        },
+        {
+          "op": "redact",
+          "value": "?access_token=v1&refresh_token=v1&id_token=v1&token=v1&api_key=v1&apikey=v1&key=v1&secret=v1&client_secret=v1&password=v1&passwd=v1&auth=v1&sig=v1&signature=v1",
+          "expect": {
+            "result": "?access_token=[redacted]&refresh_token=[redacted]&id_token=[redacted]&token=[redacted]&api_key=[redacted]&apikey=[redacted]&key=[redacted]&secret=[redacted]&client_secret=[redacted]&password=[redacted]&passwd=[redacted]&auth=[redacted]&sig=[redacted]&signature=[redacted]"
+          }
+        },
+        {
+          "op": "redact",
+          "value": "https://bucket.example.com/f?X-Amz-Credential=AKID%2F20250101&X-Amz-Signature=abc123&X-Amz-Security-Token=tok123&X-Goog-Signature=abc123&X-Goog-Credential=svc%40p",
+          "expect": {
+            "result": "https://bucket.example.com/f?X-Amz-Credential=[redacted]&X-Amz-Signature=[redacted]&X-Amz-Security-Token=[redacted]&X-Goog-Signature=[redacted]&X-Goog-Credential=[redacted]"
+          }
+        },
+        {"op": "redact", "value": "https://example.com/p;sig=abc123", "expect": {"result": "https://example.com/p;sig=[redacted]"}},
+        {"op": "redact", "value": "?a=1&Token=abc", "expect": {"result": "?a=1&Token=[redacted]"}},
+        {
+          "op": "redact",
+          "value": ["?sig=abc#frag", "?sig=abc def", "?sig=abc\"x", "?key=abc'x", "?key=abc<x", "?key=abc>x"],
+          "expect": {
+            "result": ["?sig=[redacted]#frag", "?sig=[redacted] def", "?sig=[redacted]\"x", "?key=[redacted]'x", "?key=[redacted]<x", "?key=[redacted]>x"]
+          }
+        },
+        {
+          "op": "redact",
+          "value": ["?tokens=5", "?monkey=1", "?token=", "?key=&next=1"],
+          "expect": {"result": ["?tokens=5", "?monkey=1", "?token=", "?key=&next=1"]}
+        }
+      ]
+    },
+    {
+      "id": "labeled-assignments",
+      "summary": "A credential label not preceded by a letter or digit, then an optional quote and : or = with spaces or tabs around it, loses its value: a whole quoted string keeps its quotes; otherwise the value runs to whitespace, a quote, a comma, ;, &, < or >. The value must start on the label's line.",
+      "steps": [
+        {"op": "redact", "value": "Your password: hunter2 (change it)", "expect": {"result": "Your password: [redacted] (change it)"}},
+        {"op": "redact", "value": "Your OTP: 123456, PIN = 0000", "expect": {"result": "Your OTP: [redacted], PIN = [redacted]"}},
+        {
+          "op": "redact",
+          "value": [
+            "passwd=a1",
+            "passphrase=a1",
+            "passcode=a1",
+            "secret=a1",
+            "client_secret=a1",
+            "client-secret=a1",
+            "clientsecret=a1",
+            "api_key=a1",
+            "api-key=a1",
+            "apikey=a1",
+            "access_token=a1",
+            "access-token=a1",
+            "accesstoken=a1",
+            "refresh_token=a1",
+            "auth_token=a1",
+            "authtoken=a1",
+            "token=a1",
+            "otp=a1",
+            "pin=a1"
+          ],
+          "expect": {
+            "result": [
+              "passwd=[redacted]",
+              "passphrase=[redacted]",
+              "passcode=[redacted]",
+              "secret=[redacted]",
+              "client_secret=[redacted]",
+              "client-secret=[redacted]",
+              "clientsecret=[redacted]",
+              "api_key=[redacted]",
+              "api-key=[redacted]",
+              "apikey=[redacted]",
+              "access_token=[redacted]",
+              "access-token=[redacted]",
+              "accesstoken=[redacted]",
+              "refresh_token=[redacted]",
+              "auth_token=[redacted]",
+              "authtoken=[redacted]",
+              "token=[redacted]",
+              "otp=[redacted]",
+              "pin=[redacted]"
+            ]
+          }
+        },
+        {
+          "op": "redact",
+          "value": "{\"password\": \"hunter2\", \"pin\": '1234'}",
+          "expect": {"result": "{\"password\": \"[redacted]\", \"pin\": '[redacted]'}"}
+        },
+        {"op": "redact", "value": "password=\"\"", "expect": {"result": "password=\"[redacted]\""}},
+        {"op": "redact", "value": "password=\"abc", "expect": {"result": "password=[redacted]"}},
+        {"op": "redact", "value": "password=\"", "expect": {"result": "password=\""}},
+        {
+          "op": "redact",
+          "value": ["password=abc,def", "password=abc;def", "password=abc&def", "password=abc<def", "password=abc'def", "password=abc\u001fdef"],
+          "expect": {
+            "result": [
+              "password=[redacted],def",
+              "password=[redacted];def",
+              "password=[redacted]&def",
+              "password=[redacted]<def",
+              "password=[redacted]'def",
+              "password=[redacted]\u001fdef"
+            ]
+          }
+        },
+        {
+          "op": "redact",
+          "value": ["my_password=x", "mypassword=x", "xaccess_token=1"],
+          "expect": {"result": ["my_password=[redacted]", "mypassword=x", "xaccess_token=[redacted]"]}
+        },
+        {"op": "redact", "value": "password \t=\t hunter2", "expect": {"result": "password \t=\t [redacted]"}},
+        {
+          "op": "redact",
+          "value": ["password:\nhunter2", "passwords=1", "pinned: yes", "opinion: fine", "spin=3", "tokens=5", "otp-code: 1"],
+          "expect": {"result": ["password:\nhunter2", "passwords=1", "pinned: yes", "opinion: fine", "spin=3", "tokens=5", "otp-code: 1"]}
+        }
+      ]
+    },
+    {
+      "id": "authorization-and-cookie-headers",
+      "summary": "An Authorization, Proxy-Authorization, X-Api-Key or X-Auth-Token header, or a Cookie or Set-Cookie header whose value starts with name=, keeps its name, quoting and scheme and loses its value up to the closing quote or the line end.",
+      "steps": [
+        {"op": "redact", "value": "Authorization: Bearer abc.DEF-123_456~789+xyz/==", "expect": {"result": "Authorization: Bearer [redacted]"}},
+        {
+          "op": "redact",
+          "value": "curl -H 'Authorization: Basic abc123' https://example.com",
+          "expect": {"result": "curl -H 'Authorization: Basic [redacted]' https://example.com"}
+        },
+        {"op": "redact", "value": "{\"Authorization\": \"Bearer abc123\"}", "expect": {"result": "{\"Authorization\": \"Bearer [redacted]\"}"}},
+        {
+          "op": "redact",
+          "value": ["Proxy-Authorization: Basic abc123", "X-Api-Key: 9f8e7d6c5b4a", "X-Auth-Token: abc123", "x-api-key:abc", "X-Authorization: abc"],
+          "expect": {
+            "result": [
+              "Proxy-Authorization: Basic [redacted]",
+              "X-Api-Key: [redacted]",
+              "X-Auth-Token: [redacted]",
+              "x-api-key:[redacted]",
+              "X-Authorization: [redacted]"
+            ]
+          }
+        },
+        {
+          "op": "redact",
+          "value": [
+            "Authorization: Digest username=\"bob\", response=\"6629fae4\"",
+            "Authorization: Negotiate YIIGhgYGKwYBBQUC",
+            "Authorization: token abc123",
+            "Authorization: abc123",
+            "Authorization: Bearer",
+            "Authorization: Basic\tabc123"
+          ],
+          "expect": {
+            "result": [
+              "Authorization: Digest [redacted]",
+              "Authorization: Negotiate [redacted]",
+              "Authorization: token [redacted]",
+              "Authorization: [redacted]",
+              "Authorization: [redacted]",
+              "Authorization: Basic\t[redacted]"
+            ]
+          }
+        },
+        {
+          "op": "redact",
+          "value": ["Authorization: Bearer abc123\nAccept: */*", "Authorization: Bearer abc123\r\nAccept: */*"],
+          "expect": {"result": ["Authorization: Bearer [redacted]\nAccept: */*", "Authorization: Bearer [redacted]\r\nAccept: */*"]}
+        },
+        {
+          "op": "redact",
+          "value": "{\"Authorization\": \"Bearer a\\\"b\", \"next\": 1}",
+          "expect": {"result": "{\"Authorization\": \"Bearer [redacted]\", \"next\": 1}"}
+        },
+        {"op": "redact", "value": "\"Authorization\": \"abc\\\rdef\" tail", "expect": {"result": "\"Authorization\": \"[redacted]\" tail"}},
+        {"op": "redact", "value": "\"Authorization\": \"abc\\\ndef\" tail", "expect": {"result": "\"Authorization\": \"[redacted]\\\ndef\" tail"}},
+        {"op": "redact", "value": "\"Authorization: it's abc\" rest", "expect": {"result": "\"Authorization: [redacted]\" rest"}},
+        {"op": "redact", "value": "'Authorization: ", "expect": {"result": "'Authorization: [redacted]"}},
+        {"op": "redact", "value": "\"Authorization': abc\" x", "expect": {"result": "\"Authorization': [redacted]\" x"}},
+        {"op": "redact", "value": "Authorization: \"abc' def", "expect": {"result": "Authorization: \"[redacted]"}},
+        {"op": "redact", "value": "Authorization: 'Bearer abc123' trailing", "expect": {"result": "Authorization: 'Bearer [redacted]' trailing"}},
+        {"op": "redact", "value": "Cookie: session=abc123; theme=dark\nnext line", "expect": {"result": "Cookie: [redacted]\nnext line"}},
+        {"op": "redact", "value": "Set-Cookie: sid=abc123; Path=/; HttpOnly", "expect": {"result": "Set-Cookie: [redacted]"}},
+        {
+          "op": "redact",
+          "value": [
+            "Authorization:",
+            "Authorization: ",
+            "Authorisation: Basic abc123",
+            "Authorizations: abc",
+            "XAuthorization: abc",
+            "Grab a cookie: chocolate chip",
+            "Cookie: =x",
+            "cookie:a b=c"
+          ],
+          "expect": {
+            "result": [
+              "Authorization:",
+              "Authorization: ",
+              "Authorisation: Basic abc123",
+              "Authorizations: abc",
+              "XAuthorization: abc",
+              "Grab a cookie: chocolate chip",
+              "Cookie: =x",
+              "cookie:a b=c"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "bearer-tokens",
+      "summary": "Bearer then spaces or tabs, at a word boundary, hides a token of 16 or more characters, with its = padding, when the token has a digit or at least 32 characters.",
+      "steps": [
+        {"op": "redact", "value": "use Bearer A1b2C3d4E5f6G7h8 here", "expect": {"result": "use Bearer [redacted] here"}},
+        {
+          "op": "redact",
+          "value": [
+            "Bearer abcdefghijklmnopqrstuvwxyzabcdef",
+            "Bearer A1b2C3d4E5f6G7h8== next",
+            "BEARER A1B2C3D4E5F6G7H8",
+            "bearer\tA1b2C3d4E5f6G7h8",
+            "Bearer a.b_c~d+e/f-g1234567",
+            "-bearer A1b2C3d4E5f6G7h8"
+          ],
+          "expect": {
+            "result": ["Bearer [redacted]", "Bearer [redacted] next", "BEARER [redacted]", "bearer\t[redacted]", "Bearer [redacted]", "-bearer [redacted]"]
+          }
+        },
+        {
+          "op": "redact",
+          "value": ["Bearer abcdefghijklmnop", "Bearer A1b2C3d4E5f6G7h", "xbearer A1b2C3d4E5f6G7h8", "_bearer A1b2C3d4E5f6G7h8"],
+          "expect": {"result": ["Bearer abcdefghijklmnop", "Bearer A1b2C3d4E5f6G7h", "xbearer A1b2C3d4E5f6G7h8", "_bearer A1b2C3d4E5f6G7h8"]}
+        },
+        {"op": "redact", "value": "bearer aaaaaaaaaaaaaaaa.bearer 1234567890123456", "expect": {"result": "bearer aaaaaaaaaaaaaaaa.bearer 1234567890123456"}}
+      ]
+    },
+    {
+      "id": "github-tokens",
+      "summary": "GitHub tokens (ghp_, gho_, ghu_, ghs_ and ghr_ with 20 or more letters and digits, or github_pat_ with 22 or more letters, digits and underscores) are replaced when no letter, digit or underscore touches either end.",
+      "steps": [
+        {
+          "op": "redact",
+          "value": [
+            "gh\u0070_A1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6Q7r8",
+            "gh\u006f_A1b2C3d4E5f6G7h8I9j0",
+            "gh\u0075_A1b2C3d4E5f6G7h8I9j0",
+            "gh\u0073_A1b2C3d4E5f6G7h8I9j0",
+            "gh\u0072_A1b2C3d4E5f6G7h8I9j0",
+            "github\u005fpat_11ABCDEFG0123456789_abcdefghijklmnop",
+            "use gh\u0070_A1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6Q7r8 now"
+          ],
+          "expect": {
+            "result": [
+              "[redacted:github-token]",
+              "[redacted:github-token]",
+              "[redacted:github-token]",
+              "[redacted:github-token]",
+              "[redacted:github-token]",
+              "[redacted:github-token]",
+              "use [redacted:github-token] now"
+            ]
+          }
+        },
+        {
+          "op": "redact",
+          "value": [
+            "ghp_A1b2C3d4E5f6G7h8I9j",
+            "xgh\u0070_A1b2C3d4E5f6G7h8I9j0",
+            "gh\u0070_A1b2C3d4E5f6G7h8I9j0_x",
+            "ghx_A1b2C3d4E5f6G7h8I9j0",
+            "github_pat_11ABCDEFG0123456789_a"
+          ],
+          "expect": {
+            "result": [
+              "ghp_A1b2C3d4E5f6G7h8I9j",
+              "xgh\u0070_A1b2C3d4E5f6G7h8I9j0",
+              "gh\u0070_A1b2C3d4E5f6G7h8I9j0_x",
+              "ghx_A1b2C3d4E5f6G7h8I9j0",
+              "github_pat_11ABCDEFG0123456789_a"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "slack-tokens",
+      "summary": "Slack tokens (xoxa-, xoxb-, xoxp-, xoxr- and xoxs- with 10 or more letters, digits and dashes) are replaced unless a letter, digit or dash precedes them; an underscore ends the token.",
+      "steps": [
+        {
+          "op": "redact",
+          "value": [
+            "\u0078oxa-1234567890",
+            "\u0078oxb-123456789012-1234567890123-AbCdEfGhIjKl",
+            "\u0078oxp-1234567890",
+            "\u0078oxr-1234567890",
+            "\u0078oxs-1234567890",
+            "\u0078oxb-1234567890_def",
+            "_\u0078oxb-1234567890"
+          ],
+          "expect": {
+            "result": [
+              "[redacted:slack-token]",
+              "[redacted:slack-token]",
+              "[redacted:slack-token]",
+              "[redacted:slack-token]",
+              "[redacted:slack-token]",
+              "[redacted:slack-token]_def",
+              "_[redacted:slack-token]"
+            ]
+          }
+        },
+        {
+          "op": "redact",
+          "value": ["xoxb-123456789", "a\u0078oxb-1234567890", "-\u0078oxb-1234567890", "xoxc-1234567890"],
+          "expect": {"result": ["xoxb-123456789", "a\u0078oxb-1234567890", "-\u0078oxb-1234567890", "xoxc-1234567890"]}
+        }
+      ]
+    },
+    {
+      "id": "aws-key-ids",
+      "summary": "Amazon Web Services access key identifiers (AKIA or ASIA and 16 capitals or digits) are replaced when no letter or digit touches either end.",
+      "steps": [
+        {
+          "op": "redact",
+          "value": ["\u0041KIAIOSFODNN7EXAMPLE", "\u0041SIAABCDEFGHIJKLMNOP", "id_\u0041KIAIOSFODNN7EXAMPLE"],
+          "expect": {"result": ["[redacted:aws-key-id]", "[redacted:aws-key-id]", "id_[redacted:aws-key-id]"]}
+        },
+        {
+          "op": "redact",
+          "value": ["AKIAIOSFODNN7EXAMPL", "\u0041KIAIOSFODNN7EXAMPLEX", "akiaiosfodnn7example", "x\u0041KIAIOSFODNN7EXAMPLE"],
+          "expect": {"result": ["AKIAIOSFODNN7EXAMPL", "\u0041KIAIOSFODNN7EXAMPLEX", "akiaiosfodnn7example", "x\u0041KIAIOSFODNN7EXAMPLE"]}
+        }
+      ]
+    },
+    {
+      "id": "api-keys",
+      "summary": "sk- keys with 20 or more characters, sk_ and rk_ live or test keys with 16 or more, and AIza keys of exactly 39 characters, with no base64url character touching either end, are replaced only when they contain a digit; a 40-character run can still meet the base64url rule.",
+      "steps": [
+        {
+          "op": "redact",
+          "value": [
+            "s\u006b-proj-A1b2C3d4E5f6G7h8I9j0K1l2M3n4",
+            "sk\u005flive_4eC39HqLyjWDarjtT1zdp7dc",
+            "rk\u005ftest_A1b2C3d4E5f6G7h8",
+            "\u0041IzaSyA1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6Q"
+          ],
+          "expect": {"result": ["[redacted:api-key]", "[redacted:api-key]", "[redacted:api-key]", "[redacted:api-key]"]}
+        },
+        {
+          "op": "redact",
+          "value": [
+            "sk-learn and s\u006b-something-really-long-name-here",
+            "sk\u005flive_abcdefghijklmnopqrstuvwx",
+            "\u0041Izaabcdefghijklmnopqrstuvwxyzabcdefghi",
+            "AIzaSyA1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6",
+            "xs\u006b-proj-A1b2C3d4E5f6G7h8I9j0K1l2M3n4"
+          ],
+          "expect": {
+            "result": [
+              "sk-learn and s\u006b-something-really-long-name-here",
+              "sk\u005flive_abcdefghijklmnopqrstuvwx",
+              "\u0041Izaabcdefghijklmnopqrstuvwxyzabcdefghi",
+              "AIzaSyA1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6",
+              "xs\u006b-proj-A1b2C3d4E5f6G7h8I9j0K1l2M3n4"
+            ]
+          }
+        },
+        {"op": "redact", "value": "\u0041IzaSyA1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6Qr", "expect": {"result": "[redacted:base64]"}}
+      ]
+    },
+    {
+      "id": "telegram-bot-tokens",
+      "summary": "A Telegram bot token (optional bot, 6 to 12 digits, a colon, then 30 or more base64url characters) keeps its number and loses the rest.",
+      "steps": [
+        {
+          "op": "redact",
+          "value": "https://api.telegram.org/bot123456789\u003aAAHdqTcvCH1vGWJxfSeofSAs0K5PALDsaww/getMe",
+          "expect": {"result": "https://api.telegram.org/bot123456789:[redacted]/getMe"}
+        },
+        {"op": "redact", "value": "123456\u003aabcdefghijklmnopqrstuvwxyzABCD", "expect": {"result": "123456:[redacted]"}},
+        {
+          "op": "redact",
+          "value": [
+            "12345:abcdefghijklmnopqrstuvwxyzABCD",
+            "1234567890123\u003aabcdefghijklmnopqrstuvwxyzABCD",
+            "123456:abcdefghijklmnopqrstuvwxyzABC",
+            "12:34:56"
+          ],
+          "expect": {
+            "result": [
+              "12345:abcdefghijklmnopqrstuvwxyzABCD",
+              "1234567890123\u003aabcdefghijklmnopqrstuvwxyzABCD",
+              "123456:abcdefghijklmnopqrstuvwxyzABC",
+              "12:34:56"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "hexadecimal-runs",
+      "summary": "A run of 32 or more hexadecimal characters with both a digit and a letter, not touching another letter or digit, is replaced.",
+      "steps": [
+        {"op": "redact", "value": "action 51a9cb1edd4430ebc2b9bf14dc736934 failed", "expect": {"result": "action [redacted:hex] failed"}},
+        {
+          "op": "redact",
+          "value": [
+            "sha256 51a9cb1edd4430ebc2b9bf14dc73693481ccba52df9393befae4fb221a7beae3",
+            "da39a3ee5e6b4b0d3255bfef95601890afd80709",
+            "51A9CB1EDD4430EBC2B9BF14DC736934",
+            "_51a9cb1edd4430ebc2b9bf14dc736934_",
+            "-51a9cb1edd4430ebc2b9bf14dc736934-"
+          ],
+          "expect": {"result": ["sha256 [redacted:hex]", "[redacted:hex]", "[redacted:hex]", "_[redacted:hex]_", "-[redacted:hex]-"]}
+        },
+        {
+          "op": "redact",
+          "value": [
+            "12345678901234567890123456789012",
+            "abcdefabcdefabcdefabcdefabcdefab",
+            "cafebabecafebabecafebabecafebabecafebabe",
+            "51a9cb1edd4430ebc2b9bf14dc73693",
+            "x51a9cb1edd4430ebc2b9bf14dc736934",
+            "51a9cb1edd4430ebc2b9bf14dc736934g",
+            "123e4567-e89b-12d3-a456-426614174000",
+            "3f2a9c1"
+          ],
+          "expect": {
+            "result": [
+              "12345678901234567890123456789012",
+              "abcdefabcdefabcdefabcdefabcdefab",
+              "cafebabecafebabecafebabecafebabecafebabe",
+              "51a9cb1edd4430ebc2b9bf14dc73693",
+              "x51a9cb1edd4430ebc2b9bf14dc736934",
+              "51a9cb1edd4430ebc2b9bf14dc736934g",
+              "123e4567-e89b-12d3-a456-426614174000",
+              "3f2a9c1"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "base64url-runs",
+      "summary": "A run of 40 or more base64url characters that mixes capitals, small letters and digits is replaced when its letter and digit pieces average under three characters.",
+      "steps": [
+        {"op": "redact", "value": "P82y2v9MqP87-YgS1jKHuyzzeQqYd48NJ7ksfA0yj34", "expect": {"result": "[redacted:base64]"}},
+        {"op": "redact", "value": "file.P82y2v9MqP87-YgS1jKHuyzzeQqYd48NJ7ksfA0yj34.txt", "expect": {"result": "file.[redacted:base64].txt"}},
+        {"op": "redact", "value": "Xyz12Xyz12Xyz12Xyz12Xyz12Xyz12Xyz12Xyz12", "expect": {"result": "[redacted:base64]"}},
+        {"op": "redact", "value": "2025-11-26T12-00-00-backup-Archive-File-v3", "expect": {"result": "[redacted:base64]"}},
+        {
+          "op": "redact",
+          "value": [
+            "ThisIsAVeryLongCamelCaseIdentifierNameV2",
+            "this_is_a_very_long_snake_case_identifier_name",
+            "Pneumonoultramicroscopicsilicovolcanoconiosis2",
+            "P82y2v9MqP87-YgS1jKHuyzzeQqYd48NJ7ksfA0",
+            "Xyz123Xyz123Xyz123Xyz123Xyz123Xyz123Xyz123",
+            "IMG_20250101_123456_HDR_Portrait_Mode_Final.jpg"
+          ],
+          "expect": {
+            "result": [
+              "ThisIsAVeryLongCamelCaseIdentifierNameV2",
+              "this_is_a_very_long_snake_case_identifier_name",
+              "Pneumonoultramicroscopicsilicovolcanoconiosis2",
+              "P82y2v9MqP87-YgS1jKHuyzzeQqYd48NJ7ksfA0",
+              "Xyz123Xyz123Xyz123Xyz123Xyz123Xyz123Xyz123",
+              "IMG_20250101_123456_HDR_Portrait_Mode_Final.jpg"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "ordering-interactions",
+      "summary": "Patterns apply in order, each to the previous one's output, so a later pattern can widen an earlier replacement, and a match a callback keeps still consumes its text.",
+      "steps": [
+        {"op": "redact", "value": "token=ey\u004ahbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0In0.c2lnbmF0dXJl", "expect": {"result": "token=[redacted]"}},
+        {"op": "redact", "value": ["Authorization: token=abc", "Cookie: token=abc"], "expect": {"result": ["Authorization: [redacted]", "Cookie: [redacted]"]}},
+        {"op": "redact", "value": "bearer gh\u0070_abcdefghijklmnopqrst", "expect": {"result": "bearer [redacted:github-token]"}},
+        {"op": "redact", "value": "bearer gh\u0070_A1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6Q7r8", "expect": {"result": "bearer [redacted]"}},
+        {"op": "redact", "value": ["?token=abc#frag", "?id_token=abc#x"], "expect": {"result": ["?token=[redacted]", "?id_token=[redacted]"]}},
+        {
+          "op": "redact",
+          "value": ["Bearer abcdefghijklmnop", "Authorization: Bearer abcdefghijklmnop"],
+          "expect": {"result": ["Bearer abcdefghijklmnop", "Authorization: Bearer [redacted]"]}
+        },
+        {
+          "op": "redact",
+          "value": "-----BEGIN PRIVATE\u0020KEY-----\ney\u004ahbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0In0.c2lnbmF0dXJl\n-----END PRIVATE KEY-----",
+          "expect": {"result": "[redacted:private-key]"}
+        },
+        {"op": "redact", "value": "https://bob:hunter2@example.com/?token=abc", "expect": {"result": "https://bob:[redacted]@example.com/?token=[redacted]"}},
+        {
+          "op": "redact",
+          "value": ["secret=51a9cb1edd4430ebc2b9bf14dc736934", "password=gh\u0070_A1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6Q7r8"],
+          "expect": {"result": ["secret=[redacted]", "password=[redacted]"]}
+        },
+        {"op": "redact", "value": "Abc12Abc12Abc12Abc12Abc12Abc12Abc12Abc12", "expect": {"result": "[redacted:hex]"}}
+      ]
+    },
+    {
+      "id": "hash-only",
+      "summary": "Strings at any depth under a key named in hash_only, compared without case, become their length in code points and the first 16 hexadecimal digits of the SHA-256 of their scrubbed UTF-8 text.",
+      "steps": [
+        {
+          "op": "redact",
+          "value": {"body": "Hello, world", "subject": "Hi"},
+          "hash_only": ["body"],
+          "expect": {"result": {"body": "[12 chars, sha256:4ae7c3b6ac0beff6]", "subject": "Hi"}}
+        },
+        {
+          "op": "redact",
+          "value": {"BODY": "x", "Text": "y"},
+          "hash_only": ["Body", "TEXT"],
+          "expect": {"result": {"BODY": "[1 chars, sha256:2d711642b726b044]", "Text": "[1 chars, sha256:a1fce4363854ff88]"}}
+        },
+        {
+          "op": "redact",
+          "value": {"body": {"parts": ["one", {"text": "two"}], "count": 2}, "body_html": "<p>three</p>"},
+          "hash_only": ["body"],
+          "expect": {
+            "result": {
+              "body": {"parts": ["[3 chars, sha256:7692c3ad3540bb80]", {"text": "[3 chars, sha256:3fc4ccfe745870e2]"}], "count": 2},
+              "body_html": "<p>three</p>"
+            }
+          }
+        },
+        {
+          "op": "redact",
+          "value": {"body": [1, 2.5, true, false, null, {}, []]},
+          "hash_only": ["body"],
+          "expect": {"result": {"body": [1, 2.5, true, false, null, {}, []]}}
+        },
+        {
+          "op": "redact",
+          "value": {"body": {"password": "hunter2", "note": "hi"}},
+          "hash_only": ["body"],
+          "expect": {"result": {"body": {"password": "[redacted]", "note": "[2 chars, sha256:8f434346648f6b96]"}}}
+        },
+        {
+          "op": "redact",
+          "value": {"token": "abc", "note": "abc"},
+          "hash_only": ["token", "note"],
+          "expect": {"result": {"token": "[redacted]", "note": "[3 chars, sha256:ba7816bf8f01cfea]"}}
+        },
+        {"op": "redact", "value": {"body": "password=hunter2"}, "hash_only": ["body"], "expect": {"result": {"body": "[19 chars, sha256:48494f1027577e97]"}}},
+        {
+          "op": "redact",
+          "value": {"body": {"id": "51a9cb1edd4430ebc2b9bf14dc736934", "note": "51a9cb1edd4430ebc2b9bf14dc736934"}},
+          "hash_only": ["body"],
+          "expect": {"result": {"body": {"id": "[32 chars, sha256:5a2f36cbe1720638]", "note": "[14 chars, sha256:c650361da48a4cf7]"}}}
+        },
+        {"op": "redact", "value": {"body": ""}, "hash_only": ["body"], "expect": {"result": {"body": "[0 chars, sha256:e3b0c44298fc1c14]"}}},
+        {"op": "redact", "value": {"body": "Grüße 👍"}, "hash_only": ["body"], "expect": {"result": {"body": "[7 chars, sha256:248ace50c2464106]"}}},
+        {
+          "op": "redact",
+          "value": {"bodies": "kept", "Body": "hashed"},
+          "hash_only": ["body", "unused"],
+          "expect": {"result": {"bodies": "kept", "Body": "[6 chars, sha256:1a06df824ed741b5]"}}
+        },
+        {"op": "redact", "value": [{"body": "x"}], "hash_only": ["body"], "expect": {"result": [{"body": "[1 chars, sha256:2d711642b726b044]"}]}},
+        {"op": "redact", "value": "plain text", "hash_only": ["body"], "expect": {"result": "plain text"}}
+      ]
+    },
+    {
+      "id": "non-ascii-text-both-engines-agree",
+      "summary": "Text outside ASCII passes through, and patterns next to it behave the same in both engines when no Unicode space, word character or case fold decides the match.",
+      "steps": [
+        {"op": "redact", "value": "Grüße aus Köln", "expect": {"result": "Grüße aus Köln"}},
+        {
+          "op": "redact",
+          "value": [
+            "パスワード: password=hunter2",
+            "Authorization: Bearer ключ",
+            "https://user:pässword@host",
+            "ä51a9cb1edd4430ebc2b9bf14dc736934",
+            "日本 token=abc 中文",
+            "👍 Bearer A1b2C3d4E5f6G7h8"
+          ],
+          "expect": {
+            "result": [
+              "パスワード: password=[redacted]",
+              "Authorization: Bearer [redacted]",
+              "https://user:[redacted]@host",
+              "ä[redacted:hex]",
+              "日本 token=[redacted] 中文",
+              "👍 Bearer [redacted]"
+            ]
+          }
+        },
+        {
+          "op": "redact",
+          "value": {
+            "contraseña": "kept",
+            "pässword": "kept",
+            "Passwort": "x",
+            "ключ_id": "51a9cb1edd4430ebc2b9bf14dc736934",
+            "ключ": "51a9cb1edd4430ebc2b9bf14dc736934"
+          },
+          "expect": {
+            "result": {
+              "contraseña": "kept",
+              "pässword": "kept",
+              "Passwort": "[redacted]",
+              "ключ_id": "51a9cb1edd4430ebc2b9bf14dc736934",
+              "ключ": "[redacted:hex]"
+            }
+          }
+        },
+        {"op": "redact", "value": {"Körper": "Grüße"}, "hash_only": ["körper"], "expect": {"result": {"Körper": "[5 chars, sha256:f83e039796c6453a]"}}}
+      ]
+    },
+    {
+      "id": "top-level-values",
+      "summary": "A top-level string is scrubbed as if under a non-identifier key, numbers, booleans and null are kept, and keys themselves are never scrubbed.",
+      "steps": [
+        {"op": "redact", "value": "token=abc", "expect": {"result": "token=[redacted]"}},
+        {"op": "redact", "value": ["51a9cb1edd4430ebc2b9bf14dc736934", "plain"], "expect": {"result": ["[redacted:hex]", "plain"]}},
+        {"op": "redact", "value": [42, true, null, 1.5, {}, []], "expect": {"result": [42, true, null, 1.5, {}, []]}},
+        {"op": "redact", "value": {"": "token=abc"}, "expect": {"result": {"": "token=[redacted]"}}},
+        {"op": "redact", "value": {"51a9cb1edd4430ebc2b9bf14dc736934": "kept"}, "expect": {"result": {"51a9cb1edd4430ebc2b9bf14dc736934": "kept"}}}
+      ]
+    },
+    {
+      "id": "unicode-classes",
+      "summary": "Python's \\s, \\b and case-insensitive matching are Unicode-aware; the native scanners use ASCII classes.",
+      "steps": [
+        {
+          "op": "redact",
+          "value": "password=abc\u00a0def",
+          "expect": {},
+          "divergence": {
+            "topic": "Audit whitespace",
+            "reason": "Python's \\s includes the no-break space, which ends the value; the native scanner continues to the end.",
+            "python": {"result": "password=[redacted]\u00a0def"},
+            "native": {"result": "password=[redacted]"}
+          }
+        },
+        {
+          "op": "redact",
+          "value": "Authorization:\u00a0abc",
+          "expect": {},
+          "divergence": {
+            "topic": "Audit whitespace",
+            "reason": "Python's \\S refuses the no-break space as the first value character; the native scanner accepts it.",
+            "python": {"result": "Authorization:\u00a0abc"},
+            "native": {"result": "Authorization:[redacted]"}
+          }
+        },
+        {
+          "op": "redact",
+          "value": "ébearer A1b2C3d4E5f6G7h8",
+          "expect": {},
+          "divergence": {
+            "topic": "Audit word characters",
+            "reason": "Python's \\b sees é as a word character, so bearer is not at a word boundary; the native scanner sees a boundary.",
+            "python": {"result": "ébearer A1b2C3d4E5f6G7h8"},
+            "native": {"result": "ébearer [redacted]"}
+          }
+        },
+        {
+          "op": "redact",
+          "value": "paſſword=hunter2",
+          "expect": {},
+          "divergence": {
+            "topic": "Audit case folding",
+            "reason": "Python's case-insensitive matching folds the long s (U+017F) to s; the native scanner folds only A to Z.",
+            "python": {"result": "paſſword=[redacted]"},
+            "native": {"result": "paſſword=hunter2"}
+          }
+        },
+        {
+          "op": "redact",
+          "value": {"paſſword": "x"},
+          "expect": {},
+          "divergence": {
+            "topic": "Audit case folding",
+            "reason": "Python's credential-key search folds the long s (U+017F) to s; the native search folds only A to Z.",
+            "python": {"result": {"paſſword": "[redacted]"}},
+            "native": {"result": {"paſſword": "x"}}
+          }
+        },
+        {
+          "op": "redact",
+          "value": {"Ñame": "x"},
+          "hash_only": ["ñame"],
+          "expect": {},
+          "divergence": {
+            "topic": "Audit case folding",
+            "reason": "Python lowers names with str.lower(); the native engine lowers only A to Z, so Ñame does not match ñame.",
+            "python": {"result": {"Ñame": "[1 chars, sha256:2d711642b726b044]"}},
+            "native": {"result": {"Ñame": "x"}}
+          }
+        }
+      ]
+    }
+  ]
+}

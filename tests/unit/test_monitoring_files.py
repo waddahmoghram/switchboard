@@ -1,4 +1,4 @@
-"""Authored UNRUN private-report tests; every operating-system operation is substituted."""
+"""Private-report tests; every operating-system operation is substituted."""
 
 from __future__ import annotations
 
@@ -60,10 +60,14 @@ def test_report_file_is_read_only_descriptor_relative_private_and_bounded(
     fake.install(monkeypatch)
     assert read_report(CHECK) == fake.body
     [(directory, directory_flags, no_parent), (filename, flags, parent)] = fake.opened
-    assert directory == CHECK.directory and no_parent is None
-    assert filename == CHECK.filename and parent == 10
-    assert directory_flags & os.O_DIRECTORY and directory_flags & os.O_NOFOLLOW
-    assert flags & os.O_NOFOLLOW and flags & os.O_NONBLOCK
+    assert directory == CHECK.directory
+    assert no_parent is None
+    assert filename == CHECK.filename
+    assert parent == 10
+    assert directory_flags & os.O_DIRECTORY
+    assert directory_flags & os.O_NOFOLLOW
+    assert flags & os.O_NOFOLLOW
+    assert flags & os.O_NONBLOCK
     for _path, opened_flags, _parent in fake.opened:
         assert opened_flags & os.O_ACCMODE == os.O_RDONLY
         assert not opened_flags & (os.O_CREAT | os.O_TRUNC | os.O_APPEND)
@@ -126,7 +130,8 @@ def test_open_failures_are_sanitized_and_the_directory_is_closed(
     with pytest.raises(CheckError, match=code) as caught:
         read_report(CHECK)
     assert PRIVATE_MARKER not in str(caught.value)
-    assert fake.closed == [10] and fake.read_sizes == []
+    assert fake.closed == [10]
+    assert fake.read_sizes == []
 
 
 def test_platforms_without_no_follow_protection_fail_closed(monkeypatch: pytest.MonkeyPatch) -> None:

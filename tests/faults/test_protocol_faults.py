@@ -1,4 +1,4 @@
-"""Protocol-stream faults for the standard input/output server loop; authored and unrun.
+"""Protocol-stream faults for the standard input/output server loop.
 
 Malformed, non-UTF-8, oversized, deeply nested, and wrongly shaped lines must each get one error reply while
 the session keeps answering later requests.

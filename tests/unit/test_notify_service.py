@@ -57,7 +57,8 @@ def test_a_failing_channel_does_not_stop_the_others(make_app: AppFactory, fake_h
 
     assert outcome.status == "ok"
     assert outcome.data == {"sent": ["chat", "inbox"], "failed": {"phone": "ntfy answered HTTP 403"}}
-    assert outcome.action is not None and outcome.action["state"] == "succeeded"
+    assert outcome.action is not None
+    assert outcome.action["state"] == "succeeded"
     assert len(mail.sent) == 1
     assert [request.url for request in fake_http.requests] == [NTFY_URL, TELEGRAM_URL]
 
@@ -79,7 +80,8 @@ def test_a_server_error_leaves_that_channel_uncertain_and_blocks_an_identical_re
         "uncertain": {"phone": "ntfy answered HTTP 502; the note may have been delivered and was not resent"},
         "effect_unknown": True,
     }
-    assert outcome.action is not None and outcome.action["state"] == "uncertain"
+    assert outcome.action is not None
+    assert outcome.action["state"] == "uncertain"
 
     repeat = app.call("notify_self", args, Origin.ASSISTANT)
 
@@ -108,7 +110,8 @@ def test_when_no_channel_confirms_and_one_may_have_delivered_the_call_is_uncerta
         "no channel confirmed the notification (phone: ntfy answered HTTP 400; "
     )
     assert "chat: Telegram answered HTTP 200; the note may have been delivered" in outcome.message
-    assert outcome.action is not None and outcome.action["state"] == "uncertain"
+    assert outcome.action is not None
+    assert outcome.action["state"] == "uncertain"
 
 
 def test_definite_failures_on_every_channel_are_a_plain_error(
@@ -121,7 +124,8 @@ def test_definite_failures_on_every_channel_are_a_plain_error(
 
     assert outcome.status == "error"
     assert outcome.message == "no channel accepted the notification (phone: ntfy answered HTTP 429)"
-    assert outcome.action is not None and outcome.action["state"] == "failed"
+    assert outcome.action is not None
+    assert outcome.action["state"] == "failed"
 
 
 def test_an_email_channel_passes_on_an_uncertain_send(make_app: AppFactory) -> None:
@@ -211,7 +215,8 @@ def test_telegram_network_errors_never_quote_the_url(
 
     assert outcome.status == "error"
     assert "chat: could not reach api.telegram.org" in outcome.message
-    assert outcome.action is not None and outcome.action["state"] == "uncertain"
+    assert outcome.action is not None
+    assert outcome.action["state"] == "uncertain"
     assert BOT not in outcome.message
     assert BOT not in caplog.text
 

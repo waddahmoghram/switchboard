@@ -614,7 +614,7 @@ Json backup_observation(const Check &check, const std::string &body, const std::
         return observation("error", "report_schema_invalid");
     }
     if (!integer(document.at("schema_version"), 1, 1) || !document.at("check").is_string() || !document.at("status").is_string() ||
-        (document.at("status") != "succeeded" && document.at("status") != "failed") ||
+        (document.at("status") != Json("succeeded") && document.at("status") != Json("failed")) ||
         (document.contains("bytes_written") && !integer(document.at("bytes_written"), 0, MAX_JSON_INTEGER)))
     {
         return observation("error", "report_schema_invalid");
@@ -654,7 +654,7 @@ Json backup_observation(const Check &check, const std::string &body, const std::
         result["status"] = "stale";
         result["error"] = "backup_report_stale";
     }
-    else if (document.at("status") == "failed")
+    else if (document.at("status") == Json("failed"))
     {
         result["status"] = "unhealthy";
         result["error"] = "backup_failed";
@@ -665,7 +665,7 @@ Json backup_observation(const Check &check, const std::string &body, const std::
 
 namespace monitoring_detail
 {
-// Pure capacity classification is shared with authored tests; it never measures a filesystem.
+// Pure capacity classification is shared with tests; it never measures a filesystem.
 Json disk_capacity(const std::uintmax_t capacity, const std::uintmax_t free, const std::uintmax_t available, const std::optional<std::int64_t> min_bytes,
                    const std::optional<double> min_percent)
 {
@@ -830,8 +830,8 @@ private:
             if (parse_timestamp(snapshot.at("checked_at").get<std::string>()) != checked_at || changed_at > checked_at ||
                 (row.contains("changed_at") && cached_time(row, "changed_at") != changed_at) ||
                 (row.contains("revision") && row.at("revision") != snapshot.at("revision")) ||
-                (snapshot.at("status") != "error" && snapshot.at("measurements").empty()) ||
-                ((snapshot.at("status") == "healthy" || snapshot.at("status") == "reachable") != snapshot.at("error").is_null()))
+                (snapshot.at("status") != Json("error") && snapshot.at("measurements").empty()) ||
+                ((snapshot.at("status") == Json("healthy") || snapshot.at("status") == Json("reachable")) != snapshot.at("error").is_null()))
             {
                 throw Error("monitoring_cache", "monitoring: inconsistent cached observation");
             }
@@ -850,19 +850,19 @@ private:
             {
                 check_object(report, {"status", "started_at", "finished_at"}, {"status", "started_at", "finished_at"});
                 const auto finished = report_time(report.at("finished_at"));
-                if (check.kind != "backup" || (report.at("status") != "succeeded" && report.at("status") != "failed") ||
+                if (check.kind != "backup" || (report.at("status") != Json("succeeded") && report.at("status") != Json("failed")) ||
                     report_time(report.at("started_at")) > finished || finished > checked_at * MICROSECONDS)
                 {
                     throw Error("monitoring_cache", "monitoring: invalid cached report");
                 }
             }
-            else if (check.kind == "backup" && snapshot.at("status") != "error")
+            else if (check.kind == "backup" && snapshot.at("status") != Json("error"))
             {
                 throw Error("monitoring_cache", "monitoring: missing cached completion evidence");
             }
-            if ((check.kind == "endpoint" && snapshot.at("status") == "healthy" &&
+            if ((check.kind == "endpoint" && snapshot.at("status") == Json("healthy") &&
                  (snapshot.at("reachable") != true || snapshot.at("ready") != true || !check.settings.contains("readiness_field"))) ||
-                (check.kind == "backup" && snapshot.at("status") == "healthy" && report.at("status") != "succeeded") ||
+                (check.kind == "backup" && snapshot.at("status") == Json("healthy") && report.at("status") != Json("succeeded")) ||
                 (check.kind != "endpoint" && (!snapshot.at("reachable").is_null() || !snapshot.at("ready").is_null())))
             {
                 throw Error("monitoring_cache", "monitoring: cached readiness or producer outcome is inconsistent");
@@ -1031,8 +1031,8 @@ private:
             }
             for (const auto *type : {"monitoring.changed", "monitoring.alert"})
             {
-                if (std::string_view(type) == "monitoring.alert" && measured.at("status") != "error" && measured.at("status") != "unhealthy" &&
-                    measured.at("status") != "stale")
+                if (std::string_view(type) == "monitoring.alert" && measured.at("status") != Json("error") && measured.at("status") != Json("unhealthy") &&
+                    measured.at("status") != Json("stale"))
                 {
                     continue;
                 }

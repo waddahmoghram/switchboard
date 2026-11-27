@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
-# Run Switchboard's validation stages on your own trusted machine. Authored and unexecuted.
+# Run Switchboard's validation stages on your own trusted machine.
 #
 # Usage: scripts/ci/validate.sh [STAGE...]
-#   python      uv sync; Ruff lint and format check; mypy; pytest without, then with, the integration marker
+#   python      uv sync --locked; Ruff lint and format check; mypy; pytest without, then with, the
+#               integration marker, measuring line coverage, which must reach fail_under in pyproject.toml
 #   contracts   the shared fixtures in contracts/cases through the Python and the native engine
 #   native      dev preset: configure, build, and run every native test (warnings are errors)
 #   sanitizers  asan-ubsan preset with every native test, then tsan preset with the concurrency label
@@ -13,7 +14,8 @@
 #
 # Environment: SWITCHBOARD_PYTHON (a Python version for uv), FUZZ_SECONDS (default 30),
 # SWITCHBOARD_SKIP_TSAN=1, CMAKE_BUILD_PARALLEL_LEVEL (default: the processor count).
-# Build output, caches, and scratch files stay under build/; the first uv sync also writes uv.lock.
+# Build output, caches, and scratch files stay under build/.
+# uv sync --locked installs the versions in uv.lock and fails if uv.lock is missing or out of date.
 # No stage contacts an account or a device; uv downloads Python and packages from their public indexes.
 set -euo pipefail
 
@@ -94,11 +96,12 @@ python_sync() {
     export RUFF_CACHE_DIR="$build_dir/ruff-cache"
     export MYPY_CACHE_DIR="$build_dir/mypy-cache"
     export PYTHONPYCACHEPREFIX="$build_dir/pycache"
+    export COVERAGE_FILE="$build_dir/python-coverage"
     stage "python: install the project and the pinned development tools"
     if [[ -n "${SWITCHBOARD_PYTHON:-}" ]]; then
-        in_repo uv sync --python "$SWITCHBOARD_PYTHON"
+        in_repo uv sync --locked --python "$SWITCHBOARD_PYTHON"
     else
-        in_repo uv sync
+        in_repo uv sync --locked
     fi
     python_ready=1
 }
@@ -111,9 +114,13 @@ python_stage() {
     stage "python: mypy"
     in_repo uv run --no-sync mypy --config-file pyproject.toml src tests
     stage "python: unit, contract, fault and fuzz tests"
-    in_repo uv run --no-sync pytest -o cache_dir="$build_dir/pytest-cache" -m "not integration"
+    in_repo uv run --no-sync pytest -o cache_dir="$build_dir/pytest-cache" -n auto \
+        --cov --cov-report= --cov-fail-under=0 -m "not integration"
     stage "python: integration tests (local servers and subprocesses only)"
-    in_repo uv run --no-sync pytest -o cache_dir="$build_dir/pytest-cache" -m integration
+    in_repo uv run --no-sync pytest -o cache_dir="$build_dir/pytest-cache" -n auto \
+        --cov --cov-append --cov-report= --cov-fail-under=0 -m integration
+    stage "python: line coverage of both passes against fail_under in pyproject.toml"
+    in_repo uv run --no-sync coverage report
 }
 
 contracts_stage() {

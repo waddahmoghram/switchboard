@@ -1,0 +1,35 @@
+# Dependabot version updates, checked weekly. In each ecosystem, minor and patch updates are grouped into
+# one pull request; a major update gets a pull request of its own.
+#
+# Dependabot updates only the actions that the workflows reference with `uses:`, not versions written
+# elsewhere in them, so bump these by hand:
+# - UV_VERSION in .github/workflows/ci.yml, the uv release that CI installs to run `uv sync --locked`;
+# - the cargo-audit version that the Rust job in .github/workflows/ci.yml installs.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      actions-minor-and-patch:
+        patterns: ["*"]
+        update-types: [minor, patch]
+
+  - package-ecosystem: uv
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      python-minor-and-patch:
+        patterns: ["*"]
+        update-types: [minor, patch]
+
+  - package-ecosystem: cargo
+    directory: /native/clients/rust
+    schedule:
+      interval: weekly
+    groups:
+      rust-minor-and-patch:
+        patterns: ["*"]
+        update-types: [minor, patch]

@@ -12,6 +12,7 @@ Files use JavaScript Object Notation (JSON), duplicate object keys are refused, 
 | [journal.json](./journal.json)                 | Result classification, duplicate guard, reconciliation, sweeps          |
 | [exposure.json](./exposure.json)               | Tool exposure through each engine's protocol layer                      |
 | [tasks.json](./tasks.json)                     | Shared subset of the local tasks tools                                  |
+| [audit-redaction.json](./audit-redaction.json) | What audit redaction keeps of keys, text and `hash_only` fields         |
 | [synthetic-tools.json](./synthetic-tools.json) | The `contract_*` tools both runners register, and what each mode does   |
 
 ## Case files
@@ -20,7 +21,7 @@ Files use JavaScript Object Notation (JSON), duplicate object keys are refused, 
 | ------------------- | ------------------------------------------------------------------------------- |
 | `format`            | `switchboard-contract-cases`                                                    |
 | `version`           | Fixture format version, currently `1`; runners refuse versions they do not know |
-| `contract_revision` | Contract revision the cases demonstrate, currently `1`                          |
+| `contract_revision` | Contract revision the cases demonstrate, currently `2`                          |
 | `area`, `summary`   | Description only                                                                |
 | `cases`             | Cases, each with a file-unique `id`, a `summary` and `steps`                    |
 
@@ -29,7 +30,7 @@ Each runner adds its own private temporary data directory.
 Every engine starts with the synthetic tools registered.
 
 Steps run in order against one engine instance and stop at the first failed expectation.
-The engine starts on the first step that needs it; `check_schema`, `validate` and `register` never start one.
+The engine starts on the first step that needs it; `check_schema`, `validate`, `register` and `redact` never start one.
 
 | `op`                  | Fields                                                                         | Checks (`expect`)                                     |
 | --------------------- | ------------------------------------------------------------------------------ | ----------------------------------------------------- |
@@ -48,11 +49,13 @@ The engine starts on the first step that needs it; `check_schema`, `validate` an
 | `check_schema`        | none                                                                           | `valid` and `invalid` lists of schema definitions     |
 | `validate`            | `schema`                                                                       | `valid` and `invalid` lists of values                 |
 | `register`            | none                                                                           | `accepted` and `refused` lists of `{name, schema}`    |
+| `redact`              | `value` (any JSON), `hash_only` (default `[]`)                                 | `result`: the redacted copy, matched exactly          |
 
 `recent_actions` reads the entries from the `actions_recent` tool however each engine shapes its data and requires an `ok` outcome.
 `entries` must match the listed entries in any order, one to one.
 `insert_stale_action` offsets are seconds relative to now and its `save` names the inserted entry's identifier.
 `rpc` adds the modern protocol version to `params._meta`, so no initialization handshake is needed.
+`redact` passes `value` and `hash_only` to the engine's audit redaction function, without an audit log, and requires the same keys, array items and scalars as `result`.
 
 ### Outcome envelope expectations
 
@@ -78,7 +81,10 @@ Protocol replies take `error_code` (the error's code) or, for a result, `is_erro
 
 `{"$saved": "name"}` stands for a value saved earlier in the case: `save` maps names to paths in the step's result.
 `{"$engine": "absent_approval_id"}` is a well-formed approval identifier that names no request in that engine.
-Neither form is substituted inside schemas or values of `check_schema`, `validate` and `register`.
+Neither form is substituted inside schemas or values of `check_schema`, `validate`, `register` and `redact`.
+
+Samples shaped like provider tokens or private keys in [audit-redaction.json](./audit-redaction.json) write one character as a `\u` escape, such as `gh\u0070_` for `ghp_`, so that repository secret scanners do not report them.
+The parsed strings are unchanged.
 
 ## Divergences and known violations
 

@@ -122,24 +122,26 @@ class ActionJournal:
                 "AND state IN ('in_flight', 'uncertain') ORDER BY started_at, id LIMIT 1",
                 (tool, digest),
             ).fetchone()
-            if blocking is not None:
-                raise ActionBlockedError(str(blocking["id"]), str(blocking["state"]))
-            conn.execute(
-                "INSERT INTO action_journal (id, tool, args_digest, args_json, origin, approval_id, state, "
-                "owner, started_at, deadline_at) VALUES (?, ?, ?, ?, ?, ?, 'in_flight', ?, ?, ?)",
-                (
-                    action_id,
-                    tool,
-                    digest,
-                    canonical_json(dict(args)),
-                    origin,
-                    approval_id,
-                    self.owner,
-                    iso(moment),
-                    iso(moment + timedelta(seconds=timeout_seconds)),
-                ),
-            )
-            row = conn.execute("SELECT * FROM action_journal WHERE id = ?", (action_id,)).fetchone()
+            if blocking is None:
+                conn.execute(
+                    "INSERT INTO action_journal (id, tool, args_digest, args_json, origin, approval_id, "
+                    "state, owner, started_at, deadline_at) VALUES (?, ?, ?, ?, ?, ?, 'in_flight', ?, ?, ?)",
+                    (
+                        action_id,
+                        tool,
+                        digest,
+                        canonical_json(dict(args)),
+                        origin,
+                        approval_id,
+                        self.owner,
+                        iso(moment),
+                        iso(moment + timedelta(seconds=timeout_seconds)),
+                    ),
+                )
+                row = conn.execute("SELECT * FROM action_journal WHERE id = ?", (action_id,)).fetchone()
+        # Refuse only after the commit: raising inside the transaction would roll back the sweep.
+        if blocking is not None:
+            raise ActionBlockedError(str(blocking["id"]), str(blocking["state"]))
         return _record(row)
 
     def finish(self, action_id: str, state: Finish, *, error: str | None = None) -> ActionRecord | None:

@@ -1,9 +1,10 @@
 # Switchboard configuration. Keep this file at mode 600.
 #
 # This file holds settings and *references* to secrets, never secrets themselves:
-#   env:NAME              an environment variable
-#   file:~/path           a file you own with mode 600 (symbolic links are refused)
-#   cmd:pass show x       the output of a command run without a shell (pass, secret-tool, …)
+#   env:NAME                  an environment variable
+#   file:~/path               a file you own with mode 600 (symbolic links are refused)
+#   cmd:/usr/bin/pass show x  the output of a program at an absolute path, run without a shell
+#                             (pass, secret-tool, …); `command -v pass` prints the path
 
 [switchboard]
 # Connectors to load. Start with one, check it with `switchboard doctor`, then add more.
@@ -37,6 +38,13 @@ event_retention_days = 14
 # operator_socket = "/run/switchboard/operator.sock"
 # client_uids = [1001]
 # operator_uids = [1000]
+
+# Optional: the audit log keeps only the length and a short hash of text under these field names, at any
+# depth and in any letter case, instead of a prefix. These cover message bodies (mail body; Telegram,
+# LinkedIn, and announcement text; notification message) and approval summaries, which quote them.
+# Secret-shaped values are scrubbed from every field either way. See docs/DATA_LIFECYCLE.md.
+# [audit]
+# hash_only = ["body", "text", "message", "summary"]
 
 [policy]
 # Pending approvals expire after this many minutes.
@@ -89,7 +97,7 @@ max_body_chars = 20000        # cap for mail_read text; mail.received events nev
 provider = "gmail"            # gmail, outlook, icloud, fastmail, or custom
 address = "alex@example.com"
 auth = "password"
-password = "cmd:pass show mail/gmail-app-password"
+password = "cmd:/usr/bin/pass show mail/gmail-app-password"
 watch = ["INBOX"]             # mailboxes that emit mail.received; [] turns polling off
 send_enabled = false          # mail_send refuses this account until true
 # drafts_mailbox = "[Gmail]/Drafts"   # normally detected from the server's \Drafts flag
@@ -111,14 +119,14 @@ send_enabled = false          # mail_send refuses this account until true
 # address = "alex@example.com"
 # auth = "oauth2"
 # client_id = "1234567890-example.apps.googleusercontent.com"
-# client_secret = "cmd:pass show mail/google-client-secret"   # only if your Desktop app client has one
+# client_secret = "cmd:/usr/bin/pass show mail/google-client-secret"   # only if your Desktop app client has one
 
 # iCloud Mail with an app-specific password. If IMAP sign-in fails with the full address, Apple says to
 # use the part before the @ for IMAP while SMTP keeps the full address:
 # [connectors.mail.accounts.icloud]
 # provider = "icloud"
 # address = "alex@example.com"
-# password = "cmd:pass show mail/icloud-app-password"
+# password = "cmd:/usr/bin/pass show mail/icloud-app-password"
 # username = "alex"
 # smtp_username = "alex@example.com"
 
@@ -126,7 +134,7 @@ send_enabled = false          # mail_send refuses this account until true
 # [connectors.mail.accounts.fastmail]
 # provider = "fastmail"
 # address = "alex@example.com"
-# password = "cmd:pass show mail/fastmail-app-password"
+# password = "cmd:/usr/bin/pass show mail/fastmail-app-password"
 
 # Any other server: IMAP always uses implicit Transport Layer Security (TLS); for SMTP, port 465 means
 # implicit TLS and other ports upgrade with STARTTLS.
@@ -178,7 +186,7 @@ url = "file:~/.config/switchboard/secrets/google-calendar-address"
 type = "caldav"
 url = "https://caldav.icloud.com/"              # Fastmail: https://caldav.fastmail.com/
 username = "you@example.com"                    # your Apple Account or Fastmail login
-password = "cmd:pass show switchboard/icloud-app-password"
+password = "cmd:/usr/bin/pass show switchboard/icloud-app-password"
 writable = false                                # true lets calendar_create_event add (never change) events
 
 # A self-hosted server on your own network.
@@ -226,7 +234,7 @@ allow_recipients = ["*@example.com", "friend@example.org"]
 type = "carddav"
 url = "https://contacts.icloud.com/"            # Fastmail: https://carddav.fastmail.com/
 username = "you@example.com"                    # your Apple Account or Fastmail login
-password = "cmd:pass show switchboard/icloud-app-password"
+password = "cmd:/usr/bin/pass show switchboard/icloud-app-password"
 
 # Google Contacts needs OAuth for CardDAV, which Switchboard does not use: export a vCard file from
 # Google Contacts (More actions > Export) and read it here. Re-export to pick up changes.
@@ -449,7 +457,7 @@ topic = "file:~/.config/switchboard/secrets/ntfy-topic"
 # so Switchboard never logs or returns that address.
 [connectors.notify.channels.chat]
 type = "telegram"
-bot_token = "cmd:pass show switchboard/telegram-bot"
+bot_token = "cmd:/usr/bin/pass show switchboard/telegram-bot"
 chat_id = 123456789                             # a number from getUpdates, or "@yourchannel"
 
 # An email to yourself through the mail connector (which must be enabled for this to work).
@@ -483,7 +491,7 @@ secret = "file:~/.config/switchboard/secrets/hook-ci"
 # GitHub: set the same secret in the webhook settings and choose content type application/json.
 [connectors.webhooks.hooks.github]
 verify = "github"
-secret = "cmd:pass show switchboard/github-webhook"
+secret = "cmd:/usr/bin/pass show switchboard/github-webhook"
 
 # A sender that can only add a fixed header. It cannot stop replays, so use it only through an
 # encrypted tunnel.

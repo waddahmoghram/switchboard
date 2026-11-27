@@ -9,8 +9,8 @@ Locks, garage doors, alarms, cameras, appliance relays and other high-power appl
 Keep physical safety mechanisms, Home Assistant safety automations and manual controls independent.
 Device types and names do not prove what a device controls: you must review every concrete entity, especially thermostats and integrations with hidden side effects.
 
-All added tests are authored but unexecuted (`UNRUN`).
-No Switchboard process, test, example, device or account was run or probed while authoring this extension.
+[Validation](../VALIDATION.md#current-status) records where these tests have run.
+No example has been run as written, and no device or account has been probed.
 The instructions below describe operation on **your machine**, not verified operation on the author's machine.
 
 ## Tools and registration
@@ -535,9 +535,9 @@ Feature-bit values are verified against provider constants at commit `0dc24540ce
 [light][light-flags], [climate][climate-flags], [fan][fan-flags] and [media player][media-flags].
 Only the specific reported capabilities used by an action are required; no feature is inferred from a name.
 
-The synthetic authored tests cover configuration/setup, concrete targets, schema bounds, stale approvals, legacy profile bypass refusal, policy gates, event/snapshot rollback, baselines/restarts, units, quiet hours, availability, ambiguous effects, readback and announcement privacy.
+The synthetic tests cover configuration/setup, concrete targets, schema bounds, stale approvals, legacy profile bypass refusal, policy gates, event/snapshot rollback, baselines/restarts, units, quiet hours, availability, ambiguous effects, readback and announcement privacy.
 They are in `tests/unit/test_home*.py` and `tests/integration/test_home_extension.py`, with synthetic fixtures under `tests/fixtures/home/`.
-Formatting, lint, static types and data parsing are not runtime evidence.
+Passing synthetic tests are not evidence of real device behavior.
 Integration-version changes, actual device support, system-zone availability, network/certificate setup, engine privacy declarations, audio format/reachability and playback delivery remain unverified on your machine.
 
 [rest]: https://contributors.home-assistant.io/core/internals/rest-api/

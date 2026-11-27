@@ -1,7 +1,7 @@
 {
   "format": "switchboard-contract-cases",
   "version": 1,
-  "contract_revision": 1,
+  "contract_revision": 2,
   "area": "exposure",
   "summary": "What an assistant can reach through each engine's protocol layer: the configured exposure filters both the tool listing and tool calls, and exposed calls go through the same gate as any other call. Requests use the modern protocol version, so no initialize handshake is needed.",
   "cases": [

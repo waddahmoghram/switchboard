@@ -117,7 +117,8 @@ def test_propfind_sends_basic_auth_depth_and_a_propfind_body(fake_http: FakeHttp
     assert request.headers["authorization"].startswith("Basic ")
     assert request.headers["depth"] == "1"
     assert request.body is not None
-    assert b"<D:propfind" in request.body and b"<D:resourcetype/>" in request.body
+    assert b"<D:propfind" in request.body
+    assert b"<D:resourcetype/>" in request.body
 
 
 def test_same_origin_redirects_are_followed(fake_http: FakeHttp) -> None:

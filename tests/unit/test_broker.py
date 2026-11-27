@@ -1,19 +1,21 @@
 """Broker: peer credentials, framing, serialized dispatch, operator-only operations, socket files, and the
-shim relay. Uses fakes, in-memory streams, and temporary directories; authored, not run on the authoring host.
+shim relay. Uses fakes, in-memory streams, and temporary directories.
 """
 
 from __future__ import annotations
 
+import errno
 import io
 import json
 import os
 import queue
 import socket
 import struct
+import sys
 import threading
 import time
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import pytest
 
@@ -105,8 +107,10 @@ def _records(app: App, kind: str) -> list[dict[str, Any]]:
 # ---- peer credentials -------------------------------------------------------------------------------
 
 
-@pytest.mark.skipif(not hasattr(socket, "SO_PEERCRED"), reason="SO_PEERCRED is Linux-only")
 def test_linux_peer_credentials_decode_struct_ucred() -> None:
+    # Checked here rather than with a skipif mark, so mypy treats the rest as unreachable off Linux.
+    if not sys.platform.startswith("linux"):
+        pytest.skip("SO_PEERCRED is Linux-only")
     fake = FakeCredentialSocket(struct.pack("=iII", 4242, 1000, 100))
     peer = broker.peer_credentials(fake, platform="linux")
     assert peer == broker.PeerCredentials(uid=1000, gid=100, pid=4242)
@@ -289,7 +293,8 @@ def test_operator_requests_on_the_client_socket_are_protocol_errors(make_app: Ap
     assert replies[2]["error"]["code"] == -32601
     assert replies[3]["error"]["code"] == -32601
     request = app.approvals.get(approval_id)
-    assert request is not None and request.status == "pending"
+    assert request is not None
+    assert request.status == "pending"
     assert calls == []
     assert not app.policy.kill_switch.exists()
 
@@ -401,7 +406,8 @@ def test_operator_deny_and_unknown_or_malformed_approvals(make_app: AppFactory) 
 
     assert _ok(api, "deny", id=approval_id) == {"id": approval_id, "status": "denied"}
     request = app.approvals.get(approval_id)
-    assert request is not None and request.status == "denied"
+    assert request is not None
+    assert request.status == "denied"
     assert _ok(api, "deny", id=approval_id)["status"] == "error"
     assert _ok(api, "deny", id="ffffffff")["status"] == "error"
     assert _ok(api, "deny", id="XYZ")["status"] == "invalid"
@@ -558,10 +564,10 @@ def test_a_closed_gateway_answers_unavailable(make_app: AppFactory) -> None:
 # ---- settings and separation ------------------------------------------------------------------------
 
 
-def _broker_table(tmp_path: Path, **overrides: Any) -> dict[str, Any]:
+def _broker_table(socket_dir: Path, **overrides: Any) -> dict[str, Any]:
     table: dict[str, Any] = {
-        "client_socket": str(tmp_path / "client.sock"),
-        "operator_socket": str(tmp_path / "operator.sock"),
+        "client_socket": str(socket_dir / "client.sock"),
+        "operator_socket": str(socket_dir / "operator.sock"),
         "client_uids": [1001],
         "operator_uids": [1000],
     }
@@ -569,32 +575,35 @@ def _broker_table(tmp_path: Path, **overrides: Any) -> dict[str, Any]:
     return {key: value for key, value in table.items() if value is not None}
 
 
-def test_broker_settings_are_complete_absolute_and_distinct(tmp_path: Path) -> None:
-    settings = broker.broker_settings(config_from_dict({"broker": _broker_table(tmp_path)}, tmp_path))
-    assert settings.client_socket == tmp_path / "client.sock"
+def test_broker_settings_are_complete_absolute_and_distinct(tmp_path: Path, socket_dir: Path) -> None:
+    settings = broker.broker_settings(config_from_dict({"broker": _broker_table(socket_dir)}, tmp_path))
+    assert settings.client_socket == socket_dir / "client.sock"
     assert settings.client_uids == frozenset({1001})
     assert settings.operator_uids == frozenset({1000})
     for overrides in (
         {"operator_uids": None},
         {"client_socket": "client.sock"},
-        {"operator_socket": str(tmp_path / "client.sock")},
+        {"operator_socket": str(socket_dir / "client.sock")},
         {"client_socket": "/" + "x" * 120},
     ):
-        config = config_from_dict({"broker": _broker_table(tmp_path, **overrides)}, tmp_path)
+        config = config_from_dict({"broker": _broker_table(socket_dir, **overrides)}, tmp_path)
         with pytest.raises(ConfigError):
             broker.broker_settings(config)
     with pytest.raises(ConfigError):
         broker.broker_settings(config_from_dict({}, tmp_path))
 
 
-def test_shared_accounts_and_a_client_service_account_give_no_separation(tmp_path: Path) -> None:
-    separate = broker.broker_settings(config_from_dict({"broker": _broker_table(tmp_path)}, tmp_path))
+def test_shared_accounts_and_a_client_service_account_give_no_separation(
+    tmp_path: Path, socket_dir: Path
+) -> None:
+    separate = broker.broker_settings(config_from_dict({"broker": _broker_table(socket_dir)}, tmp_path))
     assert broker.separation_problems(separate, service_uid=999) == []
     shared = broker.broker_settings(
-        config_from_dict({"broker": _broker_table(tmp_path, client_uids=[1000, 1001])}, tmp_path)
+        config_from_dict({"broker": _broker_table(socket_dir, client_uids=[1000, 1001])}, tmp_path)
     )
     [problem] = broker.separation_problems(shared, service_uid=999)
-    assert "1000" in problem and "approve its own requests" in problem
+    assert "1000" in problem
+    assert "approve its own requests" in problem
     assert len(broker.separation_problems(separate, service_uid=1001)) == 1
 
 
@@ -610,9 +619,9 @@ def _socket_file(path: Path) -> None:
         leftover.close()
 
 
-def _private(tmp_path: Path) -> Path:
+def _private(parent: Path) -> Path:
     """A socket directory with explicit permissions, independent of the test runner's umask."""
-    directory = tmp_path / "run"
+    directory = parent / "run"
     directory.mkdir()
     directory.chmod(0o700)
     return directory
@@ -638,9 +647,9 @@ def test_the_socket_directory_must_exist_be_real_and_not_writable_by_others(tmp_
     broker.check_socket_directory(private, service_uid=uid)
 
 
-def test_files_links_and_foreign_sockets_are_never_replaced(tmp_path: Path) -> None:
+def test_files_links_and_foreign_sockets_are_never_replaced(socket_dir: Path) -> None:
     uid = os.getuid()
-    private = _private(tmp_path)
+    private = _private(socket_dir)
     regular = private / "regular.sock"
     regular.write_text("keep me", encoding="utf-8")
     with pytest.raises(broker.BrokerError, match="not a socket"):
@@ -657,8 +666,8 @@ def test_files_links_and_foreign_sockets_are_never_replaced(tmp_path: Path) -> N
     assert stale.exists()
 
 
-def test_only_a_stale_socket_owned_by_the_service_account_is_removed(tmp_path: Path) -> None:
-    path = _private(tmp_path) / "stale.sock"
+def test_only_a_stale_socket_owned_by_the_service_account_is_removed(socket_dir: Path) -> None:
+    path = _private(socket_dir) / "stale.sock"
     _socket_file(path)
     with pytest.raises(broker.BrokerError, match="accepting connections"):
         broker.clear_stale_socket(path, service_uid=os.getuid(), in_use=lambda _path: True)
@@ -668,8 +677,8 @@ def test_only_a_stale_socket_owned_by_the_service_account_is_removed(tmp_path: P
     broker.clear_stale_socket(path, service_uid=os.getuid(), in_use=lambda _path: True)
 
 
-def test_bound_sockets_are_mode_660_and_removed_only_while_unchanged(tmp_path: Path) -> None:
-    path = _private(tmp_path) / "c.sock"
+def test_bound_sockets_are_mode_660_and_removed_only_while_unchanged(socket_dir: Path) -> None:
+    path = _private(socket_dir) / "c.sock"
     listener, identity = broker.bind_socket(
         path, service_uid=os.getuid(), group=None, in_use=lambda _path: False
     )
@@ -755,10 +764,45 @@ def test_the_relay_reports_a_broker_that_closes_first() -> None:
         stdin.release.set()
 
 
+class SendFailsSocket:
+    """A connected socket stand-in whose sends fail with one error."""
+
+    def __init__(self, error: OSError) -> None:
+        self.error = error
+
+    def makefile(self, _mode: str) -> io.BytesIO:
+        return io.BytesIO()
+
+    def sendall(self, _data: bytes) -> None:
+        raise self.error
+
+
+def test_a_send_that_macos_fails_with_eprototype_is_reported_as_a_reset() -> None:
+    error = OSError(errno.EPROTOTYPE, os.strerror(errno.EPROTOTYPE))
+    channel = broker.SocketChannel(cast("socket.socket", SendFailsSocket(error)))
+
+    with pytest.raises(ConnectionResetError) as caught:
+        channel.send(b"{}\n")
+
+    assert caught.value.errno == errno.ECONNRESET
+    assert caught.value.__cause__ is error
+
+
+def test_other_send_failures_pass_through_unchanged() -> None:
+    error = BrokenPipeError(errno.EPIPE, os.strerror(errno.EPIPE))
+    channel = broker.SocketChannel(cast("socket.socket", SendFailsSocket(error)))
+
+    with pytest.raises(BrokenPipeError) as caught:
+        channel.send(b"{}\n")
+
+    assert caught.value is error
+
+
 def test_the_relay_stops_on_an_oversized_request_line() -> None:
     channel = EchoChannel()
     problem = broker.relay(io.BytesIO(b"x" * 9 + b"\n"), io.BytesIO(), channel, limit=8)
-    assert problem is not None and "exceeded" in problem
+    assert problem is not None
+    assert "exceeded" in problem
     assert channel.sent == []
     assert channel.ended.is_set()
 

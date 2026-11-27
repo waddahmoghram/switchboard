@@ -1,4 +1,4 @@
-"""Authored UNRUN synthetic tool tests; execution and collection are intentionally not performed here."""
+"""Synthetic tool tests for the documents connector; no personal folders or accounts."""
 
 from __future__ import annotations
 

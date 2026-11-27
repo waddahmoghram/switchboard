@@ -1,4 +1,4 @@
-"""UNRUN configuration and capability-binding contracts; synthetic inputs only."""
+"""Configuration and capability-binding contracts; synthetic inputs only."""
 
 from __future__ import annotations
 
@@ -15,7 +15,8 @@ from tests.unit.test_home_support import configuration
 
 
 def table(**kwargs: Any) -> dict[str, Any]:
-    return configuration(**kwargs)["connectors"]["home"]
+    home: dict[str, Any] = configuration(**kwargs)["connectors"]["home"]
+    return home
 
 
 def test_extension_defaults_are_off_and_legacy_settings_remain_valid() -> None:

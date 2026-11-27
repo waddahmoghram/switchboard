@@ -401,7 +401,10 @@ Json documents_list(Context &context, const Json &arguments)
 {
     check_object(arguments, {"collection", "offset", "limit"}, {"collection"});
     const auto settings = document_settings(context);
-    const auto &collection = choose_collection(settings, string_field(arguments, "collection", 32, true, 1));
+    // The returned reference points into settings; naming the argument keeps GCC 13's -Wdangling-reference from
+    // assuming that it points into a temporary.
+    const auto collection_name = string_field(arguments, "collection", 32, true, 1);
+    const auto &collection = choose_collection(settings, collection_name);
     const auto offset = static_cast<std::size_t>(integer_field(arguments, "offset", 0, max_document_entries, 0));
     const auto limit = static_cast<std::size_t>(integer_field(arguments, "limit", 1, 50, 20));
     const auto names = inventory(collection, settings);
@@ -455,7 +458,8 @@ Json documents_read(Context &context, const Json &arguments)
 {
     check_object(arguments, {"collection", "filename", "offset", "max_chars"}, {"collection", "filename"});
     const auto settings = document_settings(context);
-    const auto &collection = choose_collection(settings, string_field(arguments, "collection", 32, true, 1));
+    const auto collection_name = string_field(arguments, "collection", 32, true, 1);
+    const auto &collection = choose_collection(settings, collection_name);
     const auto filename = string_field(arguments, "filename", 255, true, 1);
     if (!supported_filename(collection, filename))
     {
@@ -492,7 +496,8 @@ Json documents_search(Context &context, const Json &arguments)
 {
     check_object(arguments, {"collection", "query", "offset", "limit"}, {"collection", "query"});
     const auto settings = document_settings(context);
-    const auto &collection = choose_collection(settings, string_field(arguments, "collection", 32, true, 1));
+    const auto collection_name = string_field(arguments, "collection", 32, true, 1);
+    const auto &collection = choose_collection(settings, collection_name);
     const auto query = string_field(arguments, "query", 256, true, 1);
     if (query.size() > 256)
     {
@@ -777,7 +782,7 @@ Json public_task(Json row, const bool preview = false)
     row["untrusted_content"] = true;
     row["reminder_delivery"] = !row["reminder_event_queued_at"].is_null() ? "event_queued"
                                : row["remind_at"].is_null()               ? "not_scheduled"
-                               : row["status"] != "open"                  ? "suppressed_inactive"
+                               : row["status"] != Json("open")            ? "suppressed_inactive"
                                                                           : "not_queued";
     return row;
 }

@@ -1,4 +1,4 @@
-"""Authored UNRUN configuration tests; all targets and paths are synthetic."""
+"""Configuration tests; all targets and paths are synthetic."""
 
 from __future__ import annotations
 

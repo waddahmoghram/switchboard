@@ -170,7 +170,8 @@ def test_msgraph_notifications_need_the_client_state_on_every_item() -> None:
     only_changes = json.loads(body)
     only_changes["value"] = only_changes["value"][:1]
     with_ids = check_msgraph("test-client-state", request(body=json.dumps(only_changes).encode()))
-    assert with_ids.dedupe is not None and with_ids.dedupe.startswith("graph:")
+    assert with_ids.dedupe is not None
+    assert with_ids.dedupe.startswith("graph:")
     reordered = check_msgraph("test-client-state", request(body=json.dumps(only_changes, indent=2).encode()))
     assert reordered.dedupe == with_ids.dedupe
 

@@ -1,4 +1,4 @@
-// libFuzzer target: timestamp parsing and rendering. Authored and unrun.
+// libFuzzer target: timestamp parsing and rendering.
 // Invariants: every accepted text is an instant from 1970 through 9999 that renders as YYYY-MM-DDTHH:MM:SSZ
 // and parses back to the same instant; rendering rejects exactly the instants outside that range.
 #include "common.hpp"

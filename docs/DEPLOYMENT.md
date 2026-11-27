@@ -11,7 +11,7 @@ An assistant with unrestricted shell or file access under the same account can a
 
 Use the gate only with clients you trust to respect this boundary.
 Stronger separation requires separate operating-system accounts: the optional broker keeps the configuration, credentials, and data under a dedicated service account and gives the assistant and the operator separate local sockets.
-It is authored but not yet exercised; see [Isolation](./ISOLATION.md) for its setup and limits.
+It has not yet been installed under a service account on any host; see [Isolation](./ISOLATION.md) for its setup and limits.
 The tool exposure list is also not a multi-user data-permission system: the approval queue is shared by processes using the same data directory.
 
 Self-hosting removes the aggregator, not the model provider.
@@ -26,12 +26,14 @@ For the C++-first native engine and C/Rust clients,
 use [the separate native build and coverage guide](../native/README.md).
 Do not point native configuration,
 databases or approval commands at Python state, or assume all account connectors are available natively.
-No native program or test has been executed on the authoring host.
+[Validation](./VALIDATION.md#current-status) records which native builds and tests have run.
 
 Requirements: Python 3.11 or newer (for `tomllib`) on Linux or macOS.
 Windows is unsupported in this prototype:
-the audit log and runner lock depend on `fcntl`.
-Runtime and platform compatibility remain untested.
+the audit log and runner lock depend on `fcntl`,
+and without it Switchboard refuses to start before it writes anything,
+rather than write the audit log unlocked.
+On macOS, hosted CI has passed the Python tests with Python 3.11, 3.12 and 3.13 and the native tests with Apple Clang; see [Validation](./VALIDATION.md#current-status) for the platforms that have run them.
 
 ```bash
 git clone "$SWITCHBOARD_REPO_URL" switchboard   # your private copy of this repository
@@ -52,7 +54,11 @@ uv run switchboard tools    # lists tools with their tier and default decision
 ```
 
 Enable one connector at a time.
-Store each credential with your password manager and reference it, for example `password = "cmd:pass show switchboard/mail-app-password"`, or in a file you `chmod 600`.
+Store each credential with your password manager and reference it, for example `password = "cmd:/usr/bin/pass show switchboard/mail-app-password"`, or in a file you `chmod 600`.
+A `cmd:` reference names its program by absolute path, or by a path that starts with `~/`, because a bare name would run whichever program of that name comes first on `PATH`; `command -v pass` prints the path to use.
+The program runs without a shell and with standard input closed, and it sees only the environment variables that password managers commonly read: `HOME`, `USER`, `LOGNAME`, `PATH`, `LANG`, `LC_*`, `TMPDIR`, `XDG_RUNTIME_DIR`, `XDG_CONFIG_HOME`, `XDG_DATA_HOME`, `XDG_CACHE_HOME`, `XDG_STATE_HOME`, `XDG_CONFIG_DIRS`, `XDG_DATA_DIRS`, `DBUS_SESSION_BUS_ADDRESS`, `DISPLAY`, `WAYLAND_DISPLAY`, `XAUTHORITY`, `GNUPGHOME`, `GPG_TTY`, `GPG_AGENT_INFO`, `SSH_AUTH_SOCK`, `PASSWORD_STORE_*`, and `OP_*`.
+Other variables, such as those your `env:` references read, stay hidden from it.
+If your program needs other variables, list their names in `SWITCHBOARD_SECRET_ENV`, separated by spaces or commas, for example `SWITCHBOARD_SECRET_ENV=BW_SESSION` for the Bitwarden command-line tool.
 
 `init` creates a private configuration folder when needed but does not change an existing parent folder's permissions.
 It refuses symbolic links and folders writable by other users.
@@ -65,10 +71,10 @@ Connector-specific settings still follow each connector's own validation.
 
 ## Run the tests
 
-The authored tests target fakes and local servers bound to `127.0.0.1`, not real accounts.
-None have been run on the authoring host.
+The tests target fakes and local servers bound to `127.0.0.1`, not real accounts.
+[Validation](./VALIDATION.md#current-status) records where they have run.
 Run them on your own machine before enabling connectors, ideally with outbound network access blocked except for loopback.
-Static checks do not prove provider compatibility.
+Passing tests do not prove provider compatibility.
 
 ```bash
 uv run pytest -m "not integration"   # unit tests
@@ -77,8 +83,8 @@ uv run ruff check src tests
 uv run mypy
 ```
 
-There is no automated multi-platform test pipeline or live-provider certification yet.
-A clean static check is not a passing unit test, an integration run, or a successful sign-in to a real account.
+The continuous integration workflow described in [Validation](./VALIDATION.md) is set up to run these checks on Linux and macOS; there is no live-provider certification.
+A passing test run is not a successful sign-in to a real account.
 
 ## Connect an assistant
 
@@ -257,7 +263,7 @@ see [webhooks](./connectors/webhooks.md) before exposing it through a tunnel.
   Stop their processes or disable their connectors to stop that activity.
 * Revoke at the source: delete app passwords, revoke OAuth grants, rotate bot tokens and webhook secrets, and remove the long-lived Home Assistant token.
   Then delete the matching secret references.
-* Check the record: `switchboard audit verify` and `switchboard audit tail -n 50`.
+* Check the record: `switchboard audit verify`, with `--anchor SEQ:HASH` for each [anchor](./DATA_LIFECYCLE.md#audit-anchors) you kept, and `switchboard audit tail -n 50`.
 
 ## Failures, retries, and retained data
 
@@ -286,7 +292,8 @@ Processed event payloads are pruned after `event_retention_days` (14 by default)
 Data without a hook, such as mail cursors, contact caches, and imported files, is not purged.
 Original bank statements in `processed/` and `failed/` can contain full account numbers even though the ledger masks them; see [Data lifecycle](./DATA_LIFECYCLE.md#retention).
 
-Audit verification detects changed records and interior deletions, but cannot detect removal of a valid tail unless you compare with an independently saved head hash, such as the one `backup create` prints.
+Audit verification detects changed records and interior deletions.
+Records cut from the end of the log are detected only up to an anchor kept where Switchboard cannot write: record anchors with `switchboard audit anchor` and check them with `switchboard audit verify --anchor SEQ:HASH`, as [Data lifecycle](./DATA_LIFECYCLE.md#audit-anchors) describes.
 It cannot stop the same user rewriting the entire chain.
 `switchboard audit-archive rotate` archives a long log and keeps the chain linked.
 

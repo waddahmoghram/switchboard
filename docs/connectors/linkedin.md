@@ -255,7 +255,7 @@ No events include credentials or full post bodies.
 Source exports remain in the private import directory until you remove them yourself.
 Imported records, full draft bodies, actor identifiers, hashes, and attempt state remain in the private SQLite database indefinitely; there is no connector retention job or per-record deletion tool.
 Core event retention does not remove these tables.
-Approval records retain exact text, and the core audit log retains short argument strings or longer prefixes with hashes.
+Approval records retain exact text, and the core audit log retains short argument strings or longer prefixes with hashes, unless [`[audit] hash_only`](../DATA_LIFECYCLE.md#keeping-only-a-hash-of-message-text) lists `text` and `summary`.
 Protect the entire data directory, database sidecars, source files, and backups as personal data.
 Neither hashes nor local file permissions provide encryption or prove identity.
 
@@ -266,10 +266,9 @@ immutable drafts, approval argument binding, disabled publication, concurrent/du
 Integration cases use `make_app` and `FakeHttp`, never a real account.
 They require the main application to register the `linkedin` connector.
 
-Only source inspection and permitted static checks were performed on the development host.
-No project imports,
-test collection, tests, application commands, authorization flow, or live provider calls were executed there.
-Runtime compatibility, current application entitlements, and actual account publication remain unverified.
+[Validation](../VALIDATION.md#current-status) records where these cases have run.
+The setup commands above have not been run as written, and no authorization flow or live provider call has been made.
+Provider compatibility, current application entitlements, and actual account publication remain unverified.
 
 [account-download]: https://www.linkedin.com/help/linkedin/answer/a1339364/downloading-your-account-data
 [developer-portal]: https://www.linkedin.com/developers/

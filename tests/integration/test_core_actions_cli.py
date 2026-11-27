@@ -62,10 +62,13 @@ def test_list_and_show_report_recorded_actions(config: Path, capsys: pytest.Capt
 
     assert main([*base, "list"]) == 0
     listing = capsys.readouterr().out
-    assert uncertain in listing and done in listing and "demo_send" in listing
+    assert uncertain in listing
+    assert done in listing
+    assert "demo_send" in listing
     assert main([*base, "list", "--state", "uncertain", "-n", "5"]) == 0
     filtered = capsys.readouterr().out
-    assert uncertain in filtered and done not in filtered
+    assert uncertain in filtered
+    assert done not in filtered
     assert "connection reset after sending" in filtered
     assert main([*base, "list", "-n", "0"]) == 2
     capsys.readouterr()
@@ -135,7 +138,8 @@ def test_resolve_asks_for_confirmation_at_a_terminal(
 
     assert main(args) == 0
     shown = capsys.readouterr().out
-    assert "did NOT happen" in shown and '"text": "hello"' in shown
+    assert "did NOT happen" in shown
+    assert '"text": "hello"' in shown
     assert "connection reset after sending" in shown
     assert state_of(config, action_id) == "reconciled_not_applied"
 

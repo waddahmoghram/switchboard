@@ -75,7 +75,7 @@ def _ids(value: Any, label: str, *, positive: bool) -> frozenset[int]:
 
 
 def _integer(raw: Mapping[str, Any], key: str, default: int, low: int, high: int) -> int:
-    value = raw.get(key, default)
+    value: object = raw.get(key, default)
     if isinstance(value, bool) or not isinstance(value, int) or not low <= value <= high:
         raise ConfigError(f"telegram: {key} must be an integer between {low} and {high}")
     return value

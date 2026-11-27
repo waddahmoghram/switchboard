@@ -1,4 +1,4 @@
-"""Seeded fuzzing of ``jsonschema.check_schema`` and ``jsonschema.validate``; authored and unrun.
+"""Seeded fuzzing of ``jsonschema.check_schema`` and ``jsonschema.validate``.
 
 ``check_schema`` receives generated definitions with wrong types, unknown keywords, and random patterns, and
 must either accept them or raise ``ValueError``. ``validate`` receives constructed valid schemas (whose

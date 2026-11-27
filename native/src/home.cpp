@@ -17,6 +17,11 @@
 #include <utility>
 #include <vector>
 
+#if !defined(__cpp_lib_to_chars)
+#include <locale>
+#include <sstream>
+#endif
+
 namespace switchboard
 {
 namespace
@@ -482,7 +487,7 @@ bool reported_leaf(const Json &raw)
 
 bool available(const Json &raw)
 {
-    return raw.at("state") != "unknown" && raw.at("state") != "unavailable";
+    return raw.at("state") != Json("unknown") && raw.at("state") != Json("unavailable");
 }
 
 bool feature(const Json &attributes, const std::int64_t wanted)
@@ -620,6 +625,61 @@ bool sensor_domain(const std::string &identifier)
     return domain == "sensor" || domain == "binary_sensor";
 }
 
+// Parses all of text as a decimal number in the general format of std::from_chars. Apple's libc++ lacks the
+// floating-point from_chars, so there the same grammar is checked here and the classic locale converts the text.
+// That path refuses infinity and NaN spellings, which callers reject as non-finite anyway, and subnormal values where
+// strtod reports them as range errors. The stream rethrows an allocation failure instead of reporting a parse failure.
+bool parse_double(const std::string &text, double &value)
+{
+#if defined(__cpp_lib_to_chars)
+    const auto *end = text.data() + text.size();
+    const auto [last, failure] = std::from_chars(text.data(), end, value);
+    return failure == std::errc() && last == end;
+#else
+    std::size_t index = text.starts_with('-') ? 1 : 0;
+    const auto digits = [&]
+    {
+        const auto start = index;
+        while (index < text.size() && std::isdigit(static_cast<unsigned char>(text[index])) != 0)
+        {
+            ++index;
+        }
+        return index - start;
+    };
+    auto mantissa = digits();
+    if (index < text.size() && text[index] == '.')
+    {
+        ++index;
+        mantissa += digits();
+    }
+    if (mantissa == 0)
+    {
+        return false;
+    }
+    if (index < text.size() && (text[index] == 'e' || text[index] == 'E'))
+    {
+        ++index;
+        if (index < text.size() && (text[index] == '+' || text[index] == '-'))
+        {
+            ++index;
+        }
+        if (digits() == 0)
+        {
+            return false;
+        }
+    }
+    if (index != text.size())
+    {
+        return false;
+    }
+    std::istringstream stream(text);
+    stream.imbue(std::locale::classic());
+    stream.exceptions(std::ios_base::badbit);
+    stream >> value;
+    return !stream.fail() && stream.eof();
+#endif
+}
+
 std::optional<double> numeric_state(const Json &state)
 {
     if (!state.is_string() || state.get_ref<const std::string &>().empty())
@@ -628,9 +688,7 @@ std::optional<double> numeric_state(const Json &state)
     }
     const auto &text = state.get_ref<const std::string &>();
     double value = 0;
-    const auto *end = text.data() + text.size();
-    const auto [last, failure] = std::from_chars(text.data(), end, value);
-    if (failure != std::errc() || last != end || !std::isfinite(value))
+    if (!parse_double(text, value) || !std::isfinite(value))
     {
         return std::nullopt;
     }
@@ -673,9 +731,9 @@ std::optional<Json> sensor_reading(const Json &snapshot, const bool source_faile
         kind = found->second.first;
         meaning = found->second.second;
         unit = nullptr;
-        if (state == "on" || state == "off")
+        if (state == Json("on") || state == Json("off"))
         {
-            value = state == "on";
+            value = state == Json("on");
         }
         else
         {
@@ -709,7 +767,7 @@ std::optional<Json> sensor_reading(const Json &snapshot, const bool source_faile
         }
     }
     const auto availability = snapshot.value("availability", Json());
-    const bool current = availability == "available";
+    const bool current = availability == Json("available");
     const bool is_stale = snapshot.value("stale", true);
     return Json{{"entity_id", identifier},
                 {"kind", kind},
@@ -898,7 +956,7 @@ public:
         {
             const auto identifier = arguments.at("entity_id").get<std::string>();
             require_scope(identifier, arguments);
-            if (arguments.contains("domain") && domain_of(identifier) != arguments.at("domain"))
+            if (arguments.contains("domain") && arguments.at("domain") != Json(domain_of(identifier)))
             {
                 home_error("home entity does not belong to the requested domain");
             }
@@ -911,7 +969,7 @@ public:
                 const auto identifier = raw.at("entity_id").get<std::string>();
                 if (!settings_.visible(identifier) ||
                     (arguments.contains("room") && !includes(settings_.reviewed.at("rooms").at(arguments.at("room").get<std::string>()), identifier)) ||
-                    (arguments.contains("domain") && domain_of(identifier) != arguments.at("domain")))
+                    (arguments.contains("domain") && arguments.at("domain") != Json(domain_of(identifier))))
                 {
                     continue;
                 }
@@ -1071,7 +1129,7 @@ public:
             not_attempted.push_back(plans[index].entities.front());
         }
         const bool confirmed = readback && matched && not_attempted.empty();
-        const bool rejected = accepted == 0 && stop_reason == "rejected";
+        const bool rejected = accepted == 0 && stop_reason == Json("rejected");
         Json report = {{"name", name},
                        {"fingerprint", preset.at("fingerprint")},
                        {"entity_ids", keys(preset.at("targets"))},
@@ -1602,7 +1660,7 @@ private:
     {
         HomePlan plan;
         plan.domain = "light";
-        plan.service = arguments.at("state") == "on" ? "turn_on" : "turn_off";
+        plan.service = arguments.at("state") == Json("on") ? "turn_on" : "turn_off";
         plan.entities = arguments.at("entity_ids").get<std::vector<std::string>>();
         std::set<std::string> seen;
         for (const auto &identifier : plan.entities)
@@ -1613,7 +1671,7 @@ private:
                 home_error("home light targets must be distinct reviewed lights");
             }
         }
-        if ((arguments.at("state") == "off" &&
+        if ((arguments.at("state") == Json("off") &&
              (arguments.contains("brightness_pct") || arguments.contains("rgb_color") || arguments.contains("color_temp_kelvin"))) ||
             (arguments.contains("rgb_color") && arguments.contains("color_temp_kelvin")))
         {

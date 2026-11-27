@@ -1,4 +1,4 @@
-// Fault injection for the native engine. Authored and unrun.
+// Fault injection for the native engine.
 //
 // A fault transport fails in every documented way (transport, byte limit, deadline and cancellation errors,
 // server errors, malformed, oversized, deeply nested and non-UTF-8 bodies, and an unexpected exception), and

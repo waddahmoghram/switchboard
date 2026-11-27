@@ -87,7 +87,7 @@ The diagram was written for Markdown previews with Mermaid support; it has not b
 | ---------------- | ----------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
 | Configuration    | `config.py`, `secrets.py`     | Table-based settings; `env:`, `file:` (mode 600, no symbolic links), and `cmd:` secret references                                |
 | Storage          | `db.py`                       | One SQLite file, write-ahead logging, versioned migrations per component                                                         |
-| Audit log        | `audit.py`                    | Hash-chained records; redacts credential-like keys but can retain message text and body prefixes                                 |
+| Audit log        | `audit.py`                    | Hash-chained records; redacts credential-like keys and secret-shaped text but can retain message text and body prefixes          |
 | Policy gate      | `policy.py`                   | Tier defaults, per-tool rules, recipient allowlists, amount caps, rate limits, kill switch                                       |
 | Tools            | `tools.py`, `jsonschema.py`   | Tool registry, argument validation, the dispatcher every call goes through                                                       |
 | Action journal   | `actions.py`                  | Records each non-read attempt before it runs; classifies results; refuses identical repeats of open attempts; reconciliation     |
@@ -200,9 +200,9 @@ It does not: these are ordered dispatches, not a workflow with dependencies.
 Use "send requested" when that is all the observed status establishes, or check the approval's final result after the user acts.
 Approval executes the stored tool request; it does not automatically resume a dependent workflow.
 
-Inspect `RuleEngine.__call__` in [rules.py](../src/switchboard/rules.py), `CallOutcome.is_error` and `Dispatcher.approve` in [tools.py](../src/switchboard/tools.py), and the authored pending-action case in [test_core_rules.py](../tests/unit/test_core_rules.py).
+Inspect `RuleEngine.__call__` in [rules.py](../src/switchboard/rules.py), `CallOutcome.is_error` and `Dispatcher.approve` in [tools.py](../src/switchboard/tools.py), and the pending-action case in [test_core_rules.py](../tests/unit/test_core_rules.py).
 This is a source-derived explanation.
-The tests have not been executed on the authoring host, and no mail was sent to establish this example.
+No mail was sent to establish this example.
 
 ## Messaging and historical exports
 
@@ -258,8 +258,8 @@ Already queued events cannot be withdrawn by a later completion, cancellation or
 | Your own mistakes             | A bad rule or approval                                                        | Kill switch, deny rules that override approvals, approval expiry, audit verification           |
 
 The audit log is tamper-evident, not tamper-proof: anyone who can rewrite the whole file can recompute the chain.
-Interior deletions can break the chain; removing a valid tail cannot be detected without an independently stored head hash.
-Audit records, approval arguments, and results can contain personal data; credential-key redaction is not universal content redaction.
+Interior deletions can break the chain; records cut from its end are detected only up to an [anchor](./DATA_LIFECYCLE.md#audit-anchors) kept where Switchboard cannot write.
+Audit records, approval arguments, and results can contain personal data; redacting credential-like keys and secret-shaped text is not universal content redaction, and [`[audit] hash_only`](./DATA_LIFECYCLE.md#what-audit-records-keep) keeps named message fields only as a length and hash.
 
 ## Connectors
 

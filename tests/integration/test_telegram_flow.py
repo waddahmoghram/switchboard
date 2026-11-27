@@ -46,17 +46,21 @@ def test_replies_wait_for_exact_approval_and_are_bound_to_the_source_chat(
     app, message = received
     args = {"id": message["id"], "chat_id": CHAT_ID, "text": "Your request is ready for review."}
     pending = app.call("telegram_reply", args, Origin.ASSISTANT)
-    assert pending.status == "pending" and pending.approval_id is not None
+    assert pending.status == "pending"
+    assert pending.approval_id is not None
     assert not any(request.url.endswith("/sendMessage") for request in fake_http.requests)
     respond(fake_http, "sendMessage", {"message_id": 900, "chat": {"id": CHAT_ID}})
 
     sent = app.dispatcher.approve(pending.approval_id)
 
-    assert sent.status == "ok" and sent.data["status"] == "sent"
-    assert sent.action is not None and sent.action["state"] == "succeeded"
+    assert sent.status == "ok"
+    assert sent.data["status"] == "sent"
+    assert sent.action is not None
+    assert sent.action["state"] == "succeeded"
     [request] = [request for request in fake_http.requests if request.url.endswith("/sendMessage")]
     payload = json.loads(request.body or b"{}")
-    assert payload["chat_id"] == CHAT_ID and payload["text"] == args["text"]
+    assert payload["chat_id"] == CHAT_ID
+    assert payload["text"] == args["text"]
     assert payload["reply_parameters"] == {"message_id": 10, "allow_sending_without_reply": False}
     assert payload["link_preview_options"]["is_disabled"] is True
     assert "parse_mode" not in payload
@@ -70,12 +74,14 @@ def test_duplicate_queued_replies_cannot_send_twice(
     args = {"id": message["id"], "chat_id": CHAT_ID, "text": "One reply only."}
     first = app.call("telegram_reply", args, Origin.ASSISTANT)
     second = app.call("telegram_reply", args, Origin.ASSISTANT)
-    assert first.approval_id and second.approval_id
+    assert first.approval_id
+    assert second.approval_id
     respond(fake_http, "sendMessage", {"message_id": 900, "chat": {"id": CHAT_ID}})
     assert app.dispatcher.approve(first.approval_id).status == "ok"
     duplicate = app.dispatcher.approve(second.approval_id)
     assert duplicate.status == "error"
-    assert duplicate.action is not None and duplicate.action["state"] == "failed"
+    assert duplicate.action is not None
+    assert duplicate.action["state"] == "failed"
     assert sum(request.url.endswith("/sendMessage") for request in fake_http.requests) == 1
 
 
@@ -89,17 +95,21 @@ def test_uncertain_delivery_is_not_automatically_retried(
     fake_http.add_error("POST", BASE + "sendMessage", "simulated timeout")
     first = app.dispatcher.approve(pending.approval_id)
     assert first.status == "error"
-    assert first.action is not None and first.action["state"] == "uncertain"
+    assert first.action is not None
+    assert first.action["state"] == "uncertain"
     status = app.call("telegram_read", {"id": message["id"]}, Origin.ASSISTANT).data
     assert status["reply_state"] == "unknown"
     again = app.call("telegram_reply", args, Origin.ASSISTANT)
     assert again.approval_id
     blocked = app.dispatcher.approve(again.approval_id)
-    assert blocked.status == "denied" and blocked.action is None
+    assert blocked.status == "denied"
+    assert blocked.action is None
     assert first.action["id"] in blocked.message
     stored = app.approvals.get(again.approval_id)
-    assert stored is not None and stored.status == "failed"
-    assert stored.error is not None and first.action["id"] in stored.error
+    assert stored is not None
+    assert stored.status == "failed"
+    assert stored.error is not None
+    assert first.action["id"] in stored.error
     assert sum(request.url.endswith("/sendMessage") for request in fake_http.requests) == 1
 
 
@@ -114,7 +124,8 @@ def test_confirmation_for_the_wrong_chat_is_not_success(
     respond(fake_http, "sendMessage", {"message_id": 900, "chat": {"id": 222}})
     outcome = app.dispatcher.approve(pending.approval_id)
     assert outcome.status == "error"
-    assert outcome.action is not None and outcome.action["state"] == "uncertain"
+    assert outcome.action is not None
+    assert outcome.action["state"] == "uncertain"
     assert app.call("telegram_read", {"id": message["id"]}, Origin.ASSISTANT).data["reply_state"] == "unknown"
 
 

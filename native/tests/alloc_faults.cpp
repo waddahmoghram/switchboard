@@ -1,4 +1,4 @@
-// Allocation-failure injection at the C interface. Authored and unrun.
+// Allocation-failure injection at the C interface.
 //
 // Global operator new and delete are replaced by malloc and free wrappers with a countdown: after N successful
 // allocations the next one fails (one-shot mode) or every later one fails (sticky mode). Each C entry point runs
@@ -9,6 +9,12 @@
 //
 // SWITCHBOARD_ALLOC_FAULT_STRIDE (a positive integer, default 1) samples every Nth allocation in one-shot mode;
 // sticky mode always samples every 13th stride. Exit code 77 means the replacement did not reach the library.
+//
+// Allocations whose failure no caller could survive are never failed. nlohmann::json's noexcept destructor moves the
+// children of an array or object onto a heap-allocated stack in json_value::destroy, so a failure there terminates
+// the process. libc++'s basic_regex::__parse deletes its end state twice when the shared_ptr control block of its
+// start state cannot be allocated. The failure moves to the next allocation outside those frames, which are found by
+// their mangled names in a backtrace; that needs the unoptimized Debug build in which this test runs.
 #include "support.hpp"
 #include "switchboard/switchboard.h"
 
@@ -26,6 +32,8 @@
 #include <string>
 #include <system_error>
 
+#include <dlfcn.h>
+#include <execinfo.h>
 #include <sys/stat.h>
 #include <unistd.h>
 
@@ -35,9 +43,40 @@ namespace
 std::atomic<std::int64_t> remaining{-1};
 std::atomic<bool> sticky{false};
 std::atomic<bool> triggered{false};
+thread_local bool inspecting = false;
+
+// Fragments of the mangled names of nlohmann::json's json_value::destroy and libc++'s basic_regex<char>::__parse.
+constexpr const char *UNRECOVERABLE_FRAMES[] = {"10json_value7destroy", "11basic_regexIcNS_12regex_traitsIcEEE7__parseI"};
+
+bool inside_unrecoverable_frame() noexcept
+{
+    constexpr int DEPTH = 64;
+    void *frames[DEPTH];
+    inspecting = true;
+    const int depth = backtrace(frames, DEPTH);
+    bool found = false;
+    for (int index = 0; index < depth && !found; ++index)
+    {
+        Dl_info info{};
+        if (dladdr(frames[index], &info) == 0 || info.dli_sname == nullptr)
+        {
+            continue;
+        }
+        for (const auto *fragment : UNRECOVERABLE_FRAMES)
+        {
+            found = found || std::strstr(info.dli_sname, fragment) != nullptr;
+        }
+    }
+    inspecting = false;
+    return found;
+}
 
 bool inject() noexcept
 {
+    if (inspecting)
+    {
+        return false;
+    }
     auto current = remaining.load(std::memory_order_relaxed);
     while (current > 0)
     {
@@ -46,7 +85,7 @@ bool inject() noexcept
             return false;
         }
     }
-    if (current < 0)
+    if (current < 0 || inside_unrecoverable_frame())
     {
         return false;
     }
@@ -478,6 +517,8 @@ int main()
 {
     try
     {
+        // The first backtrace loads the unwinder; do it before any allocation can fail.
+        (void)inside_unrecoverable_frame();
         if (!replacement_reaches_library())
         {
             std::cout << "SKIP: replacing global operator new does not reach the shared library on this platform\n";

@@ -293,7 +293,7 @@ def matches(snapshot: dict[str, Any], patch: dict[str, Any]) -> bool:
     return True
 
 
-def _integer(value: Any, minimum: int, maximum: int) -> int | None:
+def _integer(value: object, minimum: int, maximum: int) -> int | None:
     if isinstance(value, bool) or not isinstance(value, int) or not minimum <= value <= maximum:
         return None
     return value

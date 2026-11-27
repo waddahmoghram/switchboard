@@ -1,5 +1,5 @@
 """End-to-end data lifecycle: backups taken while records are appended, rotation under concurrent appends, and
-what retention does and does not reach. Temporary directories only; authored, not run on the authoring host.
+what retention does and does not reach. Temporary directories only.
 """
 
 from __future__ import annotations

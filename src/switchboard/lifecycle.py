@@ -45,12 +45,8 @@ from switchboard.audit import GENESIS, AuditLog
 from switchboard.config import ensure_private_dir
 from switchboard.db import CORE_MIGRATIONS, Database
 from switchboard.errors import SwitchboardError
+from switchboard.locking import fcntl
 from switchboard.util import canonical_json, iso, json_equal, json_loads, now, sha256_hex
-
-try:
-    import fcntl
-except ImportError:  # pragma: no cover - Windows is not supported in v0.1
-    fcntl = None  # type: ignore[assignment]
 
 log = logging.getLogger(__name__)
 
@@ -69,6 +65,7 @@ MAX_LINKED_ARCHIVES = 10_000
 _CHUNK = 1024 * 1024
 _ARCHIVE_NAME = re.compile(r"audit-[0-9]{8}T[0-9]{6}Z-[0-9a-f]{16}\.jsonl")
 _HASH = re.compile(r"[0-9a-f]{64}")
+_ANCHOR = re.compile(r"([1-9][0-9]{0,17}):([0-9a-f]{64})")
 _TABLE = re.compile(r"[a-z][a-z0-9_]{0,63}")
 _NOFOLLOW = getattr(os, "O_NOFOLLOW", 0)
 _CLOEXEC = getattr(os, "O_CLOEXEC", 0)
@@ -225,8 +222,7 @@ def _locked_audit(path: Path, *, exclusive: bool) -> Iterator[int | None]:
     try:
         if not stat.S_ISREG(os.fstat(fd).st_mode):
             raise LifecycleError(f"{path} is not a regular file")
-        if fcntl is not None:
-            fcntl.flock(fd, fcntl.LOCK_EX if exclusive else fcntl.LOCK_SH)
+        fcntl.flock(fd, fcntl.LOCK_EX if exclusive else fcntl.LOCK_SH)
         yield fd
     finally:
         os.close(fd)  # closing the descriptor releases the lock
@@ -235,9 +231,6 @@ def _locked_audit(path: Path, *, exclusive: bool) -> Iterator[int | None]:
 @contextmanager
 def hold_runner_lock(data_dir: Path) -> Iterator[bool]:
     """Hold ``runner.lock``, the lock ``switchboard run`` takes; yields False while another process has it."""
-    if fcntl is None:
-        yield True
-        return
     fd = os.open(data_dir / RUNNER_LOCK, os.O_RDWR | os.O_CREAT | _NOFOLLOW | _CLOEXEC, 0o600)
     try:
         try:
@@ -303,16 +296,16 @@ class BackupReport:
 
 def _new_private_directory(path: Path) -> Path:
     try:
-        parent = os.stat(path.parent)
+        parent = path.parent.stat()
     except FileNotFoundError:
         raise LifecycleError(f"{path.parent} does not exist") from None
     if not stat.S_ISDIR(parent.st_mode):
         raise LifecycleError(f"{path.parent} is not a directory")
     try:
-        os.mkdir(path, 0o700)
+        path.mkdir(mode=0o700)
     except FileExistsError:
         raise LifecycleError(f"{path} already exists; backups always go into a new directory") from None
-    os.chmod(path, 0o700)
+    path.chmod(0o700)
     return path
 
 
@@ -336,12 +329,12 @@ def _copy_archives(source: Path, target: Path, created: list[Path]) -> dict[str,
     if stat.S_ISLNK(info.st_mode) or not stat.S_ISDIR(info.st_mode):
         raise LifecycleError(f"{source} must be a real directory")
     copied: dict[str, FileDigest] = {}
-    for name in sorted(os.listdir(source)):
+    for name in sorted(child.name for child in source.iterdir()):
         if not _ARCHIVE_NAME.fullmatch(name):
             log.warning("not backing up %s: it is not named like an audit archive", source / name)
             continue
         if not copied:
-            os.mkdir(target, 0o700)
+            target.mkdir(mode=0o700)
             created.append(target)
         created.append(target / name)
         copied[name] = _copy_file(source / name, target / name)
@@ -470,21 +463,23 @@ def _manifest_files(manifest: Mapping[str, Any], problems: list[str]) -> dict[st
             problems.append(f"{MANIFEST_FILE} has a malformed entry for {name}")
             continue
         files[name] = FileDigest(digest, size)
-    for required in (DATABASE_FILE, AUDIT_FILE):
-        if required not in table:
-            problems.append(f"{MANIFEST_FILE} does not list {required}")
+    problems.extend(
+        f"{MANIFEST_FILE} does not list {required}"
+        for required in (DATABASE_FILE, AUDIT_FILE)
+        if required not in table
+    )
     return files
 
 
 def _backup_entries(root: Path, problems: list[str]) -> set[str]:
     """Regular files that may belong to a backup; anything else in the directory is a problem."""
     present: set[str] = set()
-    for name in sorted(os.listdir(root)):
+    for name in sorted(child.name for child in root.iterdir()):
         info = os.lstat(root / name)
         if name == MANIFEST_FILE:
             continue
         if name == ARCHIVE_DIR and stat.S_ISDIR(info.st_mode):
-            for member in sorted(os.listdir(root / name)):
+            for member in sorted(child.name for child in (root / name).iterdir()):
                 relative = f"{ARCHIVE_DIR}/{member}"
                 if stat.S_ISREG(os.lstat(root / relative).st_mode) and _backup_member(relative):
                     present.add(relative)
@@ -614,12 +609,12 @@ def _restore_directory(path: Path) -> Path:
     if hasattr(os, "getuid") and info.st_uid != os.getuid():
         raise LifecycleError(f"{path} belongs to another account")
     if info.st_mode & 0o077:
-        os.chmod(path, 0o700)
+        path.chmod(0o700)
     return path
 
 
 def _leftovers(directory: Path) -> list[str]:
-    return sorted(set(os.listdir(directory)) - {RUNNER_LOCK})
+    return sorted({child.name for child in directory.iterdir()} - {RUNNER_LOCK})
 
 
 def restore_backup(source: Path, target: Path) -> RestoreReport:
@@ -646,7 +641,7 @@ def restore_backup(source: Path, target: Path) -> RestoreReport:
             for name, expected in sorted(verification.files.items()):
                 destination = directory / name
                 if destination.parent != directory and not destination.parent.exists():
-                    os.mkdir(destination.parent, 0o700)
+                    destination.parent.mkdir(mode=0o700)
                     created.append(destination.parent)
                 created.append(destination)
                 if _copy_file(source / name, destination) != expected:
@@ -1181,7 +1176,106 @@ def verify_audit_chain(audit_path: Path, archive_dir: Path) -> AuditChainReport:
         segments.append(AuditSegment(link.archive, result.records, result.head))
         current = path
     with contextlib.suppress(FileNotFoundError, NotADirectoryError):
-        for name in sorted(os.listdir(archive_dir)):
-            if _ARCHIVE_NAME.fullmatch(name) and name not in linked:
-                warnings.append(f"{name} is not linked from the current chain")
+        warnings.extend(
+            f"{name} is not linked from the current chain"
+            for name in sorted(child.name for child in archive_dir.iterdir())
+            if _ARCHIVE_NAME.fullmatch(name) and name not in linked
+        )
     return AuditChainReport(tuple(segments), tuple(problems), tuple(warnings))
+
+
+# ---- audit anchors ----------------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class AuditAnchor:
+    """A record's position in the linked chain and its hash, to keep where Switchboard cannot write.
+
+    Positions count from the first record of the oldest linked archive, rotation records included, so an
+    anchor names the same record after later rotations.
+    """
+
+    sequence: int
+    hash: str
+
+    def __str__(self) -> str:
+        return f"{self.sequence}:{self.hash}"
+
+
+def parse_audit_anchor(text: str) -> AuditAnchor:
+    """Parse ``SEQ:HASH``, the form ``switchboard audit anchor`` prints."""
+    match = _ANCHOR.fullmatch(text.strip().lower())
+    if match is None:
+        raise LifecycleError("an anchor is SEQ:HASH, a record number and a 64-digit hexadecimal hash")
+    return AuditAnchor(int(match.group(1)), match.group(2))
+
+
+def current_audit_anchor(audit_path: Path, archive_dir: Path) -> AuditAnchor:
+    """Verify the linked chain while appends wait, and return the position and hash of its last record."""
+    with _locked_audit(audit_path, exclusive=False) as fd:
+        report = _locked_chain(fd, audit_path, archive_dir)
+    if not report.ok:
+        raise LifecycleError(
+            f"the audit chain does not verify ({'; '.join(report.problems)}); investigate before anchoring it"
+        )
+    if report.records == 0:
+        raise LifecycleError("the audit log is empty; there is nothing to anchor yet")
+    return AuditAnchor(report.records, report.segments[0].head)
+
+
+def check_audit_anchors(
+    audit_path: Path, archive_dir: Path, anchors: Iterable[AuditAnchor]
+) -> AuditChainReport:
+    """Verify the linked chain, then check that each anchored record is still there with the same hash.
+
+    A chain shorter than an anchor lost records from its end or was replaced. A different hash at the
+    anchored position means the chain was rewritten at or before it. Positions in a chain that does not
+    verify are unknown, so its anchors are reported as not checked.
+    """
+    wanted = list(dict.fromkeys(anchors))
+    with _locked_audit(audit_path, exclusive=False) as fd:
+        report = _locked_chain(fd, audit_path, archive_dir)
+        if not report.ok:
+            problems = (*report.problems, f"{len(wanted)} anchor(s) not checked: the chain must verify first")
+            return AuditChainReport(report.segments, problems, report.warnings)
+        found = _hashes_at(report, audit_path, archive_dir, {anchor.sequence for anchor in wanted})
+    mismatches: list[str] = []
+    for anchor in wanted:
+        if anchor.sequence > report.records:
+            mismatches.append(
+                f"anchor {anchor}: the chain has only {report.records} records; "
+                "records were removed from its end, or the log was replaced"
+            )
+        elif found.get(anchor.sequence) != anchor.hash:
+            mismatches.append(
+                f"anchor {anchor}: record {anchor.sequence} has a different hash; "
+                "the chain was rewritten at or before it"
+            )
+    return AuditChainReport(report.segments, tuple(mismatches), report.warnings)
+
+
+def _locked_chain(fd: int | None, audit_path: Path, archive_dir: Path) -> AuditChainReport:
+    """Verify the chain while ``fd`` holds the live log's lock; without a live log the chain is empty."""
+    if fd is None:
+        return AuditChainReport((), (), ())
+    return verify_audit_chain(audit_path, archive_dir)
+
+
+def _hashes_at(
+    report: AuditChainReport, audit_path: Path, archive_dir: Path, positions: set[int]
+) -> dict[int, str]:
+    """Read the hash at each position of a verified chain, in one pass over each segment holding one."""
+    found: dict[int, str] = {}
+    offset = 0
+    for newest_first in reversed(range(len(report.segments))):
+        segment = report.segments[newest_first]
+        path = archive_dir / segment.name if newest_first else audit_path
+        local = {position - offset for position in positions if offset < position <= offset + segment.records}
+        if local:
+            for number, record in enumerate(AuditLog(path).records(), start=1):
+                if number in local:
+                    found[offset + number] = str(record.get("hash"))
+                if number >= max(local):
+                    break
+        offset += segment.records
+    return found

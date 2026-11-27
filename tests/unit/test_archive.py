@@ -5,6 +5,7 @@ from __future__ import annotations
 import io
 import stat
 import zipfile
+from collections.abc import Callable
 from pathlib import Path
 
 import pytest
@@ -54,6 +55,17 @@ def test_symlinks_and_shared_import_directories_are_refused(tmp_path: Path) -> N
     tmp_path.chmod(0o755)
     with pytest.raises(ToolError, match="mode 700"):
         read_import_file(tmp_path, "real.csv", (".csv",))
+
+
+def test_a_directory_with_an_export_name_is_refused_and_closed(
+    tmp_path: Path, open_descriptors: Callable[[], int]
+) -> None:
+    tmp_path.chmod(0o700)
+    (tmp_path / "export.csv").mkdir()
+    baseline = open_descriptors()
+    with pytest.raises(ToolError, match="owned regular file"):
+        read_import_file(tmp_path, "export.csv", (".csv",))
+    assert open_descriptors() == baseline
 
 
 def test_actual_file_and_inflated_archive_sizes_are_bounded(
@@ -131,12 +143,17 @@ def test_search_uses_literal_text_not_wildcard_expressions(make_app: AppFactory)
 
 def test_event_insertion_can_be_rolled_back_with_its_source_state(make_app: AppFactory) -> None:
     app = make_app()
-    with pytest.raises(RuntimeError), app.ctx.db.session() as conn, transaction(conn):
-        app.ctx.events.emit("example", "example.new", {}, dedupe_key="atomic", connection=conn)
-        conn.execute(
-            "INSERT INTO kv (namespace, key, value, updated_at) VALUES ('example', 'cursor', '1', 'now')"
-        )
-        raise RuntimeError("simulate a failed source update")
+
+    def fail_after_writing() -> None:
+        with app.ctx.db.session() as conn, transaction(conn):
+            app.ctx.events.emit("example", "example.new", {}, dedupe_key="atomic", connection=conn)
+            conn.execute(
+                "INSERT INTO kv (namespace, key, value, updated_at) VALUES ('example', 'cursor', '1', 'now')"
+            )
+            raise RuntimeError("simulate a failed source update")
+
+    with pytest.raises(RuntimeError, match="simulate a failed source update"):
+        fail_after_writing()
     assert app.ctx.events.recent() == []
     assert app.ctx.db.kv_get("example", "cursor") is None
 

@@ -1,4 +1,4 @@
-"""Synthetic monitoring inputs for authored UNRUN tests; no host inspection."""
+"""Synthetic monitoring inputs for tests; no host inspection."""
 
 from __future__ import annotations
 

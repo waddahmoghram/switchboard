@@ -1,4 +1,4 @@
-"""UNRUN announcement tests: explicit approval, privacy, quiet hours and unverifiable delivery."""
+"""Announcement tests: explicit approval, privacy, quiet hours and unverifiable delivery."""
 
 from __future__ import annotations
 
@@ -110,7 +110,8 @@ def test_longest_allowed_plain_text_summary_fits_the_core_approval_limit(home_ap
     )
     summary = app.ctx.require("home").speech.summarize(args)
     assert len(summary) <= 500
-    assert args["engine"] in summary and args["entity_id"] in summary
+    assert args["engine"] in summary
+    assert args["entity_id"] in summary
     assert json.dumps(args["text"]) in summary
 
 
@@ -125,9 +126,11 @@ def test_speech_uses_verified_speak_shape_and_never_claims_playback_delivery(
     assert outcome.status == "ok"
     assert outcome.data["request_status"] == "accepted"
     assert outcome.data["status"] == "requested_unconfirmed"
-    assert outcome.data["confirmed"] is False and outcome.data["delivery_verified"] is False
+    assert outcome.data["confirmed"] is False
+    assert outcome.data["delivery_verified"] is False
     assert outcome.data["effect_unknown"] is False
-    assert outcome.action is not None and outcome.action["state"] == "succeeded"
+    assert outcome.action is not None
+    assert outcome.action["state"] == "succeeded"
     assert post_bodies(fake_http) == [
         {
             "entity_id": "tts.local_voice",
@@ -227,7 +230,8 @@ def test_quiet_hours_are_checked_again_after_preflight_network_reads(
     monkeypatch.setattr(speech, "now", lambda: next(clock))
     ready(fake_http)
     outcome = app.call("home_announce", announcement(app), Origin.HUMAN)
-    assert outcome.status == "error" and "started during preflight" in outcome.message
+    assert outcome.status == "error"
+    assert "started during preflight" in outcome.message
     assert post_bodies(fake_http) == []
 
 
@@ -295,7 +299,8 @@ def test_ambiguous_speech_is_not_resent_even_when_the_speaker_reports_playing(
     assert result["status"] == "requested_unconfirmed"
     assert result["delivery_verified"] is False
     assert result["effect_unknown"] is True
-    assert outcome.action is not None and outcome.action["state"] == "uncertain"
+    assert outcome.action is not None
+    assert outcome.action["state"] == "uncertain"
     assert len(post_bodies(fake_http)) == 1
 
 

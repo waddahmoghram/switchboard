@@ -57,7 +57,8 @@ def test_calendar_part_carries_the_itip_request_properties() -> None:
     assert vevent.text("SEQUENCE") == "0"
     assert vevent.text("DTSTART") == "20261112T140000Z"
     organizer = vevent.first("ORGANIZER")
-    assert organizer is not None and organizer.value == "mailto:owner@example.invalid"
+    assert organizer is not None
+    assert organizer.value == "mailto:owner@example.invalid"
     attendees = vevent.all("ATTENDEE")
     assert [prop.value for prop in attendees] == [
         "mailto:alice@example.invalid",

@@ -7,6 +7,8 @@
 
 #include "support.hpp"
 
+#include "../src/audit_internal.hpp"
+
 #include <algorithm>
 #include <chrono>
 #include <cstdint>
@@ -850,6 +852,20 @@ private:
             {
                 check(!registration_accepted(item), "registration accepted: " + shown(item));
             }
+            return;
+        }
+        if (op == "redact")
+        {
+            only(expected, {"result"});
+            check(expected.contains("result"), "redact needs an expected result");
+            std::vector<std::string> names;
+            for (const auto &name : step.value("hash_only", Json::array()))
+            {
+                names.push_back(name.get<std::string>());
+            }
+            const auto result = switchboard::audit::redact(step.at("value"), names);
+            const auto &want = expected.at("result");
+            check(subset(want, result) && subset(result, want), "expected " + shown(want) + ", got " + shown(result));
             return;
         }
         expected = resolve(expected);

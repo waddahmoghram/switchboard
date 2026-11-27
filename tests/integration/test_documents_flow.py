@@ -1,4 +1,4 @@
-"""Authored UNRUN offline application flow; all directories and note bodies are synthetic."""
+"""Offline application flow; all directories and note bodies are synthetic."""
 
 from __future__ import annotations
 
@@ -190,18 +190,21 @@ def test_no_stale_reads_after_file_deletion_root_revocation_or_allowlist_removal
     assert _call(app, "documents_read", args)["text"]
     path.unlink()
     deleted = app.call("documents_read", args, Origin.ASSISTANT)
-    assert deleted.status == "error" and deleted.data is None
+    assert deleted.status == "error"
+    assert deleted.data is None
     assert _call(app, "documents_search", {"collection": "notes", "query": "needle"})["results"] == []
     _write(root, "note.md", b"new synthetic note")
     root.chmod(0o755)
     revoked = app.call("documents_read", args, Origin.ASSISTANT)
-    assert revoked.status == "error" and revoked.data is None
+    assert revoked.status == "error"
+    assert revoked.data is None
     root.chmod(0o700)
     app.ctx.config.data["connectors"]["documents"]["collections"] = [
         {"name": "replacement", "path": str(tmp_path / "not-created")}
     ]
     removed = app.call("documents_read", args, Origin.ASSISTANT)
-    assert removed.status == "error" and removed.data is None
+    assert removed.status == "error"
+    assert removed.data is None
     assert _call(app, "documents_collections")["collections"][0]["name"] == "replacement"
     assert fake_http.requests == []
 
@@ -238,10 +241,12 @@ def test_entry_limit_fails_closed_but_known_basename_read_does_not_scan(
     _write(root, "b.md", b"another")
     app = make_app(_config(root, max_entries=1))
     listing = app.call("documents_list", {"collection": "notes"}, Origin.ASSISTANT)
-    assert listing.status == "error" and listing.data is None
+    assert listing.status == "error"
+    assert listing.data is None
     assert "entry limit" in listing.message
     search = app.call("documents_search", {"collection": "notes", "query": "safe"}, Origin.ASSISTANT)
-    assert search.status == "error" and search.data is None
+    assert search.status == "error"
+    assert search.data is None
 
     def forbidden(*_args: Any, **_kwargs: Any) -> Any:
         raise AssertionError("known-basename read attempted directory enumeration")
@@ -296,13 +301,16 @@ def test_queued_read_rechecks_revoked_root_when_approved(make_app: AppFactory, t
     config["policy"] = {"tools": {"documents_*": {"decision": "ask"}}}
     app = make_app(config)
     pending = app.call("documents_read", {"collection": "notes", "filename": "note.md"}, Origin.ASSISTANT)
-    assert pending.status == "pending" and pending.data is None
+    assert pending.status == "pending"
+    assert pending.data is None
     assert pending.approval_id is not None
     root.chmod(0o755)
     approved = app.dispatcher.approve(pending.approval_id)
-    assert approved.status == "error" and approved.data is None
+    assert approved.status == "error"
+    assert approved.data is None
     request = app.approvals.get(pending.approval_id)
-    assert request is not None and request.result is None
+    assert request is not None
+    assert request.result is None
 
 
 def test_core_approval_replay_is_identified_as_a_historical_observation(
@@ -314,14 +322,16 @@ def test_core_approval_replay_is_identified_as_a_historical_observation(
     config["policy"] = {"tools": {"documents_*": {"decision": "ask"}}}
     app = make_app(config)
     pending = app.call("documents_read", {"collection": "notes", "filename": "note.md"}, Origin.ASSISTANT)
-    assert pending.status == "pending" and pending.approval_id is not None
+    assert pending.status == "pending"
+    assert pending.approval_id is not None
     approved = app.dispatcher.approve(pending.approval_id)
     assert approved.status == "ok"
     assert approved.data["freshness"] == "call_time_only"
     assert approved.data["observed_at"]
     path.unlink()
     current = app.call("documents_read", {"collection": "notes", "filename": "note.md"}, Origin.HUMAN)
-    assert current.status == "error" and current.data is None
+    assert current.status == "error"
+    assert current.data is None
     historical = _call(app, "approvals_status", {"id": pending.approval_id})["result"]
     assert historical == approved.data
     assert historical["freshness"] == "call_time_only"
@@ -334,7 +344,8 @@ def test_expected_errors_do_not_echo_note_bodies_or_root_paths(make_app: AppFact
     _write(root, "invalid.md", b"SYNTHETIC_PRIVATE_SENTINEL\xff")
     app = make_app(_config(root))
     result = app.call("documents_read", {"collection": "notes", "filename": "invalid.md"}, Origin.ASSISTANT)
-    assert result.status == "error" and result.data is None
+    assert result.status == "error"
+    assert result.data is None
     assert "invalid_text" in result.message
     assert "SYNTHETIC_PRIVATE_SENTINEL" not in result.message
     assert str(root) not in result.message

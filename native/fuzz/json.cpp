@@ -1,5 +1,5 @@
 // libFuzzer target: the bounded JSON parser, empty-schema validation and canonical hashing.
-// Authored and unrun. Invariants: accepted JSON validates, hashes to 64 lowercase hexadecimal digits,
+// Invariants: accepted JSON validates, hashes to 64 lowercase hexadecimal digits,
 // and survives a dump/parse round trip with an identical value and hash.
 #include "common.hpp"
 

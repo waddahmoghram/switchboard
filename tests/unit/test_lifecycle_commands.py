@@ -1,5 +1,5 @@
 """Command modules for the data lifecycle: parsers and handlers, dispatched the way ``switchboard.cli.main``
-dispatches them. Authored, not run on the authoring host.
+dispatches them.
 """
 
 from __future__ import annotations
@@ -10,9 +10,10 @@ from pathlib import Path
 
 import pytest
 
-from switchboard import cli_broker, cli_data, lifecycle
+from switchboard import cli, cli_broker, cli_data, lifecycle
 from switchboard.app import build_app
 from switchboard.config import load_config
+from switchboard.errors import ConfigError
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -49,7 +50,8 @@ def test_parsers_register_the_lifecycle_commands_with_the_right_handler_kinds() 
     assert not hasattr(restore, "app_handler")
     assert parser.parse_args(["data", "export", "/srv/export.json"]).app_handler is cli_data.cmd_data_export
     purge = parser.parse_args(["data", "purge", "--dry-run"])
-    assert purge.app_handler is cli_data.cmd_data_purge and purge.dry_run is True
+    assert purge.app_handler is cli_data.cmd_data_purge
+    assert purge.dry_run is True
     assert parser.parse_args(["audit-archive", "rotate"]).app_handler is cli_data.cmd_audit_archive_rotate
     assert parser.parse_args(["audit-archive", "verify"]).app_handler is cli_data.cmd_audit_archive_verify
 
@@ -79,7 +81,8 @@ def test_backup_verify_and_restore_through_the_commands(
 
     assert _run(["--config", str(source), "backup", "create", str(backup)]) == 0
     created = capsys.readouterr().out
-    assert "audit head" in created and "manifest sha256" in created
+    assert "audit head" in created
+    assert "manifest sha256" in created
 
     assert _run(["backup", "verify", str(backup)]) == 0
     assert "ok:" in capsys.readouterr().out
@@ -126,3 +129,74 @@ def test_export_purge_and_audit_archive_commands(tmp_path: Path, capsys: pytest.
     assert "archived" in capsys.readouterr().out
     assert _run(["--config", str(config), "audit-archive", "verify"]) == 0
     assert "2 segment(s)" in capsys.readouterr().out
+
+
+def test_audit_anchors_through_the_commands(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    config = _config(tmp_path, "live")
+    app = build_app(load_config(config))
+    app.ctx.audit.append("test.event", value=1)
+    app.ctx.audit.append("test.event", value=2)
+
+    assert cli.main(["--config", str(config), "audit", "anchor"]) == 0
+    first = capsys.readouterr().out
+    assert first == f"2:{app.ctx.audit.head()}\n"
+    assert _run(["--config", str(config), "audit-archive", "rotate"]) == 0
+    capsys.readouterr()
+    assert cli.main(["--config", str(config), "audit", "anchor"]) == 0
+    second = capsys.readouterr().out.strip()
+    assert second == f"3:{app.ctx.audit.head()}"
+
+    anchors = ["--anchor", first.strip(), "--anchor", second]
+    assert cli.main(["--config", str(config), "audit", "verify", *anchors]) == 0
+    assert f"ok: 3 records in 2 segment(s), head {second[2:]}; 2 anchor(s) match" in capsys.readouterr().out
+
+    app.ctx.audit.path.write_bytes(b"")
+    assert cli.main(["--config", str(config), "audit", "verify"]) == 0
+    assert "ok: 0 records" in capsys.readouterr().out
+    assert cli.main(["--config", str(config), "audit", "verify", *anchors]) == 1
+    captured = capsys.readouterr()
+    assert "is not linked from the current chain" in captured.out
+    assert f"BROKEN: anchor {second}: the chain has only 0 records" in captured.err
+
+
+def test_a_malformed_anchor_is_a_usage_error(capsys: pytest.CaptureFixture[str]) -> None:
+    with pytest.raises(SystemExit) as exit_info:
+        cli.build_parser().parse_args(["audit", "verify", "--anchor", "12:abc"])
+    assert exit_info.value.code == 2
+    assert "an anchor is SEQ:HASH" in capsys.readouterr().err
+
+
+class _Notify:
+    def __init__(self, accepted: list[str]) -> None:
+        self.accepted = accepted
+        self.sent: list[tuple[str, str, str]] = []
+
+    def send(
+        self, title: str, message: str, *, priority: str = "default", url: str | None = None
+    ) -> list[str]:
+        self.sent.append((title, message, priority))
+        return self.accepted
+
+
+def test_audit_anchor_can_send_the_anchor_to_the_notify_channels(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    app = build_app(load_config(_config(tmp_path, "live")))
+    app.ctx.audit.append("test.event")
+    args = cli.build_parser().parse_args(["audit", "anchor", "--notify"])
+    with pytest.raises(ConfigError, match="'notify' service"):
+        args.app_handler(args, app)
+    assert capsys.readouterr().out == ""
+
+    notify = _Notify(["phone"])
+    app.ctx.provide("notify", notify)
+    assert args.app_handler(args, app) == 0
+    captured = capsys.readouterr()
+    anchor = f"1:{app.ctx.audit.head()}"
+    assert captured.out == f"{anchor}\n"
+    assert "sent to phone" in captured.err
+    assert notify.sent == [("Switchboard audit anchor", anchor, "low")]
+
+    notify.accepted = []
+    assert args.app_handler(args, app) == 1
+    assert "no notify channel accepted the anchor" in capsys.readouterr().err

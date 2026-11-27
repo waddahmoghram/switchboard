@@ -1,4 +1,4 @@
-"""Synthetic WLED payload, scope, capability, and confirmation cases; all authored and unrun."""
+"""Synthetic WLED payload, scope, capability, and confirmation cases."""
 
 from __future__ import annotations
 
@@ -805,16 +805,20 @@ def test_wled_reports_drive_the_action_journal(make_app: AppFactory, fake_http: 
     queue_action(fake_http, {"on": False})
     confirmed = app.call("wled_set_power", bound_args(app, {"device": "desk", "on": False}), Origin.HUMAN)
     assert (confirmed.data["confirmed"], confirmed.data["effect_unknown"]) == (True, False)
-    assert confirmed.action is not None and confirmed.action["state"] == "succeeded"
+    assert confirmed.action is not None
+    assert confirmed.action["state"] == "succeeded"
 
     fake_http.add("GET", f"{BASE}/json/si", body=json.dumps(fixture()))
     fake_http.add_error("POST", f"{BASE}/json/state", message="synthetic-private-network-error")
     turn_on = bound_args(app, {"device": "desk", "on": True})
     unknown = app.call("wled_set_power", turn_on, Origin.HUMAN)
-    assert unknown.status == "ok" and unknown.data["effect_unknown"] is True
-    assert unknown.action is not None and unknown.action["state"] == "uncertain"
+    assert unknown.status == "ok"
+    assert unknown.data["effect_unknown"] is True
+    assert unknown.action is not None
+    assert unknown.action["state"] == "uncertain"
 
     repeat = app.call("wled_set_power", turn_on, Origin.HUMAN)
 
-    assert repeat.status == "denied" and unknown.action["id"] in repeat.message
+    assert repeat.status == "denied"
+    assert unknown.action["id"] in repeat.message
     assert sum(request.method == "POST" for request in fake_http.requests) == 2

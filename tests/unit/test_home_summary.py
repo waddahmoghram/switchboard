@@ -1,4 +1,4 @@
-"""UNRUN sensor summaries: original units, explicit unknowns and honest cache freshness."""
+"""Sensor summaries: original units, explicit unknowns and honest cache freshness."""
 
 from __future__ import annotations
 
@@ -39,7 +39,8 @@ def test_sensor_summary_preserves_units_and_keeps_energy_counters_separate(
     assert readings["power"][0]["unit"] == "kW"
     assert [(item["value"], item["unit"]) for item in readings["energy"]] == [(125.5, "kWh"), (4200, "J")]
     assert readings["energy"][0]["state_class"] == "total_increasing"
-    assert "total" not in outcome.data and "cost" not in outcome.data
+    assert "total" not in outcome.data
+    assert "cost" not in outcome.data
     assert "fixture-private-attribute" not in json.dumps(outcome.data)
 
 
@@ -161,7 +162,8 @@ def test_live_reads_do_not_use_old_last_updated_as_an_offline_detector(
     add_states(fake_http, [sample("sensor.temperature")])
     [reading] = app.call("home_sensor_summary", {}, Origin.ASSISTANT).data["readings"]["temperature"]
     assert reading["last_updated"].startswith("2026-01-01")
-    assert reading["stale"] is False and reading["usable"] is True
+    assert reading["stale"] is False
+    assert reading["usable"] is True
 
 
 def test_cached_sensor_reads_become_stale_without_network_or_fabricated_events(
@@ -174,7 +176,8 @@ def test_cached_sensor_reads_become_stale_without_network_or_fabricated_events(
     result = app.call("home_sensor_summary", {"source": "cached"}, Origin.ASSISTANT).data
     [reading] = result["readings"]["temperature"]
     assert reading["value"] == 19.5
-    assert reading["stale"] is True and reading["usable"] is False
+    assert reading["stale"] is True
+    assert reading["usable"] is False
     assert len(fake_http.requests) == 1
     assert app.ctx.events.recent(source="home") == []
 

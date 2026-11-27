@@ -70,7 +70,8 @@ def test_fixture_events() -> None:
     assert not timed.all_day
 
     all_day = by_uid["all-day@example.invalid"]
-    assert all_day.all_day and all_day.transparent
+    assert all_day.all_day
+    assert all_day.transparent
     assert all_day.start == datetime(2026, 11, 13, tzinfo=NEW_YORK)
     assert all_day.end == datetime(2026, 11, 15, tzinfo=NEW_YORK)
 

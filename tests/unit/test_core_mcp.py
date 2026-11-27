@@ -212,4 +212,5 @@ def test_tool_calls_without_identifiers_are_not_executed() -> None:
     result = _server(calls).handle(
         {"jsonrpc": "2.0", "method": "tools/call", "params": {**MODERN, "name": "demo_echo"}}
     )
-    assert result is None and calls == []
+    assert result is None
+    assert calls == []

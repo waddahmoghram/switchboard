@@ -31,6 +31,14 @@ _LAST4 = re.compile(r"^\d{4}$")
 _OFFSET = re.compile(r"^([+-])(\d{2}):(\d{2})$")
 # A probe date whose day (31) cannot be mistaken for its month (01).
 _PROBE = date(2026, 1, 31)
+# Python 3.13 deprecates parsing a day of the month without a year, because it fails on February 29.
+# Formats like that are probed with this leap year prefixed, which is not the probe's year, so the
+# missing year is still reported.
+_STAND_IN_YEAR = 2000
+# A strptime directive: flags, a width, and an optional O or E modifier before the conversion character.
+_DIRECTIVE = re.compile(r"%[-_0^#]*[0-9]*([OE]?.)", re.DOTALL)
+_DAY_OF_MONTH = frozenset({"d", "e"})
+_YEAR = frozenset({"Y", "y", "G"})
 _COLUMN_KEYS = (
     "date_column",
     "description_column",
@@ -167,9 +175,15 @@ def load_settings(raw: Mapping[str, Any]) -> Settings:
 
 def date_format_problem(fmt: str) -> str | None:
     """Explain why a strptime format cannot read full dates, or return None when it can."""
+    directives = {match[1] for match in _DIRECTIVE.finditer(fmt)}
+    day_without_year = not directives.isdisjoint(_DAY_OF_MONTH) and directives.isdisjoint(_YEAR)
     try:
-        parsed = datetime.strptime(_PROBE.strftime(fmt), fmt).date()
-    except ValueError:
+        text = _PROBE.strftime(fmt)
+        if day_without_year:
+            parsed = datetime.strptime(f"{_STAND_IN_YEAR} {text}", f"%Y {fmt}").date()
+        else:
+            parsed = datetime.strptime(text, fmt).date()
+    except (ValueError, re.error):  # re.error: a repeated directive, such as "%d %d"
         return f"date_format {fmt!r} is not a valid strptime format"
     if parsed != _PROBE:
         return f"date_format {fmt!r} must include a year, a month, and a day"
@@ -272,7 +286,7 @@ def _import_dir(value: Any, problems: list[str]) -> Path | None:
     if not isinstance(value, str) or not value.strip():
         problems.append("import_dir must be a directory path")
         return None
-    return Path(os.path.expanduser(value))
+    return Path(os.path.expanduser(value))  # noqa: PTH111 - Path.expanduser raises on an unknown ~user
 
 
 def _accounts(value: Any, problems: list[str]) -> dict[str, AccountConfig]:
@@ -364,9 +378,11 @@ def _csv_profile(name: str, entry: Mapping[str, Any], label: str, problems: list
 
 
 def _check_columns(columns: Mapping[str, str], label: str, problems: list[str]) -> None:
-    for required in ("date_column", "description_column"):
-        if not columns[required]:
-            problems.append(f"{label}: {required} is required")
+    problems.extend(
+        f"{label}: {required} is required"
+        for required in ("date_column", "description_column")
+        if not columns[required]
+    )
     split = bool(columns["debit_column"] or columns["credit_column"])
     if bool(columns["amount_column"]) == split:
         problems.append(f"{label}: set amount_column, or debit_column and credit_column, but not both")

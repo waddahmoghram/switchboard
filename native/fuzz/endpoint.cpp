@@ -1,4 +1,4 @@
-// libFuzzer target: web endpoint validation. Authored and unrun.
+// libFuzzer target: web endpoint validation.
 // Input: one byte whose low bit grants plain-HTTP consent, then the address text.
 // Invariants for accepted endpoints: bounded length, no spaces or control characters, no query, fragment or
 // credentials, an https scheme (or http only with consent), and acceptance is monotonic in that consent.

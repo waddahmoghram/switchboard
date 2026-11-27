@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 import pytest
@@ -74,30 +75,50 @@ def test_non_finite_numbers_cannot_bypass_bounds(value: float) -> None:
 
 
 @pytest.mark.parametrize(
-    "schema",
+    ("schema", "message"),
     [
-        {"type": "object", "anyOf": [{"required": ["name"]}]},
-        {"type": "object", "properties": {"name": {"type": "string", "maxLenght": 10}}},
-        {"type": "object", "additionalProperties": {"type": "string"}},
-        {"type": "object", "properties": {"name": True}},
-        {"type": "object", "properties": []},
-        {"type": "object", "required": "name"},
-        {"type": "object", "description": 7},
-        {"type": "object", "items": []},
-        {"type": "object", "propertyNames": False},
-        {"type": "object", "pattern": "["},
-        {"type": "object", "pattern": "a{99999999999999999999}"},
-        {"type": "object", "pattern": "(" * 5000 + ")" * 5000},
-        {"type": "object", "minProperties": True},
-        {"type": "object", "maximum": float("inf")},
-        {"type": "object", "enum": []},
-        {"type": "object", "$schema": []},
-        {"type": "object", "$schema": "http://json-schema.org/draft-07/schema#"},
-        {"type": "object", "properties": {"count": {"type": []}}},
+        ({"type": "object", "anyOf": [{"required": ["name"]}]}, "$: unsupported schema keyword(s): anyOf"),
+        (
+            {"type": "object", "properties": {"name": {"type": "string", "maxLenght": 10}}},
+            "$.properties.name: unsupported schema keyword(s): maxLenght",
+        ),
+        (
+            {"type": "object", "additionalProperties": {"type": "string"}},
+            "$.additionalProperties: only booleans are supported",
+        ),
+        (
+            {"type": "object", "properties": {"name": True}},
+            "$.properties.name: schemas must be objects in the supported subset",
+        ),
+        ({"type": "object", "properties": []}, "$.properties: expected a table of property schemas"),
+        ({"type": "object", "required": "name"}, "$.required: expected a list of property names"),
+        ({"type": "object", "description": 7}, "$.description: expected a string"),
+        ({"type": "object", "items": []}, "$.items: schemas must be objects in the supported subset"),
+        (
+            {"type": "object", "propertyNames": False},
+            "$.propertyNames: schemas must be objects in the supported subset",
+        ),
+        ({"type": "object", "pattern": "["}, "$.pattern: invalid regular expression"),
+        ({"type": "object", "pattern": "a{99999999999999999999}"}, "$.pattern: invalid regular expression"),
+        ({"type": "object", "pattern": "(" * 5000 + ")" * 5000}, "$.pattern: invalid regular expression"),
+        ({"type": "object", "minProperties": True}, "$.minProperties: expected a non-negative integer"),
+        ({"type": "object", "maximum": float("inf")}, "$.maximum: expected a finite number"),
+        ({"type": "object", "enum": []}, "$.enum: expected a non-empty list"),
+        ({"type": "object", "$schema": []}, "$: this subset accepts only the 2020-12 schema identifier"),
+        (
+            {"type": "object", "$schema": "http://json-schema.org/draft-07/schema#"},
+            "$: this subset accepts only the 2020-12 schema identifier",
+        ),
+        (
+            {"type": "object", "properties": {"count": {"type": []}}},
+            "$.properties.count.type: expected a supported type or non-empty list of types",
+        ),
     ],
 )
-def test_invalid_or_unsupported_tool_schemas_are_refused_at_registration(schema: dict[str, Any]) -> None:
-    with pytest.raises(ValueError):
+def test_invalid_or_unsupported_tool_schemas_are_refused_at_registration(
+    schema: dict[str, Any], message: str
+) -> None:
+    with pytest.raises(ValueError, match=re.escape(message)):
         Tool("demo_tool", "Demo.", Tier.READ, schema, lambda _args: None)
 
 

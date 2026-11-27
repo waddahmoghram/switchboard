@@ -97,7 +97,8 @@ def test_tools_are_read_only_and_search_reads_the_vcf_file(make_app: AppFactory)
         "alex.rivera@example.invalid",
         "alex@home.example.invalid",
     ]
-    assert "note" not in alex and "bday" not in alex
+    assert "note" not in alex
+    assert "bday" not in alex
     [source] = app.call("contacts_sources", {}, Origin.ASSISTANT).data["sources"]
     assert (source["name"], source["type"], source["cards"], source["error"]) == (
         "phone",

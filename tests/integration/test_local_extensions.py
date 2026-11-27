@@ -1,4 +1,4 @@
-"""Cross-connector offline registration and assistant exposure, authored but not executed here."""
+"""Cross-connector offline registration and assistant exposure."""
 
 from __future__ import annotations
 
@@ -101,7 +101,8 @@ def test_assistant_exposure_list_does_not_make_unexposed_mutations_callable(
             },
         }
     )
-    assert rejected is not None and rejected["error"]["code"] == -32602
+    assert rejected is not None
+    assert rejected["error"]["code"] == -32602
     assert app.approvals.list("pending") == []
     assert fake_http.requests == []
 

@@ -267,9 +267,10 @@ def _insert(
 
 def _advance(conn: sqlite3.Connection, row: sqlite3.Row, notice: Notice, stamp: str) -> bool:
     """Record the notice on the timeline; True when the shipment's status moved forward."""
-    status = later_status(str(row["status"]), notice.status)
+    current = str(row["status"])
+    status = later_status(current, notice.status)
     conn.execute(_ADVANCE[notice.status], (status, stamp, notice.message_id, stamp, row["id"]))
-    return status != row["status"]
+    return status != current
 
 
 def _find(conn: sqlite3.Connection, key: str) -> sqlite3.Row | None:

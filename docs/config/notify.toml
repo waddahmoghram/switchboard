@@ -16,7 +16,7 @@ topic = "file:~/.config/switchboard/secrets/ntfy-topic"
 # so Switchboard never logs or returns that address.
 [connectors.notify.channels.chat]
 type = "telegram"
-bot_token = "cmd:pass show switchboard/telegram-bot"
+bot_token = "cmd:/usr/bin/pass show switchboard/telegram-bot"
 chat_id = 123456789                             # a number from getUpdates, or "@yourchannel"
 
 # An email to yourself through the mail connector (which must be enabled for this to work).

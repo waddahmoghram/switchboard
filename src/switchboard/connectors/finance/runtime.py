@@ -131,8 +131,7 @@ class FinanceRuntime:
         inbox = open_inbox(self.settings.import_dir)
         files, ignored = scan(inbox)
         results = [FileResult(scrub_numbers(name), "skipped", error=reason) for name, reason in ignored]
-        for path in files[:MAX_FILES_PER_RUN]:
-            results.append(self._import_inbox_file(inbox, path, today))
+        results.extend(self._import_inbox_file(inbox, path, today) for path in files[:MAX_FILES_PER_RUN])
         summary = self._finish(results, today)
         if len(files) > MAX_FILES_PER_RUN:
             summary["files_remaining"] = len(files) - MAX_FILES_PER_RUN

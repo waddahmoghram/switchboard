@@ -45,7 +45,8 @@ def test_task_input_schema_enforces_real_bounds(make_app: AppFactory, args: dict
 def test_ambiguous_date_is_a_visible_tool_error_not_a_silent_timezone(make_app: AppFactory) -> None:
     app, _service = configured(make_app)
     outcome = app.call("tasks_add", {"title": "Example", "due_at": "2026-11-12T10:00:00"}, Origin.ASSISTANT)
-    assert outcome.status == "error" and "timezone" in outcome.message
+    assert outcome.status == "error"
+    assert "timezone" in outcome.message
     assert app.call("tasks_list", {}, Origin.ASSISTANT).data["tasks"] == []
 
 
@@ -53,7 +54,8 @@ def test_assistant_delete_waits_for_exact_revision_approval(make_app: AppFactory
     app, _service = configured(make_app)
     task = app.call("tasks_add", {"title": "Example"}, Origin.ASSISTANT).data
     pending = app.call("tasks_delete", {"id": task["id"], "revision": 1}, Origin.ASSISTANT)
-    assert pending.status == "pending" and pending.approval_id is not None
+    assert pending.status == "pending"
+    assert pending.approval_id is not None
     assert app.call("tasks_read", {"id": task["id"]}, Origin.ASSISTANT).status == "ok"
     assert app.dispatcher.approve(pending.approval_id).status == "ok"
     assert app.call("tasks_read", {"id": task["id"]}, Origin.ASSISTANT).status == "error"
@@ -70,7 +72,8 @@ def test_edit_after_delete_request_blocks_stale_approval(make_app: AppFactory) -
         == "ok"
     )
     result = app.dispatcher.approve(pending.approval_id)
-    assert result.status == "error" and "changed" in result.message
+    assert result.status == "error"
+    assert "changed" in result.message
     assert app.call("tasks_read", {"id": task["id"]}, Origin.ASSISTANT).data["title"] == "After"
 
 

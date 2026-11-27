@@ -5,9 +5,9 @@ It lists candidate note filenames, searches literal text, and reads character pa
 It never writes notes, imports snapshots, builds an index, executes content, follows links, or contacts a remote service.
 Registration validates configuration only: it does not check whether a folder exists, enumerate a directory, or read a file.
 
-**Validation status: authored tests are UNRUN and uncollected.**
-No application, example, server, personal folder, account, or device was exercised while implementing this connector.
-Static checks do not establish runtime behavior, operating-system race resistance, or end-to-end assistant safety.
+**Validation status:** [Validation](../VALIDATION.md#current-status) records where these tests have run.
+No example, personal folder, account, or device has been used to check this connector.
+Passing synthetic tests do not establish operating-system race resistance or end-to-end assistant safety.
 
 ## What is supported
 
@@ -318,16 +318,15 @@ It does not add a relevance engine, a general filesystem browser, semantic retri
 Descriptors and decoded content live only for a request; returned client copies can live longer.
 Existing shared helpers are reused, while the stricter document reader adds ancestor no-follow checks, smaller configurable ceilings, and file-private permissions appropriate to live notes.
 
-## Authored test inventory and later validation
+## Test inventory
 
-The unit and integration test sources are synthetic and **UNRUN**, including parameterized cases for configuration, owned private folders and files, foreign ownership, mode changes, unsupported formats, hidden names, traversal, symbolic links in roots and ancestors, hard links, directories, named pipes, simulated device/socket metadata, invalid text, real byte/count limits, underreported metadata, literal matching, snippet budgets, pagination, live edits, deletion, allowlist removal, and source revocation.
+The unit and integration tests are synthetic, including parameterized cases for configuration, owned private folders and files, foreign ownership, mode changes, unsupported formats, hidden names, traversal, symbolic links in roots and ancestors, hard links, directories, named pipes, simulated device/socket metadata, invalid text, real byte/count limits, underreported metadata, literal matching, snippet budgets, pagination, live edits, deletion, allowlist removal, and source revocation.
 
 Integration sources guard network clients, address resolution, socket sends/connections, and process-launch entry points, and use `FakeHttp`.
-They author assertions for registration without source access, read-only source behavior, absent snapshot tables/events/jobs/services, audit-body minimization, and core policy denial.
-Those are intended assertions, not observed runtime results.
+They check registration without source access, read-only source behavior, absent snapshot tables/events/jobs/services, audit-body minimization, and core policy denial.
 
-If runtime testing is separately authorized later, use a project-local test directory rather than the system temporary directory.
-The following is an **unexecuted proposed command**, not validation evidence:
+To run only these tests, use a project-local test directory rather than the system temporary directory.
+This example command has not been run as written:
 
 ```bash
 pytest --basetemp=./.test-data/documents \
@@ -339,4 +338,3 @@ pytest --basetemp=./.test-data/documents \
 
 The integration sources require the core `KNOWN_CONNECTORS` mapping described above.
 No test creates a real account, invokes an application server, needs a model, or intentionally contacts a network service.
-Static syntax parsing, type checking, linting, configuration parsing, and Markdown checks cannot establish that these authored runtime assertions pass.

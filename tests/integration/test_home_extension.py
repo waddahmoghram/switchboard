@@ -1,4 +1,4 @@
-"""UNRUN synthetic application integration: approvals, configuration reloads and durable events."""
+"""Synthetic application integration: approvals, configuration reloads and durable events."""
 
 from __future__ import annotations
 
@@ -36,13 +36,15 @@ def test_assistant_lighting_waits_for_approval_and_executes_the_bound_request_on
     app = home_app(configuration())
     args = action_args(app, entity_ids=["light.lounge"], state="on", brightness_pct=40, room="lounge")
     outcome = app.call("home_lights", args, Origin.ASSISTANT)
-    assert outcome.status == "pending" and outcome.approval_id is not None
+    assert outcome.status == "pending"
+    assert outcome.approval_id is not None
     assert fake_http.requests == []
     add_state(fake_http, "light.lounge")
     add_post(fake_http, "light", "turn_on")
     add_state(fake_http, "light.lounge", state="on", brightness=102)
     approved = app.dispatcher.approve(outcome.approval_id)
-    assert approved.status == "ok" and approved.data["confirmed"] is True
+    assert approved.status == "ok"
+    assert approved.data["confirmed"] is True
     assert post_bodies(fake_http) == [{"entity_id": "light.lounge", "brightness_pct": 40}]
     assert app.dispatcher.approve(outcome.approval_id).status == "error"
     assert len(post_bodies(fake_http)) == 1
@@ -59,10 +61,12 @@ def test_approval_cannot_bypass_quiet_hours_that_started_while_it_was_pending(
     monkeypatch.setattr(controls, "now", lambda: MOMENT + timedelta(hours=11))
     add_state(fake_http, "media_player.lounge")
     approved = app.dispatcher.approve(outcome.approval_id)
-    assert approved.status == "error" and "quiet hours" in approved.message
+    assert approved.status == "error"
+    assert "quiet hours" in approved.message
     assert post_bodies(fake_http) == []
     request = app.approvals.get(outcome.approval_id)
-    assert request is not None and request.status == "failed"
+    assert request is not None
+    assert request.status == "failed"
 
 
 def test_approved_announcement_remains_unconfirmed_in_durable_approval_status(
@@ -78,13 +82,15 @@ def test_approved_announcement_remains_unconfirmed_in_durable_approval_status(
         sensitive=False,
     )
     pending = app.call("home_announce", args, Origin.ASSISTANT)
-    assert pending.approval_id is not None and fake_http.requests == []
+    assert pending.approval_id is not None
+    assert fake_http.requests == []
     add_state(fake_http, "tts.local_voice")
     add_state(fake_http, "media_player.lounge")
     add_post(fake_http, "tts", "speak")
     add_state(fake_http, "media_player.lounge", state="playing")
     approved = app.dispatcher.approve(pending.approval_id)
-    assert approved.status == "ok" and approved.data["status"] == "requested_unconfirmed"
+    assert approved.status == "ok"
+    assert approved.data["status"] == "requested_unconfirmed"
     status = app.call("approvals_status", {"id": pending.approval_id}, Origin.ASSISTANT).data
     assert status["status"] == "executed"
     assert status["result"]["delivery_verified"] is False
@@ -141,7 +147,8 @@ def test_pending_approval_never_retargets_or_uses_changed_safety_configuration_a
             "reading"
         ]["fingerprint"]
     queued = app.call(tool_name, args, Origin.ASSISTANT)
-    assert queued.status == "pending" and queued.approval_id is not None
+    assert queued.status == "pending"
+    assert queued.approval_id is not None
     changed = config["connectors"]["home"]
     if change == "endpoint":
         changed["base_url"] = "https://different.example.test"
@@ -168,7 +175,8 @@ def test_pending_approval_never_retargets_or_uses_changed_safety_configuration_a
     assert "stored arguments no longer match" in approved.message
     assert fake_http.requests == []
     request = restarted.approvals.get(queued.approval_id)
-    assert request is not None and request.status == "failed"
+    assert request is not None
+    assert request.status == "failed"
 
 
 def test_a_new_endpoint_needs_a_fresh_binding_and_fresh_approval(
@@ -255,7 +263,8 @@ def test_a_sampled_event_can_queue_but_not_execute_a_bound_rule_action_without_a
     assert app.call("home_poll", {}, Origin.ASSISTANT).data["changed"] == 1
     assert app.process_events() == 1
     [pending] = app.approvals.list("pending")
-    assert pending.tool == "home_lights" and pending.args["binding"] == binding
+    assert pending.tool == "home_lights"
+    assert pending.args["binding"] == binding
     assert post_bodies(fake_http) == []
     assert app.process_events() == 0
     assert len(app.approvals.list("pending")) == 1
@@ -285,7 +294,8 @@ def test_events_and_snapshots_survive_restart_before_processing(
         for item in restarted.ctx.require("home").store.snapshots()
         if item["entity_id"] == "light.lounge"
     )
-    assert snapshot["state"] == "on" and snapshot["revision"] == event.payload["revision"]
+    assert snapshot["state"] == "on"
+    assert snapshot["revision"] == event.payload["revision"]
     assert restarted.process_events() == 1
     assert restarted.ctx.events.pending() == []
 
@@ -354,7 +364,8 @@ def test_legacy_tool_refuses_a_new_profile_added_while_an_old_generic_approval_w
     }
     restarted = home_app(legacy)
     approved = restarted.dispatcher.approve(queued.approval_id)
-    assert approved.status == "error" and "reviewed home profile" in approved.message
+    assert approved.status == "error"
+    assert "reviewed home profile" in approved.message
     assert fake_http.requests == []
 
 
@@ -374,5 +385,6 @@ def test_speech_approval_time_privacy_still_blocks_sensitive_content_without_opt
     assert queued.approval_id is not None
     monkeypatch.setattr(speech, "now", lambda: MOMENT)
     approved = app.dispatcher.approve(queued.approval_id)
-    assert approved.status == "error" and "sensitive" in approved.message
+    assert approved.status == "error"
+    assert "sensitive" in approved.message
     assert fake_http.requests == []

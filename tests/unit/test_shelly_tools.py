@@ -1,4 +1,4 @@
-"""On-demand status, fixed targets and observed control outcomes. Synthetic and UNRUN."""
+"""On-demand status, fixed targets and observed control outcomes; synthetic only."""
 
 from __future__ import annotations
 
@@ -43,7 +43,8 @@ def test_offline_registration_and_doctor_do_not_resolve_passwords_or_contact_dev
 
     monkeypatch.setattr(AppContext, "secret", forbidden)
     app = make_app(config(password=True))
-    assert shelly.doctor(app.ctx) == [] and fake_http.requests == []
+    assert shelly.doctor(app.ctx) == []
+    assert fake_http.requests == []
     assert shelly.MIGRATIONS == []
     assert not any(job.name.startswith("shelly.") for job in app.ctx.scheduler.jobs())
     assert not any(name.startswith("shelly.") for name in app.ctx.services)
@@ -55,15 +56,20 @@ def test_read_only_default_omits_the_control_tool(make_app: AppFactory) -> None:
     assert app.registry.get("shelly_switch_set") is None
     for name in ("shelly_devices", "shelly_status"):
         tool = app.registry.get(name)
-        assert tool is not None and tool.tier is Tier.READ and tool.connector == "shelly"
+        assert tool is not None
+        assert tool.tier is Tier.READ
+        assert tool.connector == "shelly"
 
 
 def test_opted_in_control_uses_the_action_tier_and_has_an_explicit_summary(make_app: AppFactory) -> None:
     app = make_app(config(controls=True))
     tool = app.registry.get("shelly_switch_set")
-    assert tool is not None and tool.tier is Tier.ACT and tool.summarize is not None
+    assert tool is not None
+    assert tool.tier is Tier.ACT
+    assert tool.summarize is not None
     summary = tool.summarize(control_args(app, on=False))
-    assert "desk_lamp switch:0 OFF" in summary and "<= 60 W" in summary
+    assert "desk_lamp switch:0 OFF" in summary
+    assert "<= 60 W" in summary
     assert "nonessential lighting" in summary
 
 
@@ -72,12 +78,16 @@ def test_device_inventory_is_configuration_not_health_and_omits_sensitive_endpoi
 ) -> None:
     app = make_app(config(controls=True, password=True))
     outcome = app.call("shelly_devices", {}, Origin.ASSISTANT)
-    assert outcome.status == "ok" and outcome.data["configured_only"] is True
+    assert outcome.status == "ok"
+    assert outcome.data["configured_only"] is True
     assert outcome.data["live_validation"] is False
     [device] = outcome.data["devices"]
-    assert device["authentication_configured"] is True and device["switch_ids"] == [0]
-    assert device["transport"] == "http" and len(device["controls"][0]["target"]) == 64
-    assert "192.168" not in json.dumps(outcome.data) and "env:" not in json.dumps(outcome.data)
+    assert device["authentication_configured"] is True
+    assert device["switch_ids"] == [0]
+    assert device["transport"] == "http"
+    assert len(device["controls"][0]["target"]) == 64
+    assert "192.168" not in json.dumps(outcome.data)
+    assert "env:" not in json.dumps(outcome.data)
     assert fake_http.requests == []
 
 
@@ -90,7 +100,9 @@ def test_status_returns_only_requested_component_state_and_correct_units(
     outcome = app.call("shelly_status", {"device": "desk_lamp", "switch_id": 0}, Origin.ASSISTANT)
     assert outcome.status == "ok"
     data = outcome.data
-    assert data["output"] is True and data["cached"] is False and data["measurement_age_seconds"] is None
+    assert data["output"] is True
+    assert data["cached"] is False
+    assert data["measurement_age_seconds"] is None
     assert datetime.fromisoformat(data["observed_at"]).tzinfo is not None
     assert data["power"] == {"available": True, "value": 6.5, "unit": "W"}
     assert data["energy"] == {
@@ -99,9 +111,11 @@ def test_status_returns_only_requested_component_state_and_correct_units(
         "unit": "Wh",
         "kind": "device_cumulative_counter",
     }
-    assert data["voltage"]["unit"] == "V" and data["current"]["unit"] == "A"
+    assert data["voltage"]["unit"] == "V"
+    assert data["current"]["unit"] == "A"
     assert data["returned_energy"]["value"] == 0
-    assert "by_minute" not in json.dumps(data) and "synthetic-" not in json.dumps(data)
+    assert "by_minute" not in json.dumps(data)
+    assert "synthetic-" not in json.dumps(data)
     assert app.ctx.events.recent(source="shelly") == []
 
 
@@ -109,7 +123,8 @@ def test_unmetered_components_report_unavailable_measurements_not_zeroes() -> No
     data = minimal_status(fixture("switch_unmetered.json"), 0)
     assert data["output"] is True
     for name in ("power", "energy", "returned_energy", "voltage", "current"):
-        assert data[name]["available"] is False and data[name]["value"] is None
+        assert data[name]["available"] is False
+        assert data[name]["value"] is None
     assert data["errors"] == []
 
 
@@ -168,7 +183,8 @@ def test_status_schema_rejects_unconfigured_or_injected_targets_before_network(
 ) -> None:
     app = make_app(config())
     outcome = app.call("shelly_status", args, Origin.ASSISTANT)
-    assert outcome.status == "invalid" and fake_http.requests == []
+    assert outcome.status == "invalid"
+    assert fake_http.requests == []
 
 
 def test_cross_device_component_union_does_not_expose_unlisted_components(
@@ -187,7 +203,8 @@ def test_cross_device_component_union_does_not_expose_unlisted_components(
     data["connectors"]["shelly"]["devices"]["other"] = second
     app = make_app(data)
     outcome = app.call("shelly_status", {"device": "desk_lamp", "switch_id": 1}, Origin.ASSISTANT)
-    assert outcome.status == "error" and fake_http.requests == []
+    assert outcome.status == "error"
+    assert fake_http.requests == []
 
 
 @pytest.mark.parametrize("on", [True, False])
@@ -201,8 +218,10 @@ def test_approved_absolute_output_has_one_set_and_one_readback(
     status(fake_http, output=on)
     outcome = app.call("shelly_switch_set", control_args(app, on=on), Origin.HUMAN)
     assert outcome.status == "ok"
-    assert outcome.data["ok"] is True and outcome.data["status"] == "confirmed"
-    assert outcome.data["command_accepted"] is True and outcome.data["matches_requested"] is True
+    assert outcome.data["ok"] is True
+    assert outcome.data["status"] == "confirmed"
+    assert outcome.data["command_accepted"] is True
+    assert outcome.data["matches_requested"] is True
     assert outcome.data["was_on"] is not on
     assert outcome.data["observation"]["output"] is on
     assert outcome.data["automatic_resend"] is False
@@ -237,8 +256,10 @@ def test_command_acceptance_does_not_claim_output_changed_when_readback_differs(
     accepted(fake_http)
     status(fake_http)
     outcome = app.call("shelly_switch_set", control_args(app), Origin.HUMAN)
-    assert outcome.status == "ok" and outcome.data["ok"] is False
-    assert outcome.data["command_accepted"] is True and outcome.data["matches_requested"] is False
+    assert outcome.status == "ok"
+    assert outcome.data["ok"] is False
+    assert outcome.data["command_accepted"] is True
+    assert outcome.data["matches_requested"] is False
     assert outcome.data["status"] == "unconfirmed"
     assert methods(fake_http).count("Switch.Set") == 1
 
@@ -252,9 +273,12 @@ def test_matching_output_after_write_timeout_is_observation_not_proof_of_accepta
     fake_http.add_error("POST", BASE + "/rpc", PASSWORD)
     status(fake_http, output=True)
     outcome = app.call("shelly_switch_set", control_args(app), Origin.HUMAN)
-    assert outcome.status == "ok" and outcome.data["ok"] is False
-    assert outcome.data["status"] == "uncertain" and outcome.data["command_accepted"] is None
-    assert outcome.data["matches_requested"] is True and outcome.data["command_error"] == "transport_error"
+    assert outcome.status == "ok"
+    assert outcome.data["ok"] is False
+    assert outcome.data["status"] == "uncertain"
+    assert outcome.data["command_accepted"] is None
+    assert outcome.data["matches_requested"] is True
+    assert outcome.data["command_error"] == "transport_error"
     assert PASSWORD not in json.dumps(outcome.to_dict())
     assert methods(fake_http).count("Switch.Set") == 1
 
@@ -268,8 +292,10 @@ def test_readback_failure_is_explicit_and_never_uses_preflight_as_current_state(
     accepted(fake_http)
     fake_http.add_error("POST", BASE + "/rpc", "synthetic-timeout")
     outcome = app.call("shelly_switch_set", control_args(app), Origin.HUMAN)
-    assert outcome.data["command_accepted"] is True and outcome.data["ok"] is False
-    assert outcome.data["observation"] is None and outcome.data["matches_requested"] is None
+    assert outcome.data["command_accepted"] is True
+    assert outcome.data["ok"] is False
+    assert outcome.data["observation"] is None
+    assert outcome.data["matches_requested"] is None
     assert outcome.data["readback_error"] == "transport_error"
     assert methods(fake_http).count("Switch.Set") == 1
 
@@ -283,8 +309,10 @@ def test_errors_on_a_matching_readback_still_prevent_a_confirmed_result(
     accepted(fake_http)
     status(fake_http, output=True, errors=["overpower"])
     outcome = app.call("shelly_switch_set", control_args(app), Origin.HUMAN)
-    assert outcome.data["command_accepted"] is True and outcome.data["matches_requested"] is True
-    assert outcome.data["ok"] is False and outcome.data["observation"]["errors"] == ["overpower"]
+    assert outcome.data["command_accepted"] is True
+    assert outcome.data["matches_requested"] is True
+    assert outcome.data["ok"] is False
+    assert outcome.data["observation"]["errors"] == ["overpower"]
 
 
 @pytest.mark.parametrize("http_status", [302, 401, 403, 429, 500])
@@ -303,7 +331,8 @@ def test_write_http_failures_produce_safe_explicit_reports_and_no_blind_resend(
     )
     status(fake_http, output=True)
     outcome = app.call("shelly_switch_set", control_args(app), Origin.HUMAN)
-    assert outcome.data["ok"] is False and outcome.data["command_error"] is not None
+    assert outcome.data["ok"] is False
+    assert outcome.data["command_error"] is not None
     assert outcome.data["command_accepted"] is (False if http_status in {401, 403} else None)
     assert "synthetic-secret" not in json.dumps(outcome.to_dict())
     assert methods(fake_http).count("Switch.Set") == 1
@@ -322,7 +351,8 @@ def test_malformed_acceptance_is_uncertain_even_with_a_matching_readback(
     respond(fake_http, "Switch.Set", set_result)
     status(fake_http, output=True)
     outcome = app.call("shelly_switch_set", control_args(app), Origin.HUMAN)
-    assert outcome.data["command_accepted"] is None and outcome.data["ok"] is False
+    assert outcome.data["command_accepted"] is None
+    assert outcome.data["ok"] is False
     assert outcome.data["command_error"] == "protocol_error"
     assert methods(fake_http).count("Switch.Set") == 1
 
@@ -346,7 +376,8 @@ def test_rpc_errors_are_not_copied_from_the_provider_or_treated_as_acceptance(
     fake_http.add_handler("POST", BASE + "/rpc", reject, repeat=False)
     status(fake_http, output=True)
     outcome = app.call("shelly_switch_set", control_args(app), Origin.HUMAN)
-    assert outcome.data["ok"] is False and outcome.data["command_accepted"] is None
+    assert outcome.data["ok"] is False
+    assert outcome.data["command_accepted"] is None
     assert outcome.data["command_error"] == "rpc_rejected"
     assert "synthetic-secret" not in json.dumps(outcome.to_dict())
     assert methods(fake_http).count("Switch.Set") == 1
@@ -402,7 +433,8 @@ def test_control_fingerprints_do_not_bind_or_resolve_secret_values(
     first_target = control_args(first)["target"]
     monkeypatch.setenv("SB_TEST_SHELLY_PASSWORD", "synthetic-rotated-value")
     second = make_app(config(controls=True, password=True))
-    assert control_args(second)["target"] == first_target and fake_http.requests == []
+    assert control_args(second)["target"] == first_target
+    assert fake_http.requests == []
 
 
 def test_a_confirmed_output_is_a_succeeded_action_with_a_boolean_confirmation(
@@ -415,7 +447,8 @@ def test_a_confirmed_output_is_a_succeeded_action_with_a_boolean_confirmation(
     status(fake_http, output=True)
     outcome = app.call("shelly_switch_set", control_args(app), Origin.HUMAN)
     assert (outcome.data["confirmed"], outcome.data["effect_unknown"]) == (True, False)
-    assert outcome.action is not None and outcome.action["state"] == "succeeded"
+    assert outcome.action is not None
+    assert outcome.action["state"] == "succeeded"
 
 
 def test_unknown_delivery_is_journaled_as_uncertain_and_blocks_a_blind_repeat(
@@ -429,11 +462,13 @@ def test_unknown_delivery_is_journaled_as_uncertain_and_blocks_a_blind_repeat(
     outcome = app.call("shelly_switch_set", control_args(app), Origin.HUMAN)
     assert outcome.status == "ok"
     assert (outcome.data["effect_unknown"], outcome.data["confirmed"]) == (True, False)
-    assert outcome.action is not None and outcome.action["state"] == "uncertain"
+    assert outcome.action is not None
+    assert outcome.action["state"] == "uncertain"
 
     repeat = app.call("shelly_switch_set", control_args(app), Origin.HUMAN)
 
-    assert repeat.status == "denied" and outcome.action["id"] in repeat.message
+    assert repeat.status == "denied"
+    assert outcome.action["id"] in repeat.message
     assert methods(fake_http).count("Switch.Set") == 1
 
 
@@ -448,4 +483,5 @@ def test_a_refused_command_is_a_definite_unconfirmed_report(
     outcome = app.call("shelly_switch_set", control_args(app), Origin.HUMAN)
     assert outcome.data["command_accepted"] is False
     assert (outcome.data["effect_unknown"], outcome.data["confirmed"]) == (False, False)
-    assert outcome.action is not None and outcome.action["state"] == "succeeded"
+    assert outcome.action is not None
+    assert outcome.action["state"] == "succeeded"

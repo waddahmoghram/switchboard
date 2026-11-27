@@ -4,7 +4,7 @@ This guide is for the operator: the person who owns the configuration, approves 
 It explains how Switchboard's Python engine records actions that change things outside it, what to do when such an action has an unknown outcome, how long tool calls and polling jobs may run, and how the background runner shares work between threads and stops.
 The cross-engine rules are in the [contract](../contracts/README.md); this page describes the Python engine.
 
-The tests for this behaviour are authored but have not been run.
+[Validation](./VALIDATION.md#current-status) records where the tests for this behaviour have run.
 Nothing on this page was exercised against a real provider, account, or device, and an action recorded as succeeded is not proof of a physical effect.
 
 ## The action journal

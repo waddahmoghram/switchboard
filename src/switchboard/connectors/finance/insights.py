@@ -209,8 +209,10 @@ def build_summary(
             spending += total.outflow_cents
         categories.append(entry)
     seen = {total.category for total in totals}
-    for category in sorted(set(budgets) - seen):
-        categories.append(_category_entry(CategoryTotal(category, 0, 0, 0, 0), budgets[category]))
+    categories.extend(
+        _category_entry(CategoryTotal(category, 0, 0, 0, 0), budgets[category])
+        for category in sorted(set(budgets) - seen)
+    )
     return {
         "month": month,
         "currency": currency,

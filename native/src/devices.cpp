@@ -341,8 +341,8 @@ HttpResponse send(Context &context, const HttpRequest &request)
 // readback, and an "uncertain" status also declares effect_unknown. Neither proves a physical effect.
 void mark_outcome(Json &result)
 {
-    result["confirmed"] = result.at("status") == "state_matched";
-    if (result.at("status") == "uncertain")
+    result["confirmed"] = result.at("status") == Json("state_matched");
+    if (result.at("status") == Json("uncertain"))
     {
         result["effect_unknown"] = true;
     }
@@ -559,7 +559,7 @@ void wled_provider(const Json &data)
         reject("protocol");
     }
     if ((data.contains("success") && data.at("success") == false) ||
-        (data.contains("error") && !data.at("error").is_null() && data.at("error") != false && data.at("error") != 0 && data.at("error") != ""))
+        (data.contains("error") && !data.at("error").is_null() && data.at("error") != false && data.at("error") != 0 && data.at("error") != Json("")))
     {
         reject("provider");
     }
@@ -1149,7 +1149,7 @@ void register_wled(Context &context, Registry &registry)
                 const auto selected = std::find_if(device.presets.begin(), device.presets.end(),
                                                    [&](const WledPreset &preset)
                                                    {
-                                                       return preset.name == arguments.at("preset");
+                                                       return arguments.at("preset") == Json(preset.name);
                                                    });
                 if (selected == device.presets.end())
                 {
@@ -1364,7 +1364,7 @@ public:
         {
             reject("auth");
         }
-        if (result.contains("profile") && result.at("profile") != "switch")
+        if (result.contains("profile") && result.at("profile") != Json("switch"))
         {
             reject("identity");
         }
@@ -1449,7 +1449,7 @@ private:
         }
         const auto frame = decode(response);
         if (!frame.is_object() || !frame.contains("id") || !integer_in(frame.at("id"), id, id) || !frame.contains("src") ||
-            frame.at("src") != device_.expected_id || (frame.contains("dst") && frame.at("dst") != "switchboard-native") ||
+            frame.at("src") != device_.expected_id || (frame.contains("dst") && frame.at("dst") != Json("switchboard-native")) ||
             frame.contains("result") == frame.contains("error"))
         {
             reject("protocol");

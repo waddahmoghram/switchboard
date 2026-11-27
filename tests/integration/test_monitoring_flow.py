@@ -1,4 +1,4 @@
-"""Authored UNRUN application flows; transport, completion reports, and capacity are synthetic."""
+"""Application flows; transport, completion reports, and capacity are synthetic."""
 
 from __future__ import annotations
 
@@ -68,10 +68,12 @@ def test_registration_migration_doctor_and_cached_status_are_offline(
         "monitoring_status": Tier.READ,
     }
     [job] = [job for job in app.ctx.scheduler.jobs() if job.name.startswith("monitoring.")]
-    assert job.name == "monitoring.poll" and job.interval == 300
+    assert job.name == "monitoring.poll"
+    assert job.interval == 300
     assert job.func == service.poll_job
     assert doctor(app.ctx) == []
-    assert fake_http.requests == [] and app.ctx.events.recent() == []
+    assert fake_http.requests == []
+    assert app.ctx.events.recent() == []
     cached = _call(app, "monitoring_status")
     assert len(cached["checks"]) == 3
     assert all(item["status"] == "unchecked" and item["checked_at"] is None for item in cached["checks"])
@@ -164,7 +166,8 @@ def test_tools_cannot_select_arbitrary_addresses_paths_or_commands(
 ) -> None:
     app = make_app(config())
     assert app.call(tool, args, Origin.ASSISTANT).status == "invalid"
-    assert fake_http.requests == [] and app.ctx.events.recent() == []
+    assert fake_http.requests == []
+    assert app.ctx.events.recent() == []
 
 
 def test_read_policy_denial_prevents_measurements_and_read_tier_survives_kill_switch(
@@ -194,7 +197,8 @@ def test_event_failure_rolls_back_first_snapshot_and_all_events_then_retry_is_sa
 
     def fail(source: str, emitted_type: str, payload: dict[str, Any], **kwargs: Any) -> int | None:
         conn = kwargs["connection"]
-        assert isinstance(conn, sqlite3.Connection) and conn.in_transaction
+        assert isinstance(conn, sqlite3.Connection)
+        assert conn.in_transaction
         connections.append(conn)
         result = original(source, emitted_type, payload, **kwargs)
         if emitted_type == event_type:
@@ -205,13 +209,15 @@ def test_event_failure_rolls_back_first_snapshot_and_all_events_then_retry_is_sa
     fake_http.add("GET", ENDPOINT, status=503, repeat=True)
     with pytest.raises(RuntimeError, match="synthetic event failure"):
         service.check({"name": "server"})
-    assert connections and all(conn is connections[0] for conn in connections)
+    assert connections
+    assert all(conn is connections[0] for conn in connections)
     with app.ctx.db.session() as conn:
         assert conn.execute("SELECT COUNT(*) FROM monitoring_snapshots").fetchone()[0] == 0
         assert conn.execute("SELECT COUNT(*) FROM events").fetchone()[0] == 0
     monkeypatch.setattr(app.ctx.events, "emit", original)
     saved = service.check({"name": "server"})
-    assert saved["check"]["revision"] == 1 and saved["events_queued"] == 2
+    assert saved["check"]["revision"] == 1
+    assert saved["events_queued"] == 2
     assert service.check({"name": "server"})["events_queued"] == 0
 
 
@@ -234,7 +240,8 @@ def test_event_failure_does_not_replace_a_previous_healthy_snapshot(
         service.check({"name": "server"})
     cached = service.status({})["checks"][0]
     assert cached["status"] == "healthy"
-    assert cached["checked_at"] == old["checked_at"] and cached["revision"] == 1
+    assert cached["checked_at"] == old["checked_at"]
+    assert cached["revision"] == 1
     assert len(app.ctx.events.recent()) == 1
     monkeypatch.setattr(app.ctx.events, "emit", original)
     fake_http.add("GET", ENDPOINT, status=503)
@@ -256,7 +263,8 @@ def test_transition_deduplication_survives_restart_and_a_new_episode_alerts_agai
     ]:
         fake_http.add("GET", ENDPOINT, status=http_status, body=body)
         result = service.check({"name": "server"})
-        assert result["check"]["revision"] == revision and result["events_queued"] == queued
+        assert result["check"]["revision"] == revision
+        assert result["events_queued"] == queued
     assert len(app.ctx.events.recent(100, event_type="monitoring.alert")) == 2
     requests = len(fake_http.requests)
     restarted = make_app(raw)
@@ -283,7 +291,8 @@ def test_configuration_changes_invalidate_cache_but_do_not_reuse_transition_keys
     assert new_service.status({})["checks"][0]["status"] == "unchecked"
     fake_http.add("GET", address, body='{"health":{"ready":true}}')
     result = new_service.check({"name": "server"})
-    assert result["changed"] and result["check"]["revision"] == 2
+    assert result["changed"]
+    assert result["check"]["revision"] == 2
     [event] = replacement.ctx.events.recent(1)
     assert event.payload["previous_status"] is None
 
@@ -302,7 +311,9 @@ def test_old_observations_cannot_overwrite_newer_snapshots(make_app: AppFactory)
         Observation("error", "endpoint_unreachable", reachable=False),
         NOW.isoformat(timespec="microseconds"),
     )
-    assert ignored.snapshot == latest.snapshot and ignored.events_queued == 0 and not ignored.changed
+    assert ignored.snapshot == latest.snapshot
+    assert ignored.events_queued == 0
+    assert not ignored.changed
     assert len(app.ctx.events.recent()) == 1
 
 
@@ -316,15 +327,20 @@ def test_cached_status_ages_snapshots_and_backup_evidence_without_reading_or_emi
     monkeypatch.setattr(checks, "read_report", _forbidden)
     service.clock = lambda: NOW + timedelta(seconds=1)
     aged_report = _call(app, "monitoring_status")["checks"][0]
-    assert aged_report["status"] == "stale" and aged_report["report_stale"]
-    assert aged_report["error"] == "backup_report_stale" and not aged_report["snapshot_stale"]
+    assert aged_report["status"] == "stale"
+    assert aged_report["report_stale"]
+    assert aged_report["error"] == "backup_report_stale"
+    assert not aged_report["snapshot_stale"]
     service.clock = lambda: NOW + timedelta(seconds=600)
     assert not service.status({})["checks"][0]["snapshot_stale"]
     service.clock = lambda: NOW + timedelta(seconds=601)
     expired = service.status({})["checks"][0]
-    assert expired["snapshot_stale"] and expired["report_stale"]
-    assert expired["status"] == "stale" and expired["error"] == "snapshot_stale"
-    assert expired["observed_status"] == "healthy" and expired["observed_error"] is None
+    assert expired["snapshot_stale"]
+    assert expired["report_stale"]
+    assert expired["status"] == "stale"
+    assert expired["error"] == "snapshot_stale"
+    assert expired["observed_status"] == "healthy"
+    assert expired["observed_error"] is None
     assert expired["checked_at"] == saved["checked_at"]
     assert len(app.ctx.events.recent()) == 1
     service.clock = lambda: NOW - timedelta(seconds=1)

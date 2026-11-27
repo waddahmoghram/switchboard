@@ -1,10 +1,10 @@
 # Validation and packaging
 
-This page describes how Switchboard is checked away from the authoring host: a continuous integration (CI) workflow, a local script that runs the same stages on your own machine, CMake presets, sanitizer, fault and fuzz targets, and pinned dependencies.
+This page describes how Switchboard is checked: a continuous integration (CI) workflow, CodeQL code scanning, a local script that runs the same stages on your own machine, CMake presets, sanitizer, fault and fuzz targets, and pinned dependencies.
 
-**Status: authored and unexecuted.**
-No workflow run, configure, build, link, test, fuzzing session, install or Rust build of anything described here has been observed.
-The only checks performed while writing it were static: see [Current status](#current-status).
+**Status:** every stage has passed in local Linux runs that mirror the CI steps.
+Hosted CI has passed every job at `36c2203`, the macOS and Apple Clang legs included; it has not yet run the commits after that one.
+[Current status](#current-status) is the one dated record of what has run, where, and with what result; other pages link to it.
 A stage that passes on your machine proves only what its row in [Stages at a glance](#stages-at-a-glance) claims.
 
 ## Stages at a glance
@@ -25,7 +25,8 @@ The `native` job builds with GNU Compiler Collection (GCC) and Clang on Ubuntu, 
 
 Run the stages from the repository root with your normal account; the script refuses to run as root, because several fault tests rely on file permissions that root ignores.
 Every build, cache and scratch directory goes under `build/`, which `.gitignore` already excludes.
-The first `uv sync` writes `uv.lock` in the repository root; review it before committing.
+The `python` and `contracts` stages install with `uv sync --locked`, which installs exactly the versions in the committed `uv.lock` and stops if `pyproject.toml` no longer matches it.
+After changing a dependency, run `uv lock` with the uv version that CI pins, then review and commit `uv.lock`.
 
 ```bash
 scripts/ci/validate.sh             # every stage, in table order
@@ -67,9 +68,15 @@ cmake --workflow --preset asan-ubsan
 
 ## Python stage
 
-`uv sync` installs the project and the `dev` dependency group, then Ruff checks lint and formatting, mypy checks `src` and `tests`, and pytest runs twice: without and with the `integration` marker.
+`uv sync --locked` installs the project and the `dev` dependency group from `uv.lock`, then Ruff checks lint and formatting, mypy checks `src` and `tests`, and pytest runs twice: without and with the `integration` marker.
+Both pytest passes run in parallel with pytest-xdist (`-n auto`, one worker per available processor), and pytest-timeout fails any test that runs longer than the `timeout` in `pyproject.toml` (120 seconds).
+Both passes also record line coverage of the `switchboard` package with pytest-cov, and `coverage report` then fails the stage if the two passes together cover less than `fail_under` in `pyproject.toml`, a ratchet to raise as coverage grows.
+CI measures coverage only in its Ubuntu, Python 3.12 leg; the script writes the data to `build/python-coverage`.
 Integration tests start local servers and subprocesses only.
 The `contracts`, `fuzz` and `faults` markers are registered in `pyproject.toml` and run in the first pytest pass; select one alone with, for example, `pytest -m faults`.
+
+Broker tests create Unix domain sockets under pytest's temporary directories, and those paths must fit the broker's 100-byte limit.
+If they fail with `must be at most 100 bytes long` or `AF_UNIX path too long`, as they can with the long default temporary directory on macOS, pass a new, short `--basetemp` directory for each run; CI uses one under `$RUNNER_TEMP`.
 
 ## Native presets and options
 
@@ -128,6 +135,9 @@ Native, in `native/tests/alloc_faults.cpp` (label `faults`): global `operator ne
 `sb_runtime_create`, `sb_runtime_destroy`, `sb_runtime_catalog`, `sb_runtime_call`, `sb_runtime_call_outcome` and `sb_runtime_rpc` run with the failure placed at every allocation (one-shot mode) and at sampled points with every later allocation failing too (sticky mode).
 Each call must return one of the four documented status codes, publish a JavaScript Object Notation (JSON) report exactly when its status promises one, keep exceptions inside the C boundary, and leave the runtime usable with a verifiable audit chain.
 Every buffer and runtime is released, so LSan can attribute leaks on error paths.
+Allocations whose failure no caller could survive are never failed.
+That covers `nlohmann::json` destroying an array or object, whose noexcept destructor allocates a temporary stack, and, with libc++, `std::regex` compiling a pattern, which can delete a node twice when an allocation there fails.
+The test recognizes those frames by their symbol names in a backtrace, which relies on the unoptimized Debug presets in which the tests are built.
 `SWITCHBOARD_ALLOC_FAULT_STRIDE=<n>` samples every nth allocation to shorten a run.
 Exit code 77, which CTest reports as skipped, means the replacement did not reach the shared library on that platform.
 
@@ -176,6 +186,10 @@ The Rust stage builds `switchboard_native` with the `release` preset, then runs 
 Cargo builds under `build/rust-target`.
 The tests include `tests/lifecycle.rs` and `tests/outcomes.rs`.
 
+In CI only, the Rust job then installs cargo-audit 0.23.0 with `cargo install --locked`, which builds it from the lockfile published with that release, and runs `cargo audit` on `native/clients/rust/Cargo.lock`.
+The audit fetches the current RustSec advisory database on every run, so a newly published advisory can fail a run of an unchanged commit.
+The local script does not run the audit, because installing cargo-audit would write to your Cargo home directory.
+
 ## Packaging and install
 
 - The shared library is versioned `0.1.0` with shared object name (SONAME) version 1, which tracks `SB_ABI_VERSION` in `switchboard.h`, the C application binary interface (ABI) version.
@@ -192,40 +206,63 @@ target_link_libraries(my_program PRIVATE switchboard::native)
 The `package` stage installs a release build into `build/package-install`, then builds and runs a CMake consumer (`find_package`, C and C++ headers) and, when available, a C99 consumer through `pkg-config`.
 Both call only version queries: no runtime, state or network.
 
+## Code scanning
+
+`.github/workflows/codeql.yml` runs CodeQL on pushes to `master`, on pull requests and weekly.
+It analyzes the workflows, the Python sources, and the native C and C++ sources with the default queries, each without a build (build mode `none`), and uploads the results to the repository's code scanning alerts.
+Before the C and C++ analysis it installs the library packages that the native jobs install, so that their headers are in the system include directories.
+If CodeQL default setup is enabled in the repository settings, switch to advanced setup as GitHub's [advanced setup instructions](https://docs.github.com/en/code-security/how-tos/find-and-fix-code-vulnerabilities/configure-code-scanning/configuring-advanced-setup-for-code-scanning) describe; the switch disables default setup.
+The local script does not run CodeQL.
+
 ## Dependency pins
 
 | Dependency                       | Pin                                                                                     |
 | -------------------------------- | --------------------------------------------------------------------------------------- |
-| Python development tools         | `pytest==8.4.2`, `ruff==0.15.0`, `mypy==1.18.2` in the `dev` group; no runtime packages |
+| Python development tools         | `pytest==9.0.3`, `ruff==0.15.0`, `mypy==1.18.2` in the `dev` group; no runtime packages |
+| pytest plugins                   | `pytest-cov==7.1.0`, `pytest-timeout==2.4.0`, `pytest-xdist==3.8.0` in the `dev` group  |
+| Python lockfile                  | `uv.lock` from uv 0.13.7: exact versions and file hashes of every development package   |
 | uv in CI                         | `0.13.7`                                                                                |
 | vcpkg `builtin-baseline`         | `9eec002df1cd109f8f104cd966a763daf9751489`, release tag `2026.10.16`                    |
 | Rust lockfile                    | `Cargo.lock` version 3, the single dependency-free package `switchboard-native` 0.1.0   |
+| cargo-audit in CI                | `0.23.0`, built by `cargo install --locked` from its published lockfile                 |
 | `actions/checkout`               | `3d3c42e5aac5ba805825da76410c181273ba90b1` (`v7.0.1`)                                   |
 | `astral-sh/setup-uv`             | `68559e99cc807c1eb7e9238fd43a15bba460eec2` (`v10.3.3`)                                  |
 | `actions/upload-artifact`        | `cf430e030ddbb5b0abf93d22962f4752f3646cd9` (`v7.0.2`)                                   |
+| `github/codeql-action`           | `915412ff23e8b7659517e607487dbeae018f2934` (`v4.39.5`), for `init` and `analyze`        |
 
-The action and vcpkg identifiers are full commit Secure Hash Algorithm (SHA) values, resolved on 2026-11-11 through the GitHub application programming interface: each action tag is a lightweight tag on that commit, and the annotated vcpkg tag `2026.10.16` (tagged 2026-10-20) points to a commit dated 2026-10-17.
+The action and vcpkg identifiers are full commit Secure Hash Algorithm (SHA) values.
+Those of `actions/checkout`, `astral-sh/setup-uv`, `actions/upload-artifact` and vcpkg were resolved on 2026-11-11 through the GitHub application programming interface: each of those action tags is a lightweight tag on that commit, and the annotated vcpkg tag `2026.10.16` (tagged 2026-10-20) points to a commit dated 2026-10-17.
 At that baseline the ports are curl 8.23.0, sqlite3 3.53.4 (port version 2), nlohmann-json 3.12.0 (port version 2) and openssl 3.6.5 (port version 2), read from each port's manifest at that commit.
 No vcpkg install was run.
 
+The `github/codeql-action` identifier was resolved on 2026-11-26 with `git ls-remote`: `v4.39.5` is an annotated tag, and the identifier is the commit it points to.
+
 `Cargo.lock` is hand-authored in Cargo's version 3 format, which matches the package's `rust-version` of 1.63; `--locked` fails if Cargo would change it.
-Not pinned: transitive Python development dependencies (no `uv.lock` is committed yet), the runner images behind `ubuntu-24.04` and `macos-15`, Ubuntu and Homebrew packages, CMake, and the runners' Rust toolchain.
+Not pinned: the runner images behind `ubuntu-24.04` and `macos-15`, Ubuntu and Homebrew packages, CMake, the runners' Rust toolchain, and the RustSec advisory database that `cargo audit` fetches.
 
 ## Workflow security notes
 
-- The workflow token is read-only (`permissions: contents: read`); no job uses secrets or deploys anything.
+- The CI workflow's token is read-only (`permissions: contents: read`); no job uses secrets or deploys anything.
 - It runs on `push`, `pull_request` and manual dispatch, never `pull_request_target`, so code from a fork runs without secrets and with a read-only token.
 - Checkout does not persist credentials, every action is pinned to a full commit SHA, and the uv cache is off,
   so one run cannot seed another run's tools.
 - The only uploaded artifact is the fuzzing crash inputs of a failed run, kept for 14 days.
+- Problem matchers in `.github/problem-matchers/tests.json` turn the failure lines that pytest and CTest print into error annotations, so the checks page names a failed test without its log.
+  On a public repository anyone can read annotations, while job logs need a GitHub sign-in; the matched lines come from tests that use only synthetic data.
 - `sudo` is used only on disposable runners, for distribution packages and the sanitizer `sysctl` setting.
 - Concurrency groups cancel superseded pull request runs; a running push build is never cancelled.
-- Pinned actions do not update themselves: review new releases and their SHAs deliberately (for example with Dependabot, which is not configured here).
+- Pinned actions do not update themselves.
+  Dependabot is configured in `.github/dependabot.yml` to check the actions, the uv project and its lockfile, and the Rust wrapper weekly, and to open pull requests that group minor and patch updates.
+  Review each proposed update before merging, including the new commit SHA of an action.
+  Dependabot does not change `UV_VERSION` or the cargo-audit version in `ci.yml`, so bump those by hand.
+- The CodeQL workflow's token can also upload code scanning results (`security-events: write`) and read workflow runs (`actions: read`); it uses no secrets and deploys nothing.
+  It does not run on `pull_request_target` either.
+  It leaves the CodeQL action's own caching at its defaults, so the cache note above covers only the CI workflow.
 
 ## Review notes from authoring
 
 Static reading while writing these tests found the following.
-Each has since been fixed in the source and is covered by an authored test; none of the fixes has been run.
+Each has since been fixed in the source and is covered by a test.
 
 - `hash()` and `identifier()` in the native engine built text with `std::ostringstream`, and timestamps were rendered the same way.
   The standard libraries catch an allocation failure during formatted output and only set the stream's error state, so a shortened digest, identifier, or timestamp could have been returned silently.
@@ -241,13 +278,62 @@ Each has since been fixed in the source and is covered by an authored test; none
 
 ## Current status
 
-Authored, unexecuted.
-Static checks on the authoring host, all passing:
+As of 2026-11-26.
+Method for the table below: local Linux runs that mirror the CI steps; the hosted CI runs follow the table.
+The Python stage ran on Linux x86-64 with CPython 3.11, 3.12 and 3.13, installed by uv 0.13.7 from `uv.lock`.
+The other stages ran in a local container built from `ubuntu:24.04` with the packages the CI jobs install: GCC 13.3.0, Clang 18.1.3, CMake 3.28.3, nlohmann-json 3.11.3 and stable Rust 1.100.0.
 
-- Ruff 0.15.0 lint and format check on `src` and `tests`; mypy 1.18.2 on `src` and `tests` (Python 3.12).
-- `-fsyntax-only` with GCC 11 and `-Wall -Wextra -Wpedantic -Werror` on the fuzz targets and fault tests;
-  `clang-format` 14 with `native/.clang-format`.
-- The workflow parsed as YAML Ain't Markup Language (YAML) data, the presets and manifests as JSON, and `Cargo.lock` and `pyproject.toml` as Tom's Obvious, Minimal Language (TOML); actionlint 1.7.12 on the workflow; `bash -n` and ShellCheck 0.11.0 on the script; cmake-lint on `CMakeLists.txt` and the package configuration template.
+| Stage                   | Configuration                      | Result                                                                                                           |
+| ----------------------- | ---------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| `python` lint and types | CPython 3.11, 3.12 and 3.13        | Ruff 0.15.0 lint and format check, and mypy 1.18.2 for Linux and `--platform darwin`: no findings on any version |
+| `python` tests          | CPython 3.11, 3.12 and 3.13        | pytest 9.0.3: 3,144 passed without the `integration` marker and 296 with it, on each version                     |
+| `python` coverage       | CPython 3.12                       | 94.4% line coverage, against the `fail_under` gate of 92%                                                        |
+| `contracts`             | Python and native runners          | Both runners passed 101 of 101 cases; the Python runner runs in the first pytest pass                            |
+| `native`                | `dev`, GCC 13.3.0 and Clang 18.1.3 | 14 of 14 tests passed with each compiler; 0 compiler warnings                                                    |
+| `native`                | `dev`, `TMPDIR` below a link       | 13 of 13 passed with each compiler, `alloc_faults` excluded; macOS keeps its temporary directory below `/var`    |
+| `sanitizers`            | `asan-ubsan`, GCC and Clang        | 14 of 14 passed with each compiler; no sanitizer reports                                                         |
+| `sanitizers`            | `tsan`, Clang                      | 3 of 3 passed; no reports                                                                                        |
+| `fuzz`                  | `fuzz`, Clang                      | 6 targets: seed-corpus replay plus 60 seconds of fuzzing each; no crashes                                        |
+| `rust`                  | Stable Rust 1.100.0                | The wrapper built with 0 warnings and its 15 tests passed                                                        |
+| `package`               | `release`                          | The install and the consumer build passed                                                                        |
 
-Unknowns that only a run can settle: Clang, Apple Clang and GCC 13 or newer diagnostics under `-Werror`; whether every sanitizer, fuzz target and fault test passes; runtimes of `alloc_faults` and the sanitizer jobs; and runner-image changes.
+The `tsan` run turned address-space layout randomization off with `setarch -R`, standing in for the runner's `vm.mmap_rnd_bits=28` step.
+A one-off differential check outside CI ran both engines' audit redaction on 550,000 generated values, 3,006,779 strings in all, and found no mismatch.
+
+Hosted CI: the first GitHub Actions run of `ci.yml`, on the repository's initial push, failed all 16 of its jobs.
+
+- Native jobs: `std::string == json` comparisons did not compile with nlohmann-json 3.11.3 under C++20, and GCC 13 raised `-Werror=dangling-reference` false positives.
+- Python on Ubuntu: a journal-sweep bug, and a file-descriptor leak in the documents connector.
+- Python on macOS: mypy reported `attr-defined` for the Linux-only `socket.SO_PEERCRED`.
+- Contracts: the job stopped after its Python half failed.
+
+Dependabot then ran without the configuration in `.github/dependabot.yml`: it submitted the dependency graph and opened one pull request, which updates pytest to 9.0.3, and the CI run on that pull request failed all 16 jobs as well.
+
+Hosted CI on pull request #2, at its first commit `29db784`, which fixes those causes: 14 of the 16 CI jobs passed, among them Python 3.12 and 3.13 on macOS and the Rust job's `cargo audit` step, and CodeQL's three analyses passed.
+Apple Clang configured and built the native engine with warnings as errors, and then two tests failed, because native backups below a symbolic link were refused; macOS keeps its temporary directory below `/var`, a link to `private/var`.
+A later commit resolves the parent directory before SQLite's no-follow open, and the symbolic-link row above checks it.
+Python 3.11 on macOS passed its unit tests and failed in its integration tests.
+Which test failed is not known: job logs need a GitHub sign-in, and the failure did not reproduce on Linux with a linked temporary directory, three processors, a 256-file limit or twelve repeated runs.
+One macOS-only race fits a fast failure there: while the broker closes a refused connection, macOS can fail the client's send with `EPROTOTYPE` instead of a reset, which the broker socket tests did not expect.
+A later commit reports that error as a reset; whether it was this run's cause is unconfirmed.
+From the next run on, failed tests also appear as annotations; see [Workflow security notes](#workflow-security-notes).
+
+Hosted CI on pull request #2 at `36c2203`, which adds the backup fix, the failure annotations and the native audit-redaction port: all 16 CI jobs passed, Apple Clang and Python 3.11 on macOS included, and so did CodeQL's three analyses.
+That commit does not contain the `EPROTOTYPE` handling, so Python 3.11's earlier failure did not recur without it; that fits an intermittent cause, but does not identify one.
+
+At `6a87158`, Python 3.11 on macOS failed the webhook serve-command integration test because it did not signal startup within ten seconds.
+The server constructor calls `socket.getfqdn` before that signal; the test now replaces that display-name lookup with the literal loopback address, so it does not depend on an external resolver.
+A local check passes even when the underlying resolver raises an error, but the hosted annotation does not prove which startup operation consumed the timeout.
+
+What has not run:
+
+- Hosted CI has not run the commits after `36c2203`: the `EPROTOTYPE` handling and this record.
+- Nothing has run on Windows.
+- Dependabot has not yet run with `.github/dependabot.yml`.
+- Nothing has been run against a real account, device or outside network service.
+- No systemd or launchd service has been installed, and the audit-anchor cron and launchd recipes have not been run.
+
+Before these runs, the only checks were static: Ruff, mypy, syntax-only compiler builds, clang-format, actionlint, ShellCheck and cmake-lint.
+
+Unknowns that only hosted runs can settle: which Python 3.11 integration test failed on macOS at `29db784` and whether that failure recurs, whether `alloc_faults` runs or skips on macOS, and other differences between the hosted runners and the local mirror.
 Every source and test file the CMake lists name exists; none is optional, so a missing file fails configuration instead of silently shrinking the suite.

@@ -3,6 +3,8 @@ name = "switchboard"
 version = "0.1.0"
 description = "Self-hosted hooks and a policy gate that let AI assistants use your mail, calendar, money, and shopping data without paid aggregators."
 readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
 requires-python = ">=3.11"
 dependencies = []
 
@@ -11,13 +13,16 @@ switchboard = "switchboard.cli:main"
 
 [dependency-groups]
 dev = [
-  "pytest==8.4.2",
+  "pytest==9.0.3",
+  "pytest-cov==7.1.0",
+  "pytest-timeout==2.4.0",
+  "pytest-xdist==3.8.0",
   "ruff==0.15.0",
   "mypy==1.18.2",
 ]
 
 [build-system]
-requires = ["hatchling>=1.24"]
+requires = ["hatchling>=1.27"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
@@ -33,6 +38,18 @@ markers = [
   "faults: deterministic fault injection at storage, audit, transport, or protocol layers",
 ]
 addopts = "-ra"
+# pytest-timeout: a hung test fails after this many seconds instead of stalling the whole run.
+timeout = 120
+
+[tool.coverage.run]
+source = ["switchboard"]
+
+[tool.coverage.report]
+# Line coverage of both pytest selections together: a ratchet to raise as coverage grows.
+fail_under = 92
+precision = 1
+show_missing = true
+skip_covered = true
 
 [tool.ruff]
 line-length = 110
@@ -40,7 +57,7 @@ target-version = "py311"
 src = ["src", "tests"]
 
 [tool.ruff.lint]
-select = ["E", "F", "W", "I", "B", "UP", "S", "SIM", "RUF"]
+select = ["E", "F", "W", "I", "B", "UP", "S", "SIM", "RUF", "PT", "C4", "PTH", "PERF"]
 ignore = [
   "S603",  # subprocess without shell is intentional for cmd: secret references
 ]
@@ -53,7 +70,9 @@ python_version = "3.11"
 mypy_path = "src"
 packages = ["switchboard"]
 disallow_untyped_defs = true
+disallow_any_generics = true
 no_implicit_optional = true
+warn_return_any = true
 warn_unused_ignores = true
 warn_redundant_casts = true
 strict_equality = true

@@ -274,6 +274,28 @@ void backup_verify_and_tamper()
     expect(Runtime::verify_backup(forged)["verified"] == false, "a backup without its manifest must not verify");
 }
 
+// macOS keeps temporary directories below the /var -> private/var link: a linked parent directory must not stop a backup
+// or its verification, while a state copy that is itself a link must still be refused.
+void backup_below_a_linked_directory()
+{
+    Directory directory;
+    Runtime runtime(test::configuration(directory, {}), std::make_unique<FakeHttp>());
+    Directory backups;
+    std::filesystem::create_directory(backups.path / "real");
+    std::filesystem::create_directory_symlink("real", backups.path / "link");
+    const auto target = backups.path / "link" / "backup";
+    expect(runtime.backup(target)["status"] == "ok", "a backup below a linked directory must succeed");
+    expect(Runtime::verify_backup(target)["verified"] == true, "a backup below a linked directory must verify");
+    const auto linked = backups.path / "linked-copy.sqlite3";
+    std::filesystem::create_symlink(target / "native-state.sqlite3", linked);
+    expect_error_code(
+        [&]
+        {
+            Database copy(linked, DatabaseMode::read_only);
+        },
+        "filesystem", "a state copy that is a symbolic link must be refused");
+}
+
 void purge_keeps_open_entries()
 {
     Directory directory;
@@ -376,6 +398,7 @@ int main()
         migrates_version_one();
         refuses_newer_and_incomplete_state();
         backup_verify_and_tamper();
+        backup_below_a_linked_directory();
         purge_keeps_open_entries();
         kill_switch_control();
         std::cout << "native lifecycle tests passed\n";

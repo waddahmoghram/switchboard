@@ -1,12 +1,13 @@
-"""Authored UNRUN synthetic live-file boundary tests; no personal folders or accounts."""
+"""Synthetic live-file boundary tests; no personal folders or accounts."""
 
 from __future__ import annotations
 
 import errno
 import os
+import re
 import stat
-from collections.abc import Iterator
-from contextlib import AbstractContextManager
+from collections.abc import Callable, Iterator
+from contextlib import AbstractContextManager, ExitStack
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, BinaryIO, cast
@@ -159,6 +160,22 @@ def test_directory_and_named_pipe_are_not_regular_notes(private_root: Path) -> N
         for name in ("folder.md", "pipe.md"):
             with pytest.raises(NoteUnavailable, match="unsafe_file"):
                 source.read(name, ReadBudget(100))
+
+
+def test_refused_and_completed_reads_close_their_descriptors(
+    private_root: Path, open_descriptors: Callable[[], int]
+) -> None:
+    (private_root / "folder.md").mkdir(mode=0o700)
+    os.mkfifo(private_root / "pipe.md", mode=0o600)
+    _write(private_root, "note.md")
+    with _source(private_root) as source:
+        baseline = open_descriptors()
+        for _ in range(20):
+            for name in ("folder.md", "pipe.md"):
+                with pytest.raises(NoteUnavailable):
+                    source.read(name, ReadBudget(100))
+            source.read("note.md", ReadBudget(100))
+        assert open_descriptors() == baseline
 
 
 @pytest.mark.parametrize("kind", [stat.S_IFSOCK, stat.S_IFCHR, stat.S_IFBLK])
@@ -359,15 +376,19 @@ def test_empty_notes_are_valid_and_descriptors_are_closed(private_root: Path) ->
     with _source(private_root) as source:
         descriptor = source.descriptor
         assert source.read("empty.md", ReadBudget(1)).text == ""
-    with pytest.raises(OSError) as exc:
+    with pytest.raises(OSError, match=re.escape(os.strerror(errno.EBADF))) as exc:
         os.fstat(descriptor)
     assert exc.value.errno == errno.EBADF
+
+
+# In the tests below, closing the stack leaves the collection, which revalidates what it returned.
 
 
 @pytest.mark.parametrize("change", ["delete", "edit", "permission", "replace"])
 def test_changed_notes_invalidate_accumulated_results(private_root: Path, change: str) -> None:
     path = _write(private_root, "note.md")
-    with pytest.raises(ToolError), _source(private_root) as source:
+    with ExitStack() as stack:
+        source = stack.enter_context(_source(private_root))
         source.read("note.md", ReadBudget(100))
         if change == "delete":
             path.unlink()
@@ -378,28 +399,39 @@ def test_changed_notes_invalidate_accumulated_results(private_root: Path, change
             replacement.replace(path)
         else:
             path.write_bytes(b"edited")
+        with pytest.raises(ToolError):
+            stack.close()
 
 
 def test_root_revocation_invalidates_accumulated_results(private_root: Path) -> None:
     _write(private_root, "note.md")
-    with pytest.raises(ToolError, match="collection unavailable"), _source(private_root) as source:
+    with ExitStack() as stack:
+        source = stack.enter_context(_source(private_root))
         source.read("note.md", ReadBudget(100))
         private_root.chmod(0o755)
+        with pytest.raises(ToolError, match="collection unavailable"):
+            stack.close()
 
 
 def test_replaced_root_is_not_the_previously_opened_source(private_root: Path, tmp_path: Path) -> None:
     _write(private_root, "note.md")
-    with pytest.raises(ToolError, match="collection changed"), _source(private_root) as source:
+    with ExitStack() as stack:
+        source = stack.enter_context(_source(private_root))
         source.read("note.md", ReadBudget(100))
         private_root.rename(tmp_path / "old-notes")
         private_root.mkdir(mode=0o700)
         _write(private_root, "note.md", b"new source")
+        with pytest.raises(ToolError, match="collection changed"):
+            stack.close()
 
 
 def test_root_deletion_invalidates_even_an_empty_listing(private_root: Path) -> None:
-    with pytest.raises(ToolError, match="collection unavailable"), _source(private_root) as source:
+    with ExitStack() as stack:
+        source = stack.enter_context(_source(private_root))
         assert source.candidates()[0] == []
         private_root.rmdir()
+        with pytest.raises(ToolError, match="collection unavailable"):
+            stack.close()
 
 
 def test_missing_note_is_an_expected_safe_error(private_root: Path) -> None:
@@ -465,9 +497,9 @@ def test_changes_during_the_raw_read_are_refused_and_file_handles_close(
                     path.symlink_to(outside)
             return raw
 
-    def racing_open(descriptor: int, mode: str) -> Reader:
+    def racing_open(descriptor: int, mode: str, **options: Any) -> Reader:
         assert mode == "rb"
-        handle = cast(BinaryIO, actual(descriptor, mode))
+        handle = cast(BinaryIO, actual(descriptor, mode, **options))
         opened.append(handle)
         return Reader(handle)
 
@@ -476,7 +508,8 @@ def test_changes_during_the_raw_read_are_refused_and_file_handles_close(
     with _source(private_root) as source, pytest.raises(NoteUnavailable):
         source.read("note.md", budget)
     assert budget.consumed == len(original)
-    assert opened and all(handle.closed for handle in opened)
+    assert opened
+    assert all(handle.closed for handle in opened)
 
 
 def test_unsupported_no_follow_platform_fails_closed(

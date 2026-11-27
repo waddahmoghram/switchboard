@@ -1,7 +1,7 @@
 {
   "format": "switchboard-contract-cases",
   "version": 1,
-  "contract_revision": 1,
+  "contract_revision": 2,
   "area": "policy",
   "summary": "The policy gate: tier defaults, configured decisions, the human origin, the kill switch, hourly budgets and the spend tier. Uses the synthetic contract_* tools.",
   "cases": [

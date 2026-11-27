@@ -1,6 +1,6 @@
 # Switchboard runner: polling jobs, event processing, and rules, under the same dedicated account and data
 # directory as the broker. See docs/ISOLATION.md and docs/DEPLOYMENT.md.
-# Install as /etc/systemd/system/switchboard-runner.service. Authored, not yet started on any host.
+# Install as /etc/systemd/system/switchboard-runner.service.
 
 [Unit]
 Description=Switchboard runner (polling, events, and rules)

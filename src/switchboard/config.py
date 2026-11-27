@@ -31,6 +31,7 @@ _CORE_KEYS = {
     "mcp": frozenset({"expose", "instructions"}),
     "retention": frozenset({"tool_calls_days", "approvals_days", "actions_days", "connectors"}),
     "broker": frozenset({"client_socket", "operator_socket", "client_uids", "operator_uids"}),
+    "audit": frozenset({"hash_only"}),
 }
 
 # (section, key): (minimum, maximum, default)
@@ -85,11 +86,12 @@ class Config:
             self.bounded(section, key)
         self.retention_connector_days()
         self.broker_settings()
+        self.audit_hash_only()
 
     def bounded(self, section: str, key: str) -> int:
         """A validated whole number from a documented range, or its documented default."""
         minimum, maximum, default = _BOUNDED_INTEGERS[(section, key)]
-        value = self.section(section).get(key, default)
+        value: object = self.section(section).get(key, default)
         if isinstance(value, bool) or not isinstance(value, int) or not minimum <= value <= maximum:
             raise ConfigError(f"[{section}] {key} must be a whole number from {minimum} to {maximum}")
         return value
@@ -124,15 +126,27 @@ class Config:
                 raise ConfigError(f"[broker] {key} must list 1 to 64 numeric user identifiers")
         return dict(table)
 
+    def audit_hash_only(self) -> frozenset[str]:
+        """Field names whose text the audit log keeps only as a length and hash, lowercased."""
+        value = self.section("audit").get("hash_only", [])
+        if (
+            not isinstance(value, list)
+            or len(value) > 64
+            or not all(isinstance(name, str) and name and name == name.strip() for name in value)
+        ):
+            raise ConfigError("[audit] hash_only must list up to 64 field names")
+        return frozenset(name.lower() for name in value)
+
     def section(self, *keys: str) -> dict[str, Any]:
         """Return a nested table; missing tables are empty, malformed tables are errors."""
-        node: Any = self.data
+        node: dict[str, Any] = self.data
         location: list[str] = []
         for key in keys:
             location.append(key)
-            node = node.get(key, {})
-            if not isinstance(node, dict):
+            child = node.get(key, {})
+            if not isinstance(child, dict):
                 raise ConfigError(f"[{'.'.join(location)}] must be a table")
+            node = child
         return node
 
     def mcp_exposure(self) -> list[str] | None:
@@ -176,7 +190,11 @@ def load_config(path: Path | None = None) -> Config:
     raw_dir = initial.section("switchboard").get("data_dir")
     if raw_dir is not None and not isinstance(raw_dir, str):
         raise ConfigError("[switchboard] data_dir must be a path string")
-    data_dir = Path(os.path.expanduser(raw_dir)) if isinstance(raw_dir, str) else default_data_dir()
+    data_dir = (
+        Path(os.path.expanduser(raw_dir))  # noqa: PTH111 - Path.expanduser raises on an unknown ~user
+        if isinstance(raw_dir, str)
+        else default_data_dir()
+    )
     return Config(data=data, data_dir=data_dir, path=target)
 
 
@@ -187,7 +205,7 @@ def ensure_private_dir(path: Path) -> Path:
     if stat.S_ISLNK(info.st_mode) or not stat.S_ISDIR(info.st_mode):
         raise ConfigError(f"{path} must be a real directory, not a link or file")
     if info.st_mode & 0o077:
-        os.chmod(path, 0o700)
+        path.chmod(0o700)
     return path
 
 

@@ -1,12 +1,11 @@
 # Native operations: journal, deadlines, runner, state and recovery
 
-This guide covers the operational behavior of the C++ native engine: the durable action journal and reconciliation, deadlines and cancellation, bounded runner ticks, state versions, backup and verification, retention, and the kill switch.
-It implements the native side of [contract revision 1](../../contracts/README.md); where this guide and the contract differ, the contract wins.
+This guide covers the operational behavior of the C++ native engine: the durable action journal and reconciliation, deadlines and cancellation, bounded runner ticks, state versions, the audit log and its anchors, backup and verification, retention, and the kill switch.
+It implements the native side of [contract revision 2](../../contracts/README.md); where this guide and the contract differ, the contract wins.
 Requests, reports and configuration use JavaScript Object Notation (JSON).
 
-All of this is **authored but unrun**.
-The code was checked only with compiler syntax checks; it has not been built, linked or executed, and the tests listed in [Validation status](#validation-status) have not been run.
-Nothing here is evidence of runtime behavior, migration of real data, device compatibility or a physical effect.
+[Validation](../../docs/VALIDATION.md#current-status) records where the tests listed in [Validation status](#validation-status) have run.
+Passing tests are not evidence of migration of real data, device compatibility or a physical effect.
 
 ## Action journal
 
@@ -56,7 +55,7 @@ If the request audit record cannot be written, the handler never starts, the att
 Times are integer seconds and are rendered as `YYYY-MM-DDTHH:MM:SSZ` in reports.
 
 The digest is the SHA-256 (Secure Hash Algorithm, 256-bit) digest of the canonical JSON arguments, computed before redaction.
-The stored arguments are redacted like the audit log: values under keys containing `password`, `secret`, `token`, `authorization` or `cookie` become `[REDACTED]`.
+The stored arguments are scrubbed by the [audit log](#audit-log) redaction rules, without `audit.hash_only`: values under credential keys become `[redacted]`, and secret-shaped text is replaced.
 Error text is bounded printable text.
 The owner is the process identifier plus a random value, created once per `Runtime` instance.
 
@@ -161,6 +160,39 @@ This engine writes version 2.
 Migration is one way.
 Before the first start of this version, stop every process that uses the data directory and copy it, including any `native-state.sqlite3-wal` and `native-state.sqlite3-shm` files.
 Native state is not the Python database, and neither engine reads the other's files.
+
+## Audit log
+
+The engine appends a record to the `native_audit` table for every tool request, result and refusal, every approval created, claimed or denied, and every sweep, reconciliation, kill-switch change, backup and purge.
+Each record's hash covers its content and the hash of the record before it, so an edited, reordered or deleted interior record breaks the chain.
+Records are redacted before they are hashed and written, by the shared rules in [Audit redaction](../../contracts/README.md#audit-redaction): a value under a credential key becomes `[redacted]`, and strings lose secret-shaped text such as bearer tokens, private keys, known token formats and long random runs.
+The `event` name and the `at` time are written as they are.
+
+The optional `audit` section names fields whose text the log keeps only as a length and a hash; this one covers task titles and notes and the operator's reconciliation notes:
+
+```json
+{"audit": {"hash_only": ["title", "notes", "note"]}}
+```
+
+`hash_only` lists up to 64 names, each a nonempty string without surrounding whitespace, and a name matches a key at any depth, ignoring the case of `A` to `Z`.
+Every string under a named key is scrubbed and then stored as `[N chars, sha256:H]`, where `N` counts the scrubbed text's Unicode code points and `H` is the first 16 lowercase hexadecimal digits of its SHA-256 digest.
+Numbers, booleans and null are kept, and a credential key under a named key still gives `[redacted]`.
+The hash is unkeyed, so short or predictable text can be confirmed by guessing.
+The setting applies to new records only; journal arguments are scrubbed without it, and approvals keep exact arguments.
+
+### Verifying the chain and its anchors
+
+The read tool `audit_verify` re-hashes the chain in insertion order, up to 100,000 records, and fails if any record does not match.
+Its report has `records`, the last record's hash as `head`, `chain_matches` and `independent_head_required_for_tail_detection` (both `true`), `anchor` and `anchors_checked`.
+`anchor` names the last record as `SEQ:HASH`, where `SEQ` is a record's 1-based position in insertion order, the same count as `records`.
+The call's own request is recorded before the check runs, so the reported anchor names that request.
+
+A chain whose last records were cut off is still a valid chain.
+To detect that, keep anchors where the engine's account cannot write, and pass them back as `{"anchors": ["SEQ:HASH", …]}`.
+The list holds up to 64 anchors, each with `SEQ` a positive decimal integer without leading zeros and `HASH` 64 lowercase hexadecimal digits; a malformed anchor is `invalid`, and `anchors_checked` counts repeated anchors once.
+The call returns an `error` that names the first failing anchor when the chain has fewer than `SEQ` records, because records were cut from its end or the state was replaced, or when record `SEQ` has another hash, because the chain was rewritten at or before it.
+A chain that does not verify fails without its anchors being checked.
+Records after the newest anchor can still be cut without a trace, and whoever can rewrite both the state and every kept anchor can make them agree.
 
 ## Backup and verification
 
@@ -279,9 +311,10 @@ The header [native.hpp](../include/switchboard/native.hpp) also provides `STATE_
 
 ## Validation status
 
-The cases are authored in [core.cpp](../tests/core.cpp) (settings, journal tool, bounded ticks, tick cancellation), [recovery.cpp](../tests/recovery.cpp) (classification, duplicate guard, sweeps, late results, approval review and linking, cancellation and deadline clamping, extension gate) and [lifecycle.cpp](../tests/lifecycle.cpp) (migration, refusal of newer or incomplete state, backup and tampering, retention, kill switch).
+The cases are in [core.cpp](../tests/core.cpp) (settings, journal tool, bounded ticks, tick cancellation, audit anchors and redacted audit records), [audit.cpp](../tests/audit.cpp) (scanning time on adversarial text, the redaction nesting limit), [recovery.cpp](../tests/recovery.cpp) (classification, duplicate guard, sweeps, late results, approval review and linking, cancellation and deadline clamping, extension gate) and [lifecycle.cpp](../tests/lifecycle.cpp) (migration, refusal of newer or incomplete state, backup and tampering, retention, kill switch).
 They use synthetic extension tools and fake transports.
 One recovery case constructs the real web transport only to check that it refuses to start once cancelled or past its deadline; it targets the documentation-only address `192.0.2.1` and is designed to stop before any transfer.
+The shared [audit-redaction.json](../../contracts/cases/audit-redaction.json) fixture checks the redaction rules against both engines.
 
-None of these tests has been built or run.
-Compiler syntax checks do not show that the code links, that the tests pass, that migrations work on real data, or that any provider or device behaves as described.
+[Validation](../../docs/VALIDATION.md#current-status) records where they have run.
+Passing tests do not show that migrations work on real data, or that any provider or device behaves as described.

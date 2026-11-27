@@ -6,7 +6,8 @@ The broker moves the configuration, credentials, database, and audit log to a de
 The assistant and the operator each get their own local socket, so approval separation rests on operating-system accounts instead of on the assistant's good behavior.
 
 **Status.**
-The broker, the operator client, the assistant shim, the systemd units, and their tests are authored but have not been run, installed, or started on any host.
+The tests exercise the broker, the operator client, and the assistant shim under a single account; see [Validation](./VALIDATION.md#current-status).
+None of them has been installed under separate accounts, and the systemd units have not been installed or started on any host.
 Treat the commands and units below as a reviewed starting point, not a verified deployment.
 
 **Same-account caveat.**
@@ -230,13 +231,14 @@ Approve, deny, reconcile, and kill-switch changes write audit records with the p
 ## macOS status
 
 Peer credentials are read through `LOCAL_PEERCRED` and decoded as `struct xucred` from Apple's published headers; macOS reports no process identifier there.
-This path is untested.
+A unit test checks the request and its decoding against a fake socket, but nothing has tested this path on macOS.
+While the broker closes a connection, macOS can fail the client's send with `EPROTOTYPE`; the operator client and the shim report it as a reset, as a broken pipe or reset is reported on Linux.
 No launchd job definition is provided: create the account and groups yourself, create a socket directory owned by the service account with mode 711 before each start, and keep the configuration and secrets private to that account.
 Other systems, including Windows and the Berkeley Software Distribution (BSD) family, are refused at startup rather than trusted.
 
 ## Limits
 
-* Nothing here has been executed; the tests are authored for the reader's own machine.
+* The tests run under one account with fakes and temporary directories; they do not exercise an installed deployment.
 * One operation at a time means one slow provider call delays every other call until its deadline.
 * The broker does not poll, process events, or run rules; the runner unit does, under the same account.
 * Separate accounts protect the credentials and the decision, not the data that allowed tools return.

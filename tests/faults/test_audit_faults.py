@@ -1,4 +1,4 @@
-"""Audit-log write failures injected at ``AuditLog.append`` and by an unwritable log; authored and unrun.
+"""Audit-log write failures injected at ``AuditLog.append`` and by an unwritable log.
 
 The dispatcher writes the request record before it runs a handler, so a failure there must stop the call
 before any effect. Every injected failure must still produce a well-formed protocol reply without the

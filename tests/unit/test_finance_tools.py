@@ -13,6 +13,8 @@ from switchboard.app import App
 from switchboard.cli import build_parser
 from switchboard.connectors import finance
 from switchboard.connectors.finance.cli import render_summary
+from switchboard.connectors.finance.inbox import read_file
+from switchboard.connectors.finance.models import FormatError
 from switchboard.connectors.finance.tools import transaction_query
 from switchboard.errors import ToolError
 from switchboard.policy import Origin, Tier
@@ -124,6 +126,17 @@ def test_cli_import_reports_unreadable_files(make_app: Callable[..., App], tmp_p
         args.app_handler(args, make_app(CONFIG))
 
 
+def test_reading_a_directory_is_a_format_error_and_closes_it(
+    tmp_path: Path, open_descriptors: Callable[[], int]
+) -> None:
+    folder = tmp_path / "statement.ofx"
+    folder.mkdir()
+    baseline = open_descriptors()
+    with pytest.raises(FormatError, match="not a regular file"):
+        read_file(folder, follow_symlinks=True)
+    assert open_descriptors() == baseline
+
+
 def test_render_summary_marks_transfers_and_budgets() -> None:
     text = render_summary(
         {
@@ -139,5 +152,6 @@ def test_render_summary_marks_transfers_and_budgets() -> None:
         }
     )
 
-    assert "dining" in text and "-2.50" in text
+    assert "dining" in text
+    assert "-2.50" in text
     assert "transfer (transfer)" in text

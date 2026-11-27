@@ -96,7 +96,7 @@ def build_app(config: Config, *, http: HttpTransport | None = None) -> App:
         db.add_migrations(name, getattr(module, "MIGRATIONS", []))
     db.migrate()
 
-    audit = AuditLog(config.data_dir / "audit.jsonl")
+    audit = AuditLog(config.data_dir / "audit.jsonl", hash_only=config.audit_hash_only())
     events = EventBus(db)
     lanes = Lanes()
     ctx = AppContext(

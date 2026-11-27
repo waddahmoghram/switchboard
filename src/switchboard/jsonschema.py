@@ -204,9 +204,7 @@ def _check_object(value: Mapping[str, Any], schema: Mapping[str, Any], path: str
         for name in value:
             errors.extend(validate(name, names_schema, f"{path}.{name} (name)"))
     properties: Mapping[str, Any] = schema.get("properties", {})
-    for name in schema.get("required", []):
-        if name not in value:
-            errors.append(f"{path}.{name}: is required")
+    errors.extend(f"{path}.{name}: is required" for name in schema.get("required", []) if name not in value)
     for name, item in value.items():
         if name in properties:
             errors.extend(validate(item, properties[name], f"{path}.{name}"))

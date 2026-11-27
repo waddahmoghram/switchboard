@@ -26,7 +26,7 @@ It does not silently send an unthreaded message if that original is unavailable.
 
 ## First setup on your own machine
 
-Nothing here was executed on the authoring host.
+None of these setup steps has been run.
 Run the synthetic tests on your own machine first, as described in [Deployment](../DEPLOYMENT.md#run-the-tests).
 
 1. Create your own bot with Telegram's official BotFather.
@@ -144,8 +144,7 @@ Protocol facts were checked against archived official documentation because the 
 [bot introduction, November 4, 2026](https://web.archive.org/web/20261104104702/https://core.telegram.org/bots),
 [bot reference, November 5, 2026](https://web.archive.org/web/20261105012614/https://core.telegram.org/bots/api),
 and [receiving-update guidance, November 3, 2026](https://web.archive.org/web/20261103111608/https://core.telegram.org/bots/faq).
-The reference defines `getMe`, `getUpdates`, `sendMessage`, `reply_parameters`, the update lifetime,
-and offset acknowledgment. The polling and reply cases in
-[test_telegram.py](../../tests/unit/test_telegram.py) and
-[test_telegram_flow.py](../../tests/integration/test_telegram_flow.py) use synthetic responses and were
-authored, not executed. No live bot or account was connected here.
+The reference defines `getMe`, `getUpdates`, `sendMessage`, `reply_parameters`, the update lifetime, and offset acknowledgment.
+The polling and reply cases in [test_telegram.py](../../tests/unit/test_telegram.py) and [test_telegram_flow.py](../../tests/integration/test_telegram_flow.py) use synthetic responses.
+[Validation](../VALIDATION.md#current-status) records where they have run.
+No live bot or account has been connected.

@@ -4,8 +4,7 @@ This connector keeps personal tasks in Switchboard's private database.
 It needs no external task provider or subscription.
 Reminders are one-shot events for the existing rule runner, **not an automatic email, phone notification, or proof that a task was performed**.
 
-The code and synthetic tests are authored, not executed.
-Nothing here was run on the authoring host.
+[Validation](../VALIDATION.md#current-status) records where these synthetic tests have run.
 Follow [the test instructions](../DEPLOYMENT.md#run-the-tests) on your own machine before use.
 
 ## Tools
@@ -107,5 +106,5 @@ Deletion removes the task row, not audit records, queued events, backups, or cop
 Notes can be sent to a hosted model when exposed; self-hosting this store does not make the model local.
 There is no general automatic task-retention policy.
 
-Authored regression cases are in [unit tests](../../tests/unit/test_tasks.py) and [integration flows](../../tests/integration/test_tasks_flow.py).
-Static checks do not prove scheduler timing, migration behavior, concurrency, notification delivery, or runtime compatibility.
+Regression cases are in [unit tests](../../tests/unit/test_tasks.py) and [integration flows](../../tests/integration/test_tasks_flow.py).
+Passing synthetic tests do not prove scheduler timing on a real host, migration of a real database, concurrency across processes, notification delivery, or behavior on untested platforms.

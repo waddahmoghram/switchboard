@@ -1,4 +1,4 @@
-"""Authored UNRUN synthetic configuration cases; no real collection is inspected."""
+"""Synthetic configuration cases; no real collection is inspected."""
 
 from __future__ import annotations
 

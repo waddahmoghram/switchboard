@@ -23,6 +23,7 @@ import pytest
 
 from switchboard.actions import ActionStateError, args_digest
 from switchboard.app import App
+from switchboard.audit import redact
 from switchboard.errors import ToolError, UncertainOutcomeError
 from switchboard.jsonschema import check_schema, validate
 from switchboard.mcp_server import McpServer
@@ -64,6 +65,7 @@ OPS = frozenset(
         "check_schema",
         "validate",
         "register",
+        "redact",
     }
 )
 ENVELOPE_KEYS = frozenset(
@@ -613,6 +615,15 @@ class CaseRunner:
                     not registration_accepted(item["name"], item["schema"]),
                     f"registration accepted: {shown(item)}",
                 )
+            return
+        if op == "redact":
+            only(expected, {"result"})
+            check("result" in expected, "redact needs an expected result")
+            result = redact(step["value"], hash_only=step.get("hash_only", ()))
+            want = expected["result"]
+            check(
+                subset(want, result) and subset(result, want), f"expected {shown(want)}, got {shown(result)}"
+            )
             return
         expected = self.resolve(expected)
         if op == "restart":

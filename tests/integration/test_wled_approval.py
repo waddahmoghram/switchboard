@@ -1,4 +1,4 @@
-"""Full-dispatcher WLED cases using synthetic responses only; authored and unrun."""
+"""Full-dispatcher WLED cases using synthetic responses only."""
 
 from __future__ import annotations
 
@@ -284,7 +284,8 @@ def test_stale_configuration_approval_is_rejected_after_reload_without_network(
 
     assert rejected.status == "invalid"
     stored = reloaded.approvals.get(pending.approval_id)
-    assert stored is not None and stored.status == "failed"
+    assert stored is not None
+    assert stored.status == "failed"
     assert fake_http.requests == []
     assert reloaded.ctx.events.recent(source="wled") == []
 
