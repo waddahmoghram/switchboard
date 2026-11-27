@@ -12,7 +12,7 @@
 type = "carddav"
 url = "https://contacts.icloud.com/"            # Fastmail: https://carddav.fastmail.com/
 username = "you@example.com"                    # your Apple Account or Fastmail login
-password = "cmd:pass show switchboard/icloud-app-password"
+password = "cmd:/usr/bin/pass show switchboard/icloud-app-password"
 
 # Google Contacts needs OAuth for CardDAV, which Switchboard does not use: export a vCard file from
 # Google Contacts (More actions > Export) and read it here. Re-export to pick up changes.

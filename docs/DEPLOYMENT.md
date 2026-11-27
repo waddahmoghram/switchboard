@@ -54,7 +54,11 @@ uv run switchboard tools    # lists tools with their tier and default decision
 ```
 
 Enable one connector at a time.
-Store each credential with your password manager and reference it, for example `password = "cmd:pass show switchboard/mail-app-password"`, or in a file you `chmod 600`.
+Store each credential with your password manager and reference it, for example `password = "cmd:/usr/bin/pass show switchboard/mail-app-password"`, or in a file you `chmod 600`.
+A `cmd:` reference names its program by absolute path, or by a path that starts with `~/`, because a bare name would run whichever program of that name comes first on `PATH`; `command -v pass` prints the path to use.
+The program runs without a shell and with standard input closed, and it sees only the environment variables that password managers commonly read: `HOME`, `USER`, `LOGNAME`, `PATH`, `LANG`, `LC_*`, `TMPDIR`, `XDG_RUNTIME_DIR`, `XDG_CONFIG_HOME`, `XDG_DATA_HOME`, `XDG_CACHE_HOME`, `XDG_STATE_HOME`, `XDG_CONFIG_DIRS`, `XDG_DATA_DIRS`, `DBUS_SESSION_BUS_ADDRESS`, `DISPLAY`, `WAYLAND_DISPLAY`, `XAUTHORITY`, `GNUPGHOME`, `GPG_TTY`, `GPG_AGENT_INFO`, `SSH_AUTH_SOCK`, `PASSWORD_STORE_*`, and `OP_*`.
+Other variables, such as those your `env:` references read, stay hidden from it.
+If your program needs other variables, list their names in `SWITCHBOARD_SECRET_ENV`, separated by spaces or commas, for example `SWITCHBOARD_SECRET_ENV=BW_SESSION` for the Bitwarden command-line tool.
 
 `init` creates a private configuration folder when needed but does not change an existing parent folder's permissions.
 It refuses symbolic links and folders writable by other users.

@@ -110,7 +110,7 @@ A ready-to-merge example with policy rules is in [docs/config/mail.toml](../conf
 | `username`               | `address`                         | Sign-in name for IMAP (and SMTP unless `smtp_username` is set).                  |
 | `smtp_username`          | `username`                        | Sign-in name for SMTP when it differs (iCloud).                                  |
 | `auth`                   | `"password"`                      | `"password"` (an app password) or `"oauth2"`.                                    |
-| `password`               | —                                 | Secret reference to the app password, such as `cmd:pass show mail/app`.          |
+| `password`               | —                                 | Secret reference to the app password, such as `cmd:/usr/bin/pass show mail/app`. |
 | `client_id`              | —                                 | Your OAuth client identifier (`auth = "oauth2"`).                                |
 | `client_secret`          | none                              | Secret reference to the client secret, if your Google client has one.            |
 | `tenant`                 | `"consumers"`                     | Microsoft sign-in audience; `consumers` means personal accounts.                 |

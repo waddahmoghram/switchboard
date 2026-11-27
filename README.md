@@ -107,7 +107,7 @@ These are expected results from source inspection, not commands executed on the 
 `scripts/ci/validate.sh` runs every check stage, including the native builds, contract fixtures, fault tests, sanitizers and fuzzing; see [Validation](./docs/VALIDATION.md).
 
 Stop here until that local path works.
-Then enable **one** connector, store its credential in your password manager, and reference it (`password = "cmd:pass show switchboard/mail"`), and connect an assistant (examples for Claude Desktop, OpenClaw, and Hermes Agent are in [Deployment](./docs/DEPLOYMENT.md#connect-an-assistant)).
+Then enable **one** connector, store its credential in your password manager, and reference it (`password = "cmd:/usr/bin/pass show switchboard/mail"`), and connect an assistant (examples for Claude Desktop, OpenClaw, and Hermes Agent are in [Deployment](./docs/DEPLOYMENT.md#connect-an-assistant)).
 
 ### Read one call before extending it
 

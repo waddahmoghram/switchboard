@@ -16,7 +16,7 @@ secret = "file:~/.config/switchboard/secrets/hook-ci"
 # GitHub: set the same secret in the webhook settings and choose content type application/json.
 [connectors.webhooks.hooks.github]
 verify = "github"
-secret = "cmd:pass show switchboard/github-webhook"
+secret = "cmd:/usr/bin/pass show switchboard/github-webhook"
 
 # A sender that can only add a fixed header. It cannot stop replays, so use it only through an
 # encrypted tunnel.
