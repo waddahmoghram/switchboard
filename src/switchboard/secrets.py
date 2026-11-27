@@ -73,7 +73,9 @@ def resolve(reference: str, *, timeout: float = 20.0) -> str:
         if value is None:
             raise SecretError(f"environment variable {rest!r} is not set")
     elif scheme == "file":
-        value = _read_private_file(Path(os.path.expanduser(rest)))
+        value = _read_private_file(
+            Path(os.path.expanduser(rest))  # noqa: PTH111 - Path.expanduser raises on an unknown ~user
+        )
     elif scheme == "cmd":
         value = _run_command(rest, timeout)
     else:
@@ -125,8 +127,8 @@ def _run_command(command: str, timeout: float) -> str:
     argv = shlex.split(command)
     if not argv:
         raise SecretError("cmd: secret reference has no command")
-    program = os.path.expanduser(argv[0])
-    if not os.path.isabs(program):
+    program = os.path.expanduser(argv[0])  # noqa: PTH111 - Path would normalize argv[0] and can raise
+    if not Path(program).is_absolute():
         hint = "" if "/" in program else f"; `command -v {shlex.quote(program)}` prints it"
         raise SecretError(f"secret command {program!r} must be an absolute path{hint}")
     argv[0] = program

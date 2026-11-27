@@ -131,7 +131,7 @@ def _exchange(path: Path, *messages: Any) -> list[dict[str, Any]]:
         with suppress(ConnectionResetError):
             for frame in broker.read_frames(channel):
                 if frame.strip():
-                    replies.append(json.loads(frame))
+                    replies.append(json.loads(frame))  # noqa: PERF401 - replies read before a reset must stay
         return replies
     finally:
         channel.close()

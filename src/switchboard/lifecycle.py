@@ -296,16 +296,16 @@ class BackupReport:
 
 def _new_private_directory(path: Path) -> Path:
     try:
-        parent = os.stat(path.parent)
+        parent = path.parent.stat()
     except FileNotFoundError:
         raise LifecycleError(f"{path.parent} does not exist") from None
     if not stat.S_ISDIR(parent.st_mode):
         raise LifecycleError(f"{path.parent} is not a directory")
     try:
-        os.mkdir(path, 0o700)
+        path.mkdir(mode=0o700)
     except FileExistsError:
         raise LifecycleError(f"{path} already exists; backups always go into a new directory") from None
-    os.chmod(path, 0o700)
+    path.chmod(0o700)
     return path
 
 
@@ -329,12 +329,12 @@ def _copy_archives(source: Path, target: Path, created: list[Path]) -> dict[str,
     if stat.S_ISLNK(info.st_mode) or not stat.S_ISDIR(info.st_mode):
         raise LifecycleError(f"{source} must be a real directory")
     copied: dict[str, FileDigest] = {}
-    for name in sorted(os.listdir(source)):
+    for name in sorted(child.name for child in source.iterdir()):
         if not _ARCHIVE_NAME.fullmatch(name):
             log.warning("not backing up %s: it is not named like an audit archive", source / name)
             continue
         if not copied:
-            os.mkdir(target, 0o700)
+            target.mkdir(mode=0o700)
             created.append(target)
         created.append(target / name)
         copied[name] = _copy_file(source / name, target / name)
@@ -463,21 +463,23 @@ def _manifest_files(manifest: Mapping[str, Any], problems: list[str]) -> dict[st
             problems.append(f"{MANIFEST_FILE} has a malformed entry for {name}")
             continue
         files[name] = FileDigest(digest, size)
-    for required in (DATABASE_FILE, AUDIT_FILE):
-        if required not in table:
-            problems.append(f"{MANIFEST_FILE} does not list {required}")
+    problems.extend(
+        f"{MANIFEST_FILE} does not list {required}"
+        for required in (DATABASE_FILE, AUDIT_FILE)
+        if required not in table
+    )
     return files
 
 
 def _backup_entries(root: Path, problems: list[str]) -> set[str]:
     """Regular files that may belong to a backup; anything else in the directory is a problem."""
     present: set[str] = set()
-    for name in sorted(os.listdir(root)):
+    for name in sorted(child.name for child in root.iterdir()):
         info = os.lstat(root / name)
         if name == MANIFEST_FILE:
             continue
         if name == ARCHIVE_DIR and stat.S_ISDIR(info.st_mode):
-            for member in sorted(os.listdir(root / name)):
+            for member in sorted(child.name for child in (root / name).iterdir()):
                 relative = f"{ARCHIVE_DIR}/{member}"
                 if stat.S_ISREG(os.lstat(root / relative).st_mode) and _backup_member(relative):
                     present.add(relative)
@@ -607,12 +609,12 @@ def _restore_directory(path: Path) -> Path:
     if hasattr(os, "getuid") and info.st_uid != os.getuid():
         raise LifecycleError(f"{path} belongs to another account")
     if info.st_mode & 0o077:
-        os.chmod(path, 0o700)
+        path.chmod(0o700)
     return path
 
 
 def _leftovers(directory: Path) -> list[str]:
-    return sorted(set(os.listdir(directory)) - {RUNNER_LOCK})
+    return sorted({child.name for child in directory.iterdir()} - {RUNNER_LOCK})
 
 
 def restore_backup(source: Path, target: Path) -> RestoreReport:
@@ -639,7 +641,7 @@ def restore_backup(source: Path, target: Path) -> RestoreReport:
             for name, expected in sorted(verification.files.items()):
                 destination = directory / name
                 if destination.parent != directory and not destination.parent.exists():
-                    os.mkdir(destination.parent, 0o700)
+                    destination.parent.mkdir(mode=0o700)
                     created.append(destination.parent)
                 created.append(destination)
                 if _copy_file(source / name, destination) != expected:
@@ -1174,9 +1176,11 @@ def verify_audit_chain(audit_path: Path, archive_dir: Path) -> AuditChainReport:
         segments.append(AuditSegment(link.archive, result.records, result.head))
         current = path
     with contextlib.suppress(FileNotFoundError, NotADirectoryError):
-        for name in sorted(os.listdir(archive_dir)):
-            if _ARCHIVE_NAME.fullmatch(name) and name not in linked:
-                warnings.append(f"{name} is not linked from the current chain")
+        warnings.extend(
+            f"{name} is not linked from the current chain"
+            for name in sorted(child.name for child in archive_dir.iterdir())
+            if _ARCHIVE_NAME.fullmatch(name) and name not in linked
+        )
     return AuditChainReport(tuple(segments), tuple(problems), tuple(warnings))
 
 

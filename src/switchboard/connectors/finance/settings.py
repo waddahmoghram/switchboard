@@ -286,7 +286,7 @@ def _import_dir(value: Any, problems: list[str]) -> Path | None:
     if not isinstance(value, str) or not value.strip():
         problems.append("import_dir must be a directory path")
         return None
-    return Path(os.path.expanduser(value))
+    return Path(os.path.expanduser(value))  # noqa: PTH111 - Path.expanduser raises on an unknown ~user
 
 
 def _accounts(value: Any, problems: list[str]) -> dict[str, AccountConfig]:
@@ -378,9 +378,11 @@ def _csv_profile(name: str, entry: Mapping[str, Any], label: str, problems: list
 
 
 def _check_columns(columns: Mapping[str, str], label: str, problems: list[str]) -> None:
-    for required in ("date_column", "description_column"):
-        if not columns[required]:
-            problems.append(f"{label}: {required} is required")
+    problems.extend(
+        f"{label}: {required} is required"
+        for required in ("date_column", "description_column")
+        if not columns[required]
+    )
     split = bool(columns["debit_column"] or columns["credit_column"])
     if bool(columns["amount_column"]) == split:
         problems.append(f"{label}: set amount_column, or debit_column and credit_column, but not both")

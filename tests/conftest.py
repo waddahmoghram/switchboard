@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import os
 import shutil
 import tempfile
 from collections.abc import Callable, Iterator
@@ -32,10 +31,10 @@ def data_dir(tmp_path: Path) -> Path:
 @pytest.fixture
 def open_descriptors() -> Callable[[], int]:
     """Count this process's open file descriptors; skip where the platform cannot list them."""
-    listing = next((path for path in ("/proc/self/fd", "/dev/fd") if os.path.isdir(path)), None)
+    listing = next((path for path in (Path("/proc/self/fd"), Path("/dev/fd")) if path.is_dir()), None)
     if listing is None:
         pytest.skip("this platform cannot list open file descriptors")
-    return lambda: len(os.listdir(listing))
+    return lambda: len(list(listing.iterdir()))
 
 
 @pytest.fixture

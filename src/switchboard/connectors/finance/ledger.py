@@ -341,7 +341,7 @@ class Ledger:
                 duplicates += batch_duplicates
                 for txn_id in ids:
                     if self._link(conn, txn_id) is not None:
-                        matched.append(txn_id)
+                        matched.append(txn_id)  # noqa: PERF401 - _link writes rows; not a pure filter
                 new_ids.extend(ids)
             conn.execute(
                 "UPDATE finance_imports SET accounts = ?, new_count = ?, duplicate_count = ? WHERE id = ?",

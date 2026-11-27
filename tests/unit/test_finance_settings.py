@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import os
 import warnings
 from collections.abc import Callable
 from datetime import UTC, timedelta, timezone
@@ -163,7 +162,7 @@ def test_doctor_and_tool_refuse_an_inbox_others_can_write(
 ) -> None:
     inbox = tmp_path / "shared"
     inbox.mkdir()
-    os.chmod(inbox, 0o777)  # noqa: S103 - the unsafe mode is what this test checks for
+    inbox.chmod(0o777)  # The unsafe mode is what this test checks for.
     app = app_with(make_app, import_dir=str(inbox))
 
     problems = finance.doctor(app.ctx)
@@ -176,7 +175,7 @@ def test_doctor_and_tool_refuse_an_inbox_others_can_write(
 def test_doctor_warns_when_others_can_read_the_inbox(make_app: Callable[..., App], tmp_path: Path) -> None:
     inbox = tmp_path / "readable"
     inbox.mkdir()
-    os.chmod(inbox, 0o755)  # noqa: S103 - the readable mode is what this test checks for
+    inbox.chmod(0o755)  # The readable mode is what this test checks for.
     app = app_with(make_app, import_dir=str(inbox))
 
     assert any("readable by other users" in problem for problem in finance.doctor(app.ctx))

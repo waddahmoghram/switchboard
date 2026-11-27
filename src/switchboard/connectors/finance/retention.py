@@ -54,7 +54,7 @@ def _purge_folder(folder: Path, limit: float, *, dry_run: bool) -> tuple[int, in
         if not stat.S_ISDIR(info.st_mode) or info.st_uid != os.getuid() or info.st_mode & 0o022:
             raise ToolError(f"{folder.name}/ in import_dir must be your own folder, not writable by others")
         removed = failures = 0
-        for name in sorted(os.listdir(directory)):
+        for name in sorted(os.listdir(directory)):  # noqa: PTH208 - pathlib cannot list a descriptor
             if name.startswith(".") or Path(name).suffix.lower() not in SUPPORTED_SUFFIXES:
                 continue
             try:

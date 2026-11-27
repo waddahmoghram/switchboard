@@ -519,7 +519,7 @@ class TokenStore:
                 handle.write(json.dumps(tokens.to_json(), sort_keys=True).encode("utf-8"))
                 handle.flush()
                 os.fsync(handle.fileno())
-            os.replace(temporary, path)
+            os.replace(temporary, path)  # noqa: PTH105 - atomic publish of the fsynced file
         except BaseException:
             with contextlib.suppress(OSError):
                 temporary.unlink()

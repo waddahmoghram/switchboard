@@ -113,5 +113,5 @@ def move_to(path: Path, folder: Path) -> Path:
     while target.exists() or target.is_symlink():
         target = folder / f"{path.stem}.{counter}{path.suffix}"
         counter += 1
-    os.replace(path, target)
+    path.replace(target)
     return target

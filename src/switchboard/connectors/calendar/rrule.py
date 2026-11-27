@@ -364,9 +364,11 @@ def expand(
             finish = _instance_end(master, begin)
             if _overlaps(begin, finish, start, end):
                 found.append(Occurrence(master, begin, finish, bool(master.rrule)))
-    for series in overrides.values():
-        for override in series.values():
-            if override.status != "CANCELLED" and _overlaps(override.start, override.end, start, end):
-                found.append(Occurrence(override, override.start, override.end, True))
+    found.extend(
+        Occurrence(override, override.start, override.end, True)
+        for series in overrides.values()
+        for override in series.values()
+        if override.status != "CANCELLED" and _overlaps(override.start, override.end, start, end)
+    )
     found.sort(key=lambda item: (item.start.astimezone(UTC), item.event.summary, item.event.uid))
     return found, warnings

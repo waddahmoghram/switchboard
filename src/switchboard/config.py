@@ -190,7 +190,11 @@ def load_config(path: Path | None = None) -> Config:
     raw_dir = initial.section("switchboard").get("data_dir")
     if raw_dir is not None and not isinstance(raw_dir, str):
         raise ConfigError("[switchboard] data_dir must be a path string")
-    data_dir = Path(os.path.expanduser(raw_dir)) if isinstance(raw_dir, str) else default_data_dir()
+    data_dir = (
+        Path(os.path.expanduser(raw_dir))  # noqa: PTH111 - Path.expanduser raises on an unknown ~user
+        if isinstance(raw_dir, str)
+        else default_data_dir()
+    )
     return Config(data=data, data_dir=data_dir, path=target)
 
 
@@ -201,7 +205,7 @@ def ensure_private_dir(path: Path) -> Path:
     if stat.S_ISLNK(info.st_mode) or not stat.S_ISDIR(info.st_mode):
         raise ConfigError(f"{path} must be a real directory, not a link or file")
     if info.st_mode & 0o077:
-        os.chmod(path, 0o700)
+        path.chmod(0o700)
     return path
 
 

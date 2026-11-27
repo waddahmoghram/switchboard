@@ -215,7 +215,7 @@ def cmd_init(args: argparse.Namespace) -> int:
             handle.flush()
             os.fsync(handle.fileno())
         if args.force:
-            os.replace(temporary, path)
+            os.replace(temporary, path)  # noqa: PTH105 - atomic publish of the fsynced file
         else:
             os.link(temporary, path)  # Atomic no-overwrite publication, including a concurrent init.
     except FileExistsError:

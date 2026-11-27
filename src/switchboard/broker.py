@@ -728,7 +728,7 @@ def clear_stale_socket(path: Path, *, service_uid: int, in_use: Callable[[Path],
         raise BrokerError(f"{path} belongs to another account; refusing to replace it")
     if in_use(path):
         raise BrokerError(f"{path} is accepting connections; is another broker running?")
-    os.unlink(path)
+    path.unlink()
     log.info("removed stale socket %s", path)
 
 
@@ -737,7 +737,7 @@ def remove_socket(path: Path, identity: tuple[int, int]) -> None:
     with suppress(OSError):
         info = os.lstat(path)
         if stat.S_ISSOCK(info.st_mode) and (info.st_dev, info.st_ino) == identity:
-            os.unlink(path)
+            path.unlink()
 
 
 def bind_socket(
@@ -770,7 +770,7 @@ def bind_socket(
                 raise BrokerError(
                     f"cannot give {path} to group {group}; add the broker's account to that group"
                 ) from exc
-        os.chmod(path, SOCKET_MODE)
+        os.chmod(path, SOCKET_MODE)  # noqa: PTH101 - widened only after the umask-restricted bind
         listener.listen(backlog)
         listener.setblocking(False)
         return listener, identity

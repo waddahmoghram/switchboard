@@ -176,7 +176,7 @@ def test_short_sensitive_key_names_match_whole_segments_only() -> None:
     ]
     kept = ["pinned", "spinner", "mapping", "shipping", "opinion", "sessions", "author", "oauth_provider"]
     kept += ["hotpink", "authority", "topic"]
-    cleaned = redact({name: "value" for name in redacted + kept})
+    cleaned = redact(dict.fromkeys(redacted + kept, "value"))
     assert {name for name, value in cleaned.items() if value == "[redacted]"} == set(redacted)
 
 
