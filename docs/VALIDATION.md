@@ -3,7 +3,7 @@
 This page describes how Switchboard is checked: a continuous integration (CI) workflow, CodeQL code scanning, a local script that runs the same stages on your own machine, CMake presets, sanitizer, fault and fuzz targets, and pinned dependencies.
 
 **Status:** every stage has passed in local Linux runs that mirror the CI steps.
-Hosted CI has not yet run the current code, and the macOS and Apple Clang legs have not passed anywhere.
+Hosted CI has passed every Linux job, CodeQL, and Python 3.12 and 3.13 on macOS, but not yet Python 3.11 on macOS or Apple Clang, and it has not run the latest commits.
 [Current status](#current-status) is the one dated record of what has run, where, and with what result; other pages link to it.
 A stage that passes on your machine proves only what its row in [Stages at a glance](#stages-at-a-glance) claims.
 
@@ -279,24 +279,26 @@ Each has since been fixed in the source and is covered by a test.
 ## Current status
 
 As of 2026-11-26.
-Method: local Linux runs that mirror the CI steps, not hosted CI.
+Method for the table below: local Linux runs that mirror the CI steps; the hosted CI runs follow the table.
 The Python stage ran on Linux x86-64 with CPython 3.11, 3.12 and 3.13, installed by uv 0.13.7 from `uv.lock`.
 The other stages ran in a local container built from `ubuntu:24.04` with the packages the CI jobs install: GCC 13.3.0, Clang 18.1.3, CMake 3.28.3, nlohmann-json 3.11.3 and stable Rust 1.100.0.
 
 | Stage                   | Configuration                      | Result                                                                                                           |
 | ----------------------- | ---------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
 | `python` lint and types | CPython 3.11, 3.12 and 3.13        | Ruff 0.15.0 lint and format check, and mypy 1.18.2 for Linux and `--platform darwin`: no findings on any version |
-| `python` tests          | CPython 3.11, 3.12 and 3.13        | pytest 9.0.3: 3,114 passed without the `integration` marker and 296 with it, on each version                     |
+| `python` tests          | CPython 3.11, 3.12 and 3.13        | pytest 9.0.3: 3,142 passed without the `integration` marker and 296 with it, on each version                     |
 | `python` coverage       | CPython 3.12                       | 94.4% line coverage, against the `fail_under` gate of 92%                                                        |
-| `contracts`             | Python and native runners          | The Python runner passed in the first pytest pass; the native runner passed 73 of 73 cases                       |
-| `native`                | `dev`, GCC 13.3.0 and Clang 18.1.3 | 13 of 13 tests passed with each compiler; 0 compiler warnings                                                    |
-| `sanitizers`            | `asan-ubsan`, GCC and Clang        | 13 of 13 passed with each compiler; no sanitizer reports                                                         |
+| `contracts`             | Python and native runners          | Both runners passed 101 of 101 cases; the Python runner runs in the first pytest pass                            |
+| `native`                | `dev`, GCC 13.3.0 and Clang 18.1.3 | 14 of 14 tests passed with each compiler; 0 compiler warnings                                                    |
+| `native`                | `dev`, `TMPDIR` below a link       | 13 of 13 passed with each compiler, `alloc_faults` excluded; macOS keeps its temporary directory below `/var`    |
+| `sanitizers`            | `asan-ubsan`, GCC and Clang        | 14 of 14 passed with each compiler; no sanitizer reports                                                         |
 | `sanitizers`            | `tsan`, Clang                      | 3 of 3 passed; no reports                                                                                        |
 | `fuzz`                  | `fuzz`, Clang                      | 6 targets: seed-corpus replay plus 60 seconds of fuzzing each; no crashes                                        |
 | `rust`                  | Stable Rust 1.100.0                | The wrapper built with 0 warnings and its 15 tests passed                                                        |
 | `package`               | `release`                          | The install and the consumer build passed                                                                        |
 
 The `tsan` run turned address-space layout randomization off with `setarch -R`, standing in for the runner's `vm.mmap_rnd_bits=28` step.
+A one-off differential check outside CI ran both engines' audit redaction on 550,000 generated values, 3,006,779 strings in all, and found no mismatch.
 
 Hosted CI: the first GitHub Actions run of `ci.yml`, on the repository's initial push, failed all 16 of its jobs.
 
@@ -306,17 +308,23 @@ Hosted CI: the first GitHub Actions run of `ci.yml`, on the repository's initial
 - Contracts: the job stopped after its Python half failed.
 
 Dependabot then ran without the configuration in `.github/dependabot.yml`: it submitted the dependency graph and opened one pull request, which updates pytest to 9.0.3, and the CI run on that pull request failed all 16 jobs as well.
-Later commits fix these causes; hosted CI has not yet run the fixes.
+
+Hosted CI on pull request #2, at its first commit `29db784`, which fixes those causes: 14 of the 16 CI jobs passed, among them Python 3.12 and 3.13 on macOS and the Rust job's `cargo audit` step, and CodeQL's three analyses passed.
+Apple Clang configured and built the native engine with warnings as errors, and then two tests failed, because native backups below a symbolic link were refused; macOS keeps its temporary directory below `/var`, a link to `private/var`.
+A later commit resolves the parent directory before SQLite's no-follow open, and the symbolic-link row above checks it.
+Python 3.11 on macOS passed its unit tests and failed in its integration tests.
+Which test failed is not known: job logs need a GitHub sign-in, and the failure did not reproduce on Linux with a linked temporary directory, three processors, a 256-file limit or twelve repeated runs.
+From the next run on, failed tests also appear as annotations; see [Workflow security notes](#workflow-security-notes).
 
 What has not run:
 
-- The macOS legs, Python and native, including Apple Clang, have run only in that failed first hosted run, never on the current code.
+- Hosted CI has not run the commits after `29db784`: the macOS backup fix, the failure annotations and the native audit-redaction port.
 - Nothing has run on Windows.
-- No run of CodeQL or of the `cargo audit` step has been observed, and Dependabot has not yet run with `.github/dependabot.yml`.
+- Dependabot has not yet run with `.github/dependabot.yml`.
 - Nothing has been run against a real account, device or outside network service.
 - No systemd or launchd service has been installed, and the audit-anchor cron and launchd recipes have not been run.
 
 Before these runs, the only checks were static: Ruff, mypy, syntax-only compiler builds, clang-format, actionlint, ShellCheck and cmake-lint.
 
-Unknowns that only a hosted run can settle: Apple Clang diagnostics under `-Werror` and the rest of the macOS legs, differences between the hosted runners and the local mirror, and the runtime of `alloc_faults` on hosted runners.
+Unknowns that only a hosted run can settle: which Python 3.11 integration test failed on macOS and whether it fails again, whether Apple Clang's tests pass with the backup fix, whether `alloc_faults` runs or skips on macOS, and other differences between the hosted runners and the local mirror.
 Every source and test file the CMake lists name exists; none is optional, so a missing file fails configuration instead of silently shrinking the suite.
