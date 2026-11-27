@@ -76,7 +76,8 @@ def configuration(*, polling: bool = False, speaking: bool = False, **overrides:
 
 
 def samples() -> list[dict[str, Any]]:
-    return json.loads((FIXTURES / "extended_states.json").read_text(encoding="ascii"))
+    states: list[dict[str, Any]] = json.loads((FIXTURES / "extended_states.json").read_text(encoding="ascii"))
+    return states
 
 
 def sample(identifier: str, *, state: str | None = None, **attributes: Any) -> dict[str, Any]:

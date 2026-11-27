@@ -91,7 +91,7 @@ class Config:
     def bounded(self, section: str, key: str) -> int:
         """A validated whole number from a documented range, or its documented default."""
         minimum, maximum, default = _BOUNDED_INTEGERS[(section, key)]
-        value = self.section(section).get(key, default)
+        value: object = self.section(section).get(key, default)
         if isinstance(value, bool) or not isinstance(value, int) or not minimum <= value <= maximum:
             raise ConfigError(f"[{section}] {key} must be a whole number from {minimum} to {maximum}")
         return value
@@ -139,13 +139,14 @@ class Config:
 
     def section(self, *keys: str) -> dict[str, Any]:
         """Return a nested table; missing tables are empty, malformed tables are errors."""
-        node: Any = self.data
+        node: dict[str, Any] = self.data
         location: list[str] = []
         for key in keys:
             location.append(key)
-            node = node.get(key, {})
-            if not isinstance(node, dict):
+            child = node.get(key, {})
+            if not isinstance(child, dict):
                 raise ConfigError(f"[{'.'.join(location)}] must be a table")
+            node = child
         return node
 
     def mcp_exposure(self) -> list[str] | None:

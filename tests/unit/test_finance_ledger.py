@@ -63,7 +63,8 @@ def checking_ofx() -> bytes:
 
 
 def all_rows(runtime: FinanceRuntime, **filters: Any) -> list[dict[str, Any]]:
-    return runtime.transactions(TransactionQuery(limit=200, **filters))["transactions"]
+    rows: list[dict[str, Any]] = runtime.transactions(TransactionQuery(limit=200, **filters))["transactions"]
+    return rows
 
 
 def test_importing_the_same_file_twice_is_a_no_op(make_app: Callable[..., App]) -> None:

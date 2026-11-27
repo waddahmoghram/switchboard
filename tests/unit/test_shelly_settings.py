@@ -13,7 +13,8 @@ from tests.fixtures.shelly import BASE, DEVICE_ID, MODEL, REFERENCE, config
 
 
 def table(**kwargs: Any) -> dict[str, Any]:
-    return config(**kwargs)["connectors"]["shelly"]
+    shelly: dict[str, Any] = config(**kwargs)["connectors"]["shelly"]
+    return shelly
 
 
 def test_read_only_defaults_are_offline_and_do_not_create_controls() -> None:

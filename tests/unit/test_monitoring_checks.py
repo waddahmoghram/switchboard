@@ -49,7 +49,8 @@ def app(make_app: AppFactory) -> App:
 
 def _check(app: App, name: str = "server") -> dict[str, Any]:
     service: MonitoringService = app.ctx.require("monitoring")
-    return service.check({"name": name})["check"]
+    check: dict[str, Any] = service.check({"name": name})["check"]
+    return check
 
 
 def test_endpoint_readiness_uses_only_the_configured_criterion(app: App, fake_http: FakeHttp) -> None:

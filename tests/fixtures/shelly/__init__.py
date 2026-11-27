@@ -18,7 +18,8 @@ _FIXTURES = Path(__file__).parent
 
 
 def fixture(name: str) -> dict[str, Any]:
-    return json.loads((_FIXTURES / name).read_text(encoding="ascii"))
+    data: dict[str, Any] = json.loads((_FIXTURES / name).read_text(encoding="ascii"))
+    return data
 
 
 def config(*, controls: bool = False, password: bool = False, **overrides: Any) -> dict[str, Any]:

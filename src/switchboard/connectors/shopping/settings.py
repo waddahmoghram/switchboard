@@ -93,7 +93,7 @@ def parse_settings(raw: Mapping[str, Any]) -> tuple[Settings, list[str]]:
 
 
 def _interval(raw: Mapping[str, Any], key: str, default: int, floor: int, problems: list[str]) -> int:
-    value = raw.get(key, default)
+    value: object = raw.get(key, default)
     if isinstance(value, bool) or not isinstance(value, int):
         problems.append(f"{key} must be a whole number of seconds; using {default}")
         return default

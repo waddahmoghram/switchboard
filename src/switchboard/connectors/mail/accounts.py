@@ -203,7 +203,7 @@ def parse_account(name: str, table: object) -> tuple[Account | None, list[str]]:
 def _bounded_int(
     raw: Mapping[str, Any], key: str, default: int, low: int, high: int, problems: list[str]
 ) -> int:
-    value = raw.get(key, default)
+    value: object = raw.get(key, default)
     if isinstance(value, bool) or not isinstance(value, int) or not low <= value <= high:
         problems.append(f"{key} must be a whole number from {low} to {high}; using {default}")
         return default
@@ -275,7 +275,7 @@ class _Reader:
         return str(value)
 
     def port(self, key: str, default: int) -> int:
-        value = self.table.get(key, default)
+        value: object = self.table.get(key, default)
         if isinstance(value, bool) or not isinstance(value, int) or not 1 <= value <= 65535:
             self.fail(f"{key} must be a port number from 1 to 65535")
             return default

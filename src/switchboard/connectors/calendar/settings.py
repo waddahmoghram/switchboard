@@ -57,7 +57,7 @@ def _optional_text(table: Mapping[str, Any], key: str, label: str) -> str | None
 
 
 def _integer(table: Mapping[str, Any], key: str, default: int, low: int, high: int) -> int:
-    value = table.get(key, default)
+    value: object = table.get(key, default)
     if isinstance(value, bool) or not isinstance(value, int) or not low <= value <= high:
         raise ConfigError(f"{_TABLE} {key} must be a whole number from {low} to {high}")
     return value
