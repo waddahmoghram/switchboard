@@ -33,7 +33,7 @@ Windows is unsupported in this prototype:
 the audit log and runner lock depend on `fcntl`,
 and without it Switchboard refuses to start before it writes anything,
 rather than write the audit log unlocked.
-On macOS, the Python tests have passed with Python 3.12 and 3.13 but not yet with 3.11, and the native tests have not passed yet; see [Validation](./VALIDATION.md#current-status) for the platforms that have run them.
+On macOS, hosted CI has passed the Python tests with Python 3.11, 3.12 and 3.13 and the native tests with Apple Clang; see [Validation](./VALIDATION.md#current-status) for the platforms that have run them.
 
 ```bash
 git clone "$SWITCHBOARD_REPO_URL" switchboard   # your private copy of this repository

@@ -3,7 +3,7 @@
 This page describes how Switchboard is checked: a continuous integration (CI) workflow, CodeQL code scanning, a local script that runs the same stages on your own machine, CMake presets, sanitizer, fault and fuzz targets, and pinned dependencies.
 
 **Status:** every stage has passed in local Linux runs that mirror the CI steps.
-Hosted CI has passed every Linux job, CodeQL, and Python 3.12 and 3.13 on macOS, but not yet Python 3.11 on macOS or Apple Clang, and it has not run the latest commits.
+Hosted CI has passed every job at `36c2203`, the macOS and Apple Clang legs included; it has not yet run the commits after that one.
 [Current status](#current-status) is the one dated record of what has run, where, and with what result; other pages link to it.
 A stage that passes on your machine proves only what its row in [Stages at a glance](#stages-at-a-glance) claims.
 
@@ -318,9 +318,12 @@ One macOS-only race fits a fast failure there: while the broker closes a refused
 A later commit reports that error as a reset; whether it was this run's cause is unconfirmed.
 From the next run on, failed tests also appear as annotations; see [Workflow security notes](#workflow-security-notes).
 
+Hosted CI on pull request #2 at `36c2203`, which adds the backup fix, the failure annotations and the native audit-redaction port: all 16 CI jobs passed, Apple Clang and Python 3.11 on macOS included, and so did CodeQL's three analyses.
+That commit does not contain the `EPROTOTYPE` handling, so Python 3.11's earlier failure did not recur without it; that fits an intermittent cause, but does not identify one.
+
 What has not run:
 
-- Hosted CI has not run the commits after `29db784`: the macOS backup fix, the failure annotations and the native audit-redaction port.
+- Hosted CI has not run the commits after `36c2203`: the `EPROTOTYPE` handling and this record.
 - Nothing has run on Windows.
 - Dependabot has not yet run with `.github/dependabot.yml`.
 - Nothing has been run against a real account, device or outside network service.
@@ -328,5 +331,5 @@ What has not run:
 
 Before these runs, the only checks were static: Ruff, mypy, syntax-only compiler builds, clang-format, actionlint, ShellCheck and cmake-lint.
 
-Unknowns that only a hosted run can settle: which Python 3.11 integration test failed on macOS and whether it fails again, whether Apple Clang's tests pass with the backup fix, whether `alloc_faults` runs or skips on macOS, and other differences between the hosted runners and the local mirror.
+Unknowns that only hosted runs can settle: which Python 3.11 integration test failed on macOS at `29db784` and whether that failure recurs, whether `alloc_faults` runs or skips on macOS, and other differences between the hosted runners and the local mirror.
 Every source and test file the CMake lists name exists; none is optional, so a missing file fails configuration instead of silently shrinking the suite.

@@ -62,7 +62,7 @@ The project is under the [MIT License](../LICENSE); dependency licenses remain t
 
 Linux and macOS are the target operating systems.
 Descriptor-relative private-file access is not a Windows implementation.
-Compiler, library and operating-system combinations other than those in [Validation](../docs/VALIDATION.md#current-status) remain untested; on macOS, Apple Clang has built the engine with warnings as errors, but its tests have not passed yet.
+Compiler, library and operating-system combinations other than those in [Validation](../docs/VALIDATION.md#current-status) remain untested.
 
 ## Build on your own machine
 
