@@ -181,6 +181,20 @@ def test_approval_summaries_cannot_carry_terminal_escape_sequences(make_app: App
     assert "\\x1b[8m" in stored.summary
 
 
+def test_default_approval_summaries_drop_secret_shaped_text_but_keep_the_exact_arguments(
+    make_app: AppFactory,
+) -> None:
+    app = make_app()
+    app.registry.add(Tool("demo_act", "Act.", Tier.ACT, SEND_SCHEMA, lambda _args: None))
+    token = "ghp_" + "A1b2C3d4E5f6G7h8I9j0K1l2"
+    outcome = app.call("demo_act", {"to": "pat@example.com", "text": f"use {token}"}, Origin.ASSISTANT)
+    assert outcome.approval_id is not None
+    stored = app.approvals.get(outcome.approval_id)
+    assert stored is not None
+    assert token not in stored.summary and "[redacted:github-token]" in stored.summary
+    assert stored.args["text"] == f"use {token}"
+
+
 def test_approvals_revalidate_arguments_after_a_schema_change(
     app_and_outbox: tuple[App, list[dict[str, Any]]], make_app: AppFactory
 ) -> None:

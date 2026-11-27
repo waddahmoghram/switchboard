@@ -195,6 +195,7 @@ Database hooks run in one transaction; a hook that removes files, like finance, 
 
 An audit record keeps the fields its event passes, such as a tool call's arguments or an approval's summary, after `audit.py` redacts them.
 The rules apply as a record is written, so changing them never alters existing records or their hashes, and older logs still verify.
+A tool without its own `summarize` gets an approval summary quoting its arguments after the same redaction, while `switchboard approvals show` still prints the exact arguments.
 
 * **Credential keys.**
   A value under a key that contains `pass`, `secret`, `token`, `authorization` or `authorisation`, `cookie`, `api_key`, `credential`, or `private_key` (with `_`, `-`, or nothing between the words) becomes `[redacted]`.
