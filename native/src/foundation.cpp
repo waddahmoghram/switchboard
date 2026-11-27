@@ -65,6 +65,24 @@ private:
     int descriptor_;
 };
 
+// SQLITE_OPEN_NOFOLLOW refuses a symbolic link in any component of a filename, including system links such as /var and
+// /tmp on macOS. Resolving the directory once leaves the flag, like O_NOFOLLOW, to refuse only a linked file.
+std::filesystem::path resolve_directory(const std::filesystem::path &file)
+{
+    std::error_code error;
+    const auto absolute = std::filesystem::absolute(file, error);
+    if (error || !absolute.has_filename())
+    {
+        throw Error("filesystem", "cannot resolve the directory of a native state copy");
+    }
+    const auto directory = std::filesystem::canonical(absolute.parent_path(), error);
+    if (error)
+    {
+        throw Error("filesystem", "cannot resolve the directory of a native state copy");
+    }
+    return directory / absolute.filename();
+}
+
 struct Statement
 {
     sqlite3_stmt *value = nullptr;
@@ -699,7 +717,8 @@ Database::Database(const std::filesystem::path &path, const DatabaseMode mode) :
 {
     if (mode == DatabaseMode::read_only)
     {
-        File file(open(path.c_str(), O_RDONLY | O_NOFOLLOW | O_NONBLOCK | O_CLOEXEC));
+        const auto resolved = resolve_directory(path);
+        File file(open(resolved.c_str(), O_RDONLY | O_NOFOLLOW | O_NONBLOCK | O_CLOEXEC));
         struct stat info
         {
         };
@@ -717,7 +736,7 @@ Database::Database(const std::filesystem::path &path, const DatabaseMode mode) :
         {
             throw Error("database", "read-only native state must use rollback-journal mode, as written by a native backup");
         }
-        database_ok(sqlite3_open_v2(path.c_str(), &impl_->database, SQLITE_OPEN_READONLY | SQLITE_OPEN_FULLMUTEX | SQLITE_NO_FOLLOW, nullptr));
+        database_ok(sqlite3_open_v2(resolved.c_str(), &impl_->database, SQLITE_OPEN_READONLY | SQLITE_OPEN_FULLMUTEX | SQLITE_NO_FOLLOW, nullptr));
         database_ok(sqlite3_busy_timeout(impl_->database, 5000));
         const auto version = checked_version(*this);
         if (version == 0)
@@ -780,7 +799,8 @@ void Database::backup_to(const std::filesystem::path &destination)
     {
         throw Error("filesystem", "the native backup destination must be an absolute file path");
     }
-    const int descriptor = open(destination.c_str(), O_CREAT | O_EXCL | O_WRONLY | O_NOFOLLOW | O_CLOEXEC, 0600);
+    const auto target = resolve_directory(destination);
+    const int descriptor = open(target.c_str(), O_CREAT | O_EXCL | O_WRONLY | O_NOFOLLOW | O_CLOEXEC, 0600);
     if (descriptor < 0)
     {
         throw Error("filesystem", errno == EEXIST ? "the native backup destination already exists; choose a new or empty directory"
@@ -789,14 +809,14 @@ void Database::backup_to(const std::filesystem::path &destination)
     {
         const File created(descriptor);
     }
-    const auto remove_partial = [&destination]() noexcept
+    const auto remove_partial = [&target]() noexcept
     {
         try
         {
             for (const auto *suffix : {"", "-journal", "-wal", "-shm"})
             {
                 std::error_code ignored;
-                std::filesystem::remove(destination.string() + suffix, ignored);
+                std::filesystem::remove(target.string() + suffix, ignored);
             }
         }
         catch (const std::exception &)
@@ -807,7 +827,7 @@ void Database::backup_to(const std::filesystem::path &destination)
     try
     {
         sqlite3 *raw = nullptr;
-        const int opened = sqlite3_open_v2(destination.c_str(), &raw, SQLITE_OPEN_READWRITE | SQLITE_OPEN_FULLMUTEX | SQLITE_NO_FOLLOW, nullptr);
+        const int opened = sqlite3_open_v2(target.c_str(), &raw, SQLITE_OPEN_READWRITE | SQLITE_OPEN_FULLMUTEX | SQLITE_NO_FOLLOW, nullptr);
         const auto close_copy = [](sqlite3 *handle)
         {
             if (handle != nullptr && sqlite3_close_v2(handle) != SQLITE_OK)
