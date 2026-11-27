@@ -1,4 +1,4 @@
-# CodeQL code scanning for Switchboard. Authored and unexecuted: no run of this workflow has been observed.
+# CodeQL code scanning for Switchboard.
 # Analyzes the workflows (actions), the Python package and tests (python), and the native C and C++ sources
 # (c-cpp), each without a build (build mode none), and uploads the results to code scanning.
 # Security: no secrets, no deployment, credentials not persisted after checkout, and every action pinned to a

@@ -1,4 +1,4 @@
-// libFuzzer target: schema definitions and validation pairs. Authored and unrun.
+// libFuzzer target: schema definitions and validation pairs.
 //
 // Input: one selector byte, then text. Even selectors split the text at the first newline into a fuzzed
 // schema and a fuzzed value. The schema goes through check_schema with its patterns; validation then runs

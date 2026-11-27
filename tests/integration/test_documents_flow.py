@@ -1,4 +1,4 @@
-"""Authored UNRUN offline application flow; all directories and note bodies are synthetic."""
+"""Offline application flow; all directories and note bodies are synthetic."""
 
 from __future__ import annotations
 

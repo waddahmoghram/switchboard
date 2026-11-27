@@ -1,4 +1,4 @@
-"""UNRUN announcement tests: explicit approval, privacy, quiet hours and unverifiable delivery."""
+"""Announcement tests: explicit approval, privacy, quiet hours and unverifiable delivery."""
 
 from __future__ import annotations
 

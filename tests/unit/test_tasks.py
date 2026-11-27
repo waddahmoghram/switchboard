@@ -1,4 +1,4 @@
-"""Task revisions, timestamp interpretation and reminder atomicity; authored, never run here."""
+"""Task revisions, timestamp interpretation and reminder atomicity."""
 
 from __future__ import annotations
 

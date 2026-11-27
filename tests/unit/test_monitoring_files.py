@@ -1,4 +1,4 @@
-"""Authored UNRUN private-report tests; every operating-system operation is substituted."""
+"""Private-report tests; every operating-system operation is substituted."""
 
 from __future__ import annotations
 

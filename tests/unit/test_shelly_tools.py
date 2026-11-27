@@ -1,4 +1,4 @@
-"""On-demand status, fixed targets and observed control outcomes. Synthetic and UNRUN."""
+"""On-demand status, fixed targets and observed control outcomes; synthetic only."""
 
 from __future__ import annotations
 

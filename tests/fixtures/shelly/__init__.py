@@ -1,4 +1,4 @@
-"""Synthetic Shelly devices and exact-request fake responses. Authored tests are UNRUN."""
+"""Synthetic Shelly devices and exact-request fake responses."""
 
 from __future__ import annotations
 

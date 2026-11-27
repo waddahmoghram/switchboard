@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Run Switchboard's validation stages on your own trusted machine. Authored and unexecuted.
+# Run Switchboard's validation stages on your own trusted machine.
 #
 # Usage: scripts/ci/validate.sh [STAGE...]
 #   python      uv sync --locked; Ruff lint and format check; mypy; pytest without, then with, the

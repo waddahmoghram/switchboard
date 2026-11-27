@@ -1,5 +1,5 @@
 """Command modules for the data lifecycle: parsers and handlers, dispatched the way ``switchboard.cli.main``
-dispatches them. Authored, not run on the authoring host.
+dispatches them.
 """
 
 from __future__ import annotations

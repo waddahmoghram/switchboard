@@ -1,4 +1,4 @@
-"""Deterministic generators and byte mutators shared by the seeded fuzz tests; authored and unrun.
+"""Deterministic generators and byte mutators shared by the seeded fuzz tests.
 
 Each test draws from its own ``random.Random`` seeded from a fixed default, so a failure reproduces exactly
 and adding a test never changes another test's inputs. ``SWITCHBOARD_FUZZ_SEED`` and

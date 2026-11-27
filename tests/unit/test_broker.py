@@ -1,5 +1,5 @@
 """Broker: peer credentials, framing, serialized dispatch, operator-only operations, socket files, and the
-shim relay. Uses fakes, in-memory streams, and temporary directories; authored, not run on the authoring host.
+shim relay. Uses fakes, in-memory streams, and temporary directories.
 """
 
 from __future__ import annotations

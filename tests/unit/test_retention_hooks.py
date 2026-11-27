@@ -1,5 +1,5 @@
 """Connector retention hooks: opt-in purges keep open work, dry runs keep everything, and each hook follows
-the contract. Rows are inserted directly with synthetic values; authored, not run on the authoring host.
+the contract. Rows are inserted directly with synthetic values.
 """
 
 from __future__ import annotations

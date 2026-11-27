@@ -20,7 +20,7 @@ using switchboard::test::FakeHttp;
 constexpr std::int64_t BASE_TIME = 1700000000;
 const std::string ENDPOINT = "https://service.example/ready";
 
-// UNRUN: fixtures are created only by a future, explicitly requested test execution.
+// Each fixture is a private directory under the test's working directory, removed on destruction.
 class Workspace
 {
 public:

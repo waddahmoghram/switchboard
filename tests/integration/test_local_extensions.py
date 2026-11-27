@@ -1,4 +1,4 @@
-"""Cross-connector offline registration and assistant exposure, authored but not executed here."""
+"""Cross-connector offline registration and assistant exposure."""
 
 from __future__ import annotations
 

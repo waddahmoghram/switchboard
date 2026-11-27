@@ -1,4 +1,4 @@
-// Allocation-failure injection at the C interface. Authored and unrun.
+// Allocation-failure injection at the C interface.
 //
 // Global operator new and delete are replaced by malloc and free wrappers with a countdown: after N successful
 // allocations the next one fails (one-shot mode) or every later one fails (sticky mode). Each C entry point runs

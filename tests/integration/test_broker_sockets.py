@@ -2,7 +2,7 @@
 
 Peer identities are injected where a test needs two accounts; one test reads real kernel credentials on Linux.
 Both sockets run under the test's single account here, which shows the protocol and authorization paths, not
-account separation. Authored, not run on the authoring host.
+account separation.
 """
 
 from __future__ import annotations

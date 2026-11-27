@@ -1,4 +1,4 @@
-"""UNRUN synthetic application integration: approvals, configuration reloads and durable events."""
+"""Synthetic application integration: approvals, configuration reloads and durable events."""
 
 from __future__ import annotations
 

@@ -1,4 +1,4 @@
-"""Synthetic authoring helpers for the home tests. These tests are UNRUN."""
+"""Synthetic helpers for the home tests."""
 
 from __future__ import annotations
 

@@ -1,4 +1,4 @@
-"""Authored UNRUN synthetic live-file boundary tests; no personal folders or accounts."""
+"""Synthetic live-file boundary tests; no personal folders or accounts."""
 
 from __future__ import annotations
 

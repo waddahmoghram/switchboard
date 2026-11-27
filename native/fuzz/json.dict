@@ -1,4 +1,4 @@
-# libFuzzer dictionary for the JSON-shaped targets (json, schema, c_api). Authored and unrun.
+# libFuzzer dictionary for the JSON-shaped targets (json, schema, c_api).
 "{"
 "}"
 "["

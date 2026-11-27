@@ -1,4 +1,4 @@
-"""Seeded mutation fuzzing of ``json_loads``; authored and unrun.
+"""Seeded mutation fuzzing of ``json_loads``.
 
 Properties: any input either parses or raises ``ValueError`` (which includes decoding errors), except that
 only documents with very deep nesting may exhaust recursion. Parsed values contain only JSON types and finite

@@ -1,4 +1,4 @@
-"""UNRUN sensor summaries: original units, explicit unknowns and honest cache freshness."""
+"""Sensor summaries: original units, explicit unknowns and honest cache freshness."""
 
 from __future__ import annotations
 

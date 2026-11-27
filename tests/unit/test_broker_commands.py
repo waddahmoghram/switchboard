@@ -1,7 +1,6 @@
 """Command modules for the broker: parsers, configuration-free operator commands, and the operator client.
 
-Operator commands run against an in-process operator interface instead of a socket. Authored, not run on the
-authoring host.
+Operator commands run against an in-process operator interface instead of a socket.
 """
 
 from __future__ import annotations

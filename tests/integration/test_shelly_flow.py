@@ -1,4 +1,4 @@
-"""Core policy and approval integration with FakeHttp only. Every case is authored and UNRUN."""
+"""Core policy and approval integration with FakeHttp only."""
 
 from __future__ import annotations
 

@@ -1,4 +1,4 @@
-"""Seeded mutation fuzzing of the protocol request handler; authored and unrun.
+"""Seeded mutation fuzzing of the protocol request handler.
 
 Mutated JSON-RPC messages go to ``McpServer.handle`` for an app with no connectors, so only core read tools
 exist and nothing leaves the process. Every message must produce either no reply (a notification) or one

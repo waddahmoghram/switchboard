@@ -1,4 +1,4 @@
-// libFuzzer target: HTTP digest challenge validation. Authored and unrun.
+// libFuzzer target: HTTP digest challenge validation.
 // Input: the pinned realm on the first line (1 to 256 bytes, as the transport requires), then the header.
 // Invariants for accepted challenges: the documented shape, the pinned realm, SHA-256 and qop "auth".
 #include "common.hpp"

@@ -1,4 +1,4 @@
-"""Bounded Shelly settings and safety opt-ins. All cases are authored and UNRUN."""
+"""Bounded Shelly settings and safety opt-ins."""
 
 from __future__ import annotations
 

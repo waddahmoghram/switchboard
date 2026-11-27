@@ -4,7 +4,7 @@ project(SwitchboardNative VERSION 0.1.0 LANGUAGES C CXX)
 include(GNUInstallDirs)
 include(CMakePackageConfigHelpers)
 
-option(SWITCHBOARD_BUILD_TESTS "Build authored native tests; running them is a separate step" OFF)
+option(SWITCHBOARD_BUILD_TESTS "Build the native tests; running them is a separate step" OFF)
 option(SWITCHBOARD_BUILD_FUZZERS "Build libFuzzer targets; requires LLVM Clang and SWITCHBOARD_SANITIZE" OFF)
 option(SWITCHBOARD_WARNINGS_AS_ERRORS "Treat compiler warnings in Switchboard targets as errors" OFF)
 option(SWITCHBOARD_COVERAGE "Instrument Switchboard targets for gcov-format line coverage" OFF)

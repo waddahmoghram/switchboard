@@ -1,4 +1,4 @@
-"""Synthetic WLED configuration cases, authored but not executed."""
+"""Synthetic WLED configuration cases."""
 
 from __future__ import annotations
 

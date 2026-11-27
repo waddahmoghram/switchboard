@@ -10,7 +10,7 @@ using namespace switchboard;
 using switchboard::test::expect;
 using switchboard::test::FakeHttp;
 
-// Authored UNRUN. Future execution creates only scoped synthetic workspace fixtures.
+// Tests create only scoped synthetic workspace fixtures.
 constexpr std::int64_t base_time = 1700000000;
 const std::string due_now = "2023-11-14T22:13:20Z";
 

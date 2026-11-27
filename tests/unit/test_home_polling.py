@@ -1,4 +1,4 @@
-"""UNRUN durable sampling tests; all provider traffic uses synthetic responses."""
+"""Durable sampling tests; all provider traffic uses synthetic responses."""
 
 from __future__ import annotations
 

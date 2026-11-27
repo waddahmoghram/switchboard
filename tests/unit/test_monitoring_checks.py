@@ -1,4 +1,4 @@
-"""Authored UNRUN measurement tests using only fake transport and substituted operating-system interfaces."""
+"""Measurement tests using only fake transport and substituted operating-system interfaces."""
 
 from __future__ import annotations
 

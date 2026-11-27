@@ -1,4 +1,4 @@
-"""Synthetic WLED payload, scope, capability, and confirmation cases; all authored and unrun."""
+"""Synthetic WLED payload, scope, capability, and confirmation cases."""
 
 from __future__ import annotations
 

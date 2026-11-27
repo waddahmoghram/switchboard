@@ -1,4 +1,4 @@
-"""Synthetic HTTP and Digest protocol cases. Authored only: UNRUN, no real device traffic."""
+"""Synthetic HTTP and Digest protocol cases; no real device traffic."""
 
 from __future__ import annotations
 

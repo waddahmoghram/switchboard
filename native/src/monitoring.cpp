@@ -665,7 +665,7 @@ Json backup_observation(const Check &check, const std::string &body, const std::
 
 namespace monitoring_detail
 {
-// Pure capacity classification is shared with authored tests; it never measures a filesystem.
+// Pure capacity classification is shared with tests; it never measures a filesystem.
 Json disk_capacity(const std::uintmax_t capacity, const std::uintmax_t free, const std::uintmax_t available, const std::optional<std::int64_t> min_bytes,
                    const std::optional<double> min_percent)
 {

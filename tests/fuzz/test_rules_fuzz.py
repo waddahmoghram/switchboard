@@ -1,4 +1,4 @@
-"""Seeded fuzzing of rule loading and rule matching; authored and unrun.
+"""Seeded fuzzing of rule loading and rule matching.
 
 ``load_rules`` receives generated configuration with wrong types, unknown keys, empty names, malformed
 conditions, and random regular expressions, and must return rules or raise ``ConfigError``. Rules built from

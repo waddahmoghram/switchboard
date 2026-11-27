@@ -1,4 +1,4 @@
-"""SQLite faults injected at ``Database.connect``; authored and unrun.
+"""SQLite faults injected at ``Database.connect``.
 
 The sweep makes the n-th connection attempt raise ``sqlite3.OperationalError`` (as a locked, full, or
 unreadable database would) for n = 0, 1, 2, ... until a call completes without reaching the fault. The

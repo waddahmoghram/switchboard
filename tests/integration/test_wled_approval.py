@@ -1,4 +1,4 @@
-"""Full-dispatcher WLED cases using synthetic responses only; authored and unrun."""
+"""Full-dispatcher WLED cases using synthetic responses only."""
 
 from __future__ import annotations
 

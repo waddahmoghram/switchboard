@@ -1,4 +1,4 @@
-"""UNRUN reviewed-target, profile-bypass, unit, acceptance and readback regressions."""
+"""Reviewed-target, profile-bypass, unit, acceptance and readback regressions."""
 
 from __future__ import annotations
 

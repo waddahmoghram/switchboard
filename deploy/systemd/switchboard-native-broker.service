@@ -1,8 +1,7 @@
 # Switchboard native broker: the C++ engine under a dedicated account that owns its configuration,
 # credentials, and database. The assistant's account reaches only the client socket and your account only
 # the operator socket; see native/docs/isolation.md for the accounts, groups, and configuration this unit
-# expects. Install as /etc/systemd/system/switchboard-native-broker.service. Authored, not yet started on
-# any host.
+# expects. Install as /etc/systemd/system/switchboard-native-broker.service.
 
 [Unit]
 Description=Switchboard native broker (client and operator sockets)

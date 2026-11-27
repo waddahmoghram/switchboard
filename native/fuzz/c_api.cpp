@@ -1,5 +1,4 @@
 // libFuzzer target: the C interface (sb_runtime_call and sb_runtime_rpc) against an inert runtime.
-// Authored and unrun.
 //
 // LLVMFuzzerInitialize creates a private temporary state directory (mode 0700, from mkdtemp) and an inert
 // runtime: no connectors, only the core read tools are exposed and allowed, and every other tool name is

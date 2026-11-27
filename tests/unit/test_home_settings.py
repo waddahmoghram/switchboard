@@ -1,4 +1,4 @@
-"""UNRUN configuration and capability-binding contracts; synthetic inputs only."""
+"""Configuration and capability-binding contracts; synthetic inputs only."""
 
 from __future__ import annotations
 

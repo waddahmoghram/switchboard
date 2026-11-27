@@ -1,4 +1,4 @@
-# Continuous integration for Switchboard. Authored and unexecuted: no run of this workflow has been observed.
+# Continuous integration for Switchboard.
 # Security: read-only token, no secrets, no deployment, no caches, credentials not persisted after checkout,
 # and every action pinned to a full commit SHA (release tag in the trailing comment).
 name: CI

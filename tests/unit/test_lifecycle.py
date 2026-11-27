@@ -1,5 +1,5 @@
 """Data lifecycle: backups with tamper detection, restore safety, private exports, retention, and audit
-archives. Uses temporary directories and synthetic data; authored, not run on the authoring host.
+archives. Uses temporary directories and synthetic data.
 """
 
 from __future__ import annotations

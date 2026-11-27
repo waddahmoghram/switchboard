@@ -1,4 +1,4 @@
-"""Authored UNRUN application flows; transport, completion reports, and capacity are synthetic."""
+"""Application flows; transport, completion reports, and capacity are synthetic."""
 
 from __future__ import annotations
 
