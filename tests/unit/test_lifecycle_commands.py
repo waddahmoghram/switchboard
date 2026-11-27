@@ -50,7 +50,8 @@ def test_parsers_register_the_lifecycle_commands_with_the_right_handler_kinds() 
     assert not hasattr(restore, "app_handler")
     assert parser.parse_args(["data", "export", "/srv/export.json"]).app_handler is cli_data.cmd_data_export
     purge = parser.parse_args(["data", "purge", "--dry-run"])
-    assert purge.app_handler is cli_data.cmd_data_purge and purge.dry_run is True
+    assert purge.app_handler is cli_data.cmd_data_purge
+    assert purge.dry_run is True
     assert parser.parse_args(["audit-archive", "rotate"]).app_handler is cli_data.cmd_audit_archive_rotate
     assert parser.parse_args(["audit-archive", "verify"]).app_handler is cli_data.cmd_audit_archive_verify
 
@@ -80,7 +81,8 @@ def test_backup_verify_and_restore_through_the_commands(
 
     assert _run(["--config", str(source), "backup", "create", str(backup)]) == 0
     created = capsys.readouterr().out
-    assert "audit head" in created and "manifest sha256" in created
+    assert "audit head" in created
+    assert "manifest sha256" in created
 
     assert _run(["backup", "verify", str(backup)]) == 0
     assert "ok:" in capsys.readouterr().out

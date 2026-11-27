@@ -251,7 +251,8 @@ def test_get_retries_transient_statuses_with_jittered_backoff(fake_http: FakeHtt
 
     assert (response.status, response.body) == (200, b"fine")
     assert len(fake_http.requests) == 3
-    assert 0.25 <= sleeps[0] <= 0.5 and 0.5 <= sleeps[1] <= 1.0
+    assert 0.25 <= sleeps[0] <= 0.5
+    assert 0.5 <= sleeps[1] <= 1.0
 
 
 def test_a_short_retry_after_is_honoured(fake_http: FakeHttp) -> None:
@@ -269,7 +270,8 @@ def test_a_long_retry_after_returns_the_response_without_waiting(
     fake_http.add("GET", URL, status=503, headers={"Retry-After": retry_after})
     sleeps: list[float] = []
     assert request_with_retries(fake_http, "GET", URL, retries=3, sleep=sleeps.append).status == 503
-    assert sleeps == [] and len(fake_http.requests) == 1
+    assert sleeps == []
+    assert len(fake_http.requests) == 1
 
 
 def test_a_wait_is_made_only_when_it_fits_the_deadline(clock: FakeMonotonic, fake_http: FakeHttp) -> None:
@@ -304,7 +306,8 @@ def test_exhausted_retries_return_the_last_response(fake_http: FakeHttp) -> None
     fake_http.add("GET", URL, status=504, repeat=True)
     sleeps: list[float] = []
     assert request_with_retries(fake_http, "GET", URL, retries=2, sleep=sleeps.append).status == 504
-    assert len(fake_http.requests) == 3 and len(sleeps) == 2
+    assert len(fake_http.requests) == 3
+    assert len(sleeps) == 2
 
 
 def test_exhausted_retries_raise_the_last_transient_error(fake_http: FakeHttp) -> None:
@@ -315,7 +318,8 @@ def test_exhausted_retries_raise_the_last_transient_error(fake_http: FakeHttp) -
     sleeps: list[float] = []
     with pytest.raises(TransientHttpError, match="timed out"):
         request_with_retries(fake_http, "GET", URL, retries=2, sleep=sleeps.append)
-    assert len(fake_http.requests) == 3 and len(sleeps) == 2
+    assert len(fake_http.requests) == 3
+    assert len(sleeps) == 2
 
 
 def test_head_requests_may_be_retried(fake_http: FakeHttp) -> None:

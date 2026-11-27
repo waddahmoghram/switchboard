@@ -31,7 +31,8 @@ def test_new_tool_tiers_and_required_current_configuration_binding(home_app: App
     app = home_app(configuration(speaking=True))
     for name in ("home_targets", "home_sensor_summary", "home_poll_status", "home_poll"):
         tool = app.registry.get(name)
-        assert tool is not None and tool.tier is Tier.READ
+        assert tool is not None
+        assert tool.tier is Tier.READ
     binding = app.call("home_targets", {}, Origin.ASSISTANT).data["binding"]
     for name in (
         "home_lights",
@@ -42,7 +43,8 @@ def test_new_tool_tiers_and_required_current_configuration_binding(home_app: App
         "home_announce",
     ):
         tool = app.registry.get(name)
-        assert tool is not None and tool.tier is Tier.ACT
+        assert tool is not None
+        assert tool.tier is Tier.ACT
         assert "binding" in tool.input_schema["required"]
         assert tool.input_schema["properties"]["binding"]["enum"] == [binding]
 
@@ -244,7 +246,8 @@ def test_a_matching_readback_does_not_claim_a_requested_fade_finished(
     args = action_args(app, entity_ids=["light.lounge"], state="on", brightness_pct=40, transition=5)
     result = app.call("home_lights", args, Origin.HUMAN).data
     assert result["status"] == "requested_unconfirmed"
-    assert result["asynchronous"] is True and result["confirmed"] is False
+    assert result["asynchronous"] is True
+    assert result["confirmed"] is False
     assert result["observations"][0]["matches_request"] is True
     assert post_bodies(fake_http)[0]["transition"] == 5
 
@@ -290,7 +293,8 @@ def test_an_unreadable_success_reply_can_still_be_reported_only_as_observed_stat
     result = app.call(
         "home_lights", action_args(app, entity_ids=["light.lounge"], state="on"), Origin.HUMAN
     ).data
-    assert result["request_status"] == "accepted" and result["confirmed"] is True
+    assert result["request_status"] == "accepted"
+    assert result["confirmed"] is True
     assert result["changed"] == []
 
 
@@ -321,7 +325,8 @@ def test_partial_or_ambiguous_provider_errors_remain_unconfirmed_even_if_state_m
         "home_lights", action_args(app, entity_ids=["light.lounge"], state="on"), Origin.HUMAN
     ).data
     assert result["request_status"] == "unknown"
-    assert result["status"] == "requested_unconfirmed" and result["confirmed"] is False
+    assert result["status"] == "requested_unconfirmed"
+    assert result["confirmed"] is False
     assert len(post_bodies(fake_http)) == 1
 
 
@@ -335,7 +340,8 @@ def test_a_timed_out_effect_is_observed_but_never_blindly_resent(
     result = app.call(
         "home_lights", action_args(app, entity_ids=["light.lounge"], state="on"), Origin.HUMAN
     ).data
-    assert result["request_status"] == "unknown" and result["confirmed"] is False
+    assert result["request_status"] == "unknown"
+    assert result["confirmed"] is False
     assert result["retry_safe"] is False
     assert "synthetic-home-token" not in json.dumps(result)
     assert len(post_bodies(fake_http)) == 1
@@ -530,7 +536,8 @@ def test_climate_readback_with_a_changed_unit_is_not_a_confirmed_requested_tempe
     add_state(fake_http, "climate.lounge", temperature=22, temperature_unit="\u00b0F")
     args = action_args(app, entity_id="climate.lounge", unit="C", temperature=22)
     result = app.call("home_climate", args, Origin.HUMAN).data
-    assert result["status"] == "requested_unconfirmed" and result["confirmed"] is False
+    assert result["status"] == "requested_unconfirmed"
+    assert result["confirmed"] is False
 
 
 def test_kelvin_readback_requires_the_reported_color_temperature_mode(
@@ -592,7 +599,8 @@ def test_numeric_readback_tolerance_cannot_confirm_out_of_profile_or_invalid_val
     add_state(fake_http, entity_id, **after)
     outcome = app.call(tool, action_args(app, **values), Origin.HUMAN)
     assert outcome.status == "ok"
-    assert outcome.data["status"] == "requested_unconfirmed" and outcome.data["confirmed"] is False
+    assert outcome.data["status"] == "requested_unconfirmed"
+    assert outcome.data["confirmed"] is False
     assert len(post_bodies(fake_http)) == 1
 
 
@@ -840,7 +848,8 @@ def test_lighting_presets_use_pinned_reviewed_content_and_preflight_every_target
     add_state(fake_http, "light.desk", state="on", brightness=128)
     args = action_args(app, name="reading", fingerprint=info["lighting_presets"]["reading"]["fingerprint"])
     result = app.call("home_lighting_preset", args, Origin.HUMAN).data
-    assert result["confirmed"] is True and result["atomic"] is False
+    assert result["confirmed"] is True
+    assert result["atomic"] is False
     assert post_bodies(fake_http) == [
         {"entity_id": "light.lounge", "brightness_pct": 40, "transition": 0},
         {"entity_id": "light.desk", "brightness_pct": 50, "transition": 0},
@@ -898,7 +907,8 @@ def test_reports_flag_unknown_delivery_for_the_action_journal(
     assert outcome.status == "ok"
     assert outcome.data["effect_unknown"] is effect_unknown
     assert outcome.data["confirmed"] is (status == 200)
-    assert outcome.action is not None and outcome.action["state"] == state
+    assert outcome.action is not None
+    assert outcome.action["state"] == state
 
 
 def test_an_ambiguous_preset_step_marks_the_whole_report_unknown(
@@ -914,6 +924,8 @@ def test_an_ambiguous_preset_step_marks_the_whole_report_unknown(
     outcome = app.call("home_lighting_preset", args, Origin.HUMAN)
     assert outcome.data["effect_unknown"] is True
     assert [step["effect_unknown"] for step in outcome.data["results"]] == [True]
-    assert outcome.action is not None and outcome.action["state"] == "uncertain"
+    assert outcome.action is not None
+    assert outcome.action["state"] == "uncertain"
     repeat = app.call("home_lighting_preset", args, Origin.HUMAN)
-    assert repeat.status == "denied" and len(post_bodies(fake_http)) == 1
+    assert repeat.status == "denied"
+    assert len(post_bodies(fake_http)) == 1

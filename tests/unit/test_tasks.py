@@ -66,7 +66,8 @@ def test_create_and_read_keep_full_notes_and_hide_internal_keys(make_app: AppFac
     assert task["status"] == "open"
     assert task["reminder_delivery"] == "not_scheduled"
     assert task["untrusted_content"] is True
-    assert "reminder_key" not in task and "search_text" not in task
+    assert "reminder_key" not in task
+    assert "search_text" not in task
     assert service.read({"id": task["id"]})["notes"] == "private example"
 
 
@@ -78,7 +79,8 @@ def test_list_previews_and_literal_search_are_bounded(make_app: AppFactory) -> N
     assert service.listing({"query": "missing"})["tasks"] == []
     preview = service.listing({"query": "literal"})["tasks"][0]
     assert preview["id"] == first["id"]
-    assert len(preview["notes"]) <= 180 and preview["notes_truncated"] is True
+    assert len(preview["notes"]) <= 180
+    assert preview["notes_truncated"] is True
 
 
 def test_pagination_is_by_stable_increasing_identifiers(make_app: AppFactory) -> None:
@@ -86,10 +88,12 @@ def test_pagination_is_by_stable_increasing_identifiers(make_app: AppFactory) ->
     ids = [service.add({"title": f"Example {index}"})["id"] for index in range(3)]
     page = service.listing({"limit": 2})
     assert [task["id"] for task in page["tasks"]] == ids[:2]
-    assert page["truncated"] is True and page["next_after_id"] == ids[1]
+    assert page["truncated"] is True
+    assert page["next_after_id"] == ids[1]
     last = service.listing({"after_id": page["next_after_id"], "limit": 2})
     assert [task["id"] for task in last["tasks"]] == ids[2:]
-    assert last["truncated"] is False and last["next_after_id"] is None
+    assert last["truncated"] is False
+    assert last["next_after_id"] is None
 
 
 def test_list_and_overdue_filters_do_not_include_completed_tasks(make_app: AppFactory) -> None:
@@ -109,7 +113,8 @@ def test_update_requires_current_revision_and_at_least_one_field(make_app: AppFa
     app, service = configured(make_app)
     task = service.add({"title": "Original"})
     updated = service.update({"id": task["id"], "revision": 1, "title": "New title"})
-    assert updated["revision"] == 2 and updated["title"] == "New title"
+    assert updated["revision"] == 2
+    assert updated["title"] == "New title"
     with pytest.raises(ToolError, match="current revision"):
         service.update({"id": task["id"], "revision": 1, "title": "Stale edit"})
     with pytest.raises(ToolError, match="at least one"):

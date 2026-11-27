@@ -205,7 +205,8 @@ def test_a_deleted_calendar_is_skipped_and_discovery_runs_again(
 
     assert state["error"] is None
     [note] = state["skipped"]
-    assert "skipped calendar 'Team'" in note and "HTTP 404" in note
+    assert "skipped calendar 'Team'" in note
+    assert "HTTP 404" in note
     assert [seen.path for seen in dav_server.seen if seen.method == "REPORT"] == [PERSONAL, TEAM]
 
     outcome = dav_app.call("calendar_agenda", DAY, Origin.ASSISTANT)
@@ -230,7 +231,8 @@ def test_new_calendars_are_discovered_on_the_next_source_refresh(
 
     state = service.refresh("work", now + timedelta(hours=1))
 
-    assert state["error"] is None and state["skipped"] == []
+    assert state["error"] is None
+    assert state["skipped"] == []
     assert [seen.path for seen in dav_server.seen if seen.method == "REPORT"] == [PERSONAL, TEAM]
 
 
@@ -254,7 +256,8 @@ def test_every_calendar_gone_keeps_the_cached_events_and_reports_the_error(
 def test_create_event_puts_only_after_approval(dav_app: App, dav_server: FakeDavServer) -> None:
     args = {"summary": "Design review", "start": "2026-11-20T10:00", "duration_minutes": 45, "source": "work"}
     pending = dav_app.call("calendar_create_event", args, Origin.ASSISTANT)
-    assert pending.status == "pending" and pending.approval_id is not None
+    assert pending.status == "pending"
+    assert pending.approval_id is not None
     assert dav_server.seen == []
 
     done = dav_app.dispatcher.approve(pending.approval_id)
@@ -284,7 +287,8 @@ def test_a_wrong_password_is_reported_without_leaking_it(
     assert outcome.status == "ok", outcome.message
     assert outcome.data["events"] == []
     [warning] = outcome.data["warnings"]
-    assert "HTTP 401" in warning and "app-specific password" in warning
+    assert "HTTP 401" in warning
+    assert "app-specific password" in warning
     assert "not-the-password" not in warning
     assert [seen.path for seen in dav_server.seen] == ["/"]
 
@@ -324,4 +328,5 @@ def test_propose_event_saves_an_imip_draft_through_the_mail_service(make_app: Ap
     assert [prop.value for prop in attendees] == ["mailto:sam@example.invalid"]
     assert attendees[0].params["RSVP"] == "TRUE"
     organizer = vevent.first("ORGANIZER")
-    assert organizer is not None and organizer.value == "mailto:owner@example.invalid"
+    assert organizer is not None
+    assert organizer.value == "mailto:owner@example.invalid"

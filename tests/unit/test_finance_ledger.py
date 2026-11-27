@@ -234,7 +234,8 @@ def test_accounts_are_masked_and_numbers_never_stored(make_app: Callable[..., Ap
     assert "123456789" not in dump
     assert "ECU-20261015-001" not in dump
     salt = app.ctx.db.kv_get("finance", "identity_salt")
-    assert salt is not None and len(salt) == 32
+    assert salt is not None
+    assert len(salt) == 32
 
 
 def test_masking_helpers() -> None:

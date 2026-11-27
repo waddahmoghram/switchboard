@@ -49,8 +49,10 @@ def test_tool_tiers(make_app: AppFactory) -> None:
     app = make_app(home_config())
     states = app.registry.get("home_states")
     call = app.registry.get("home_call_service")
-    assert states is not None and states.tier is Tier.READ
-    assert call is not None and call.tier is Tier.ACT
+    assert states is not None
+    assert states.tier is Tier.READ
+    assert call is not None
+    assert call.tier is Tier.ACT
 
 
 def test_states_show_only_exposed_entities_with_minimal_attributes(
@@ -342,6 +344,8 @@ def test_generic_action_failures_say_whether_the_effect_may_have_happened(
     outcome = app.call("home_call_service", args, Origin.HUMAN)
 
     assert outcome.status == "error"
-    assert outcome.action is not None and outcome.action["state"] == state
-    assert TOKEN not in outcome.message and "synthetic" not in outcome.message
+    assert outcome.action is not None
+    assert outcome.action["state"] == state
+    assert TOKEN not in outcome.message
+    assert "synthetic" not in outcome.message
     assert len(fake_http.requests) == 1

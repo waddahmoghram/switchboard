@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import threading
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
@@ -77,7 +78,8 @@ def test_begin_records_an_in_flight_attempt_with_its_deadline(journal: ActionJou
     record = journal.begin(
         tool="demo_send", args=ARGS, origin="approval", approval_id="0a1b2c3d", timeout_seconds=30
     )
-    assert len(record.id) == 32 and set(record.id) <= set("0123456789abcdef")
+    assert len(record.id) == 32
+    assert set(record.id) <= set("0123456789abcdef")
     assert (record.state, record.owner, record.origin, record.approval_id) == (
         "in_flight",
         "runner",
@@ -88,7 +90,9 @@ def test_begin_records_an_in_flight_attempt_with_its_deadline(journal: ActionJou
     assert record.args_digest == args_digest({"text": "hello", "to": "pat@example.com"})
     assert record.started_at == iso(START)
     assert record.deadline_at == iso(START + timedelta(seconds=30))
-    assert record.finished_at is None and record.error is None and record.resolved_at is None
+    assert record.finished_at is None
+    assert record.error is None
+    assert record.resolved_at is None
 
 
 @pytest.mark.parametrize("timeout", [0, 86_401])
@@ -125,8 +129,10 @@ def test_finish_refuses_states_that_are_not_results(journal: ActionJournal, stat
 def test_finish_bounds_and_cleans_the_error_text(journal: ActionJournal) -> None:
     action_id = begin(journal)
     record = journal.finish(action_id, "failed", error="\x1b[31m" + "x" * 900)
-    assert record is not None and record.error is not None
-    assert len(record.error) <= 510 and "\x1b" not in record.error
+    assert record is not None
+    assert record.error is not None
+    assert len(record.error) <= 510
+    assert "\x1b" not in record.error
 
 
 def test_an_identical_open_attempt_blocks_but_other_requests_do_not(journal: ActionJournal) -> None:
@@ -134,7 +140,8 @@ def test_an_identical_open_attempt_blocks_but_other_requests_do_not(journal: Act
     with pytest.raises(ActionBlockedError) as blocked:
         begin(journal, {"text": "hello", "to": "pat@example.com"})
     assert (blocked.value.action_id, blocked.value.state) == (first, "in_flight")
-    assert first in str(blocked.value) and "in flight" in str(blocked.value)
+    assert first in str(blocked.value)
+    assert "in flight" in str(blocked.value)
     begin(journal, {**ARGS, "text": "a different message"})
     other_tool = journal.begin(
         tool="demo_other", args=ARGS, origin="human", approval_id=None, timeout_seconds=60
@@ -167,7 +174,8 @@ def test_sweep_waits_for_the_deadline_plus_the_grace_period(journal: ActionJourn
     clock.advance(1)
     assert journal.sweep() == 1
     record = journal.get(action_id)
-    assert record is not None and (record.state, record.error) == ("uncertain", INTERRUPTED)
+    assert record is not None
+    assert (record.state, record.error) == ("uncertain", INTERRUPTED)
     assert journal.sweep() == 0
 
 
@@ -179,7 +187,8 @@ def test_begin_sweeps_before_its_duplicate_check(journal: ActionJournal, clock: 
     assert (blocked.value.action_id, blocked.value.state) == (abandoned, "uncertain")
     # The refusal keeps the sweep it made and records no new attempt.
     record = journal.get(abandoned)
-    assert record is not None and (record.state, record.error) == ("uncertain", INTERRUPTED)
+    assert record is not None
+    assert (record.state, record.error) == ("uncertain", INTERRUPTED)
     assert journal.counts() == {**dict.fromkeys(STATES, 0), "uncertain": 1}
 
 
@@ -190,9 +199,11 @@ def test_the_owner_may_record_a_late_result_after_a_sweep(db: Database, clock: C
     clock.advance(5 + SWEEP_GRACE_SECONDS + 1)
     assert other.sweep() == 1
     unchanged = other.finish(action_id, "succeeded")
-    assert unchanged is not None and unchanged.state == "uncertain"
+    assert unchanged is not None
+    assert unchanged.state == "uncertain"
     late = runner.finish(action_id, "succeeded")
-    assert late is not None and (late.state, late.error) == ("succeeded", None)
+    assert late is not None
+    assert (late.state, late.error) == ("succeeded", None)
 
 
 def test_a_late_result_never_overrides_the_operator(db: Database, clock: Clock) -> None:
@@ -202,7 +213,8 @@ def test_a_late_result_never_overrides_the_operator(db: Database, clock: Clock) 
     clock.advance(5 + SWEEP_GRACE_SECONDS + 1)
     operator.reconcile(action_id, applied=False, note="the device log shows no change")
     record = runner.finish(action_id, "succeeded")
-    assert record is not None and record.state == "reconciled_not_applied"
+    assert record is not None
+    assert record.state == "reconciled_not_applied"
 
 
 def test_reconcile_records_the_decision_and_the_note(journal: ActionJournal, clock: Clock) -> None:
@@ -286,16 +298,27 @@ def test_recent_counts_and_public_views(journal: ActionJournal, clock: Clock) ->
     assert [record.id for record in journal.recent(state="failed")] == [second]
     assert [record.id for record in journal.recent(limit=1)] == [second]
     public = journal.recent()[0].public()
-    assert "args" not in public and "owner" not in public
-    assert public["id"] == second and public["state"] == "failed"
+    assert "args" not in public
+    assert "owner" not in public
+    assert public["id"] == second
+    assert public["state"] == "failed"
     counts = journal.counts()
     assert set(counts) == set(STATES)
     assert (counts["in_flight"], counts["failed"], counts["uncertain"]) == (1, 1, 0)
 
 
-@pytest.mark.parametrize(("state", "limit"), [("done", 10), (None, 0), (None, 501)])
-def test_recent_validates_its_filters(journal: ActionJournal, state: str | None, limit: int) -> None:
-    with pytest.raises(ValueError):
+@pytest.mark.parametrize(
+    ("state", "limit", "message"),
+    [
+        ("done", 10, "unknown action state 'done'"),
+        (None, 0, "limit must be between 1 and 500"),
+        (None, 501, "limit must be between 1 and 500"),
+    ],
+)
+def test_recent_validates_its_filters(
+    journal: ActionJournal, state: str | None, limit: int, message: str
+) -> None:
+    with pytest.raises(ValueError, match=re.escape(message)):
         journal.recent(state=state, limit=limit)
 
 
@@ -311,7 +334,8 @@ def test_for_approval_returns_the_newest_attempt_for_that_approval(
         tool="demo_send", args={"n": 2}, origin="approval", approval_id="0a1b2c3d", timeout_seconds=60
     )
     found = journal.for_approval("0a1b2c3d")
-    assert found is not None and found.id == newer.id != older.id
+    assert found is not None
+    assert found.id == newer.id != older.id
 
 
 def test_concurrent_identical_attempts_admit_exactly_one(db: Database, clock: Clock) -> None:

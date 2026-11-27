@@ -186,7 +186,8 @@ def test_stuck_jobs_are_reported_and_never_restarted(clock: Clock) -> None:
 
     release.set()
     eventually(lambda: running(scheduler) == [])
-    assert scheduler.stuck() == [] and calls == ["hang"]
+    assert scheduler.stuck() == []
+    assert calls == ["hang"]
 
 
 def test_run_all_waits_for_every_job(clock: Clock) -> None:
@@ -199,7 +200,8 @@ def test_run_all_waits_for_every_job(clock: Clock) -> None:
 
     assert sorted(finished) == ["a.poll", "a.prune", "b.poll"]
     assert all(item["runs"] == 1 and not item["running"] for item in scheduler.status())
-    assert scheduler.skipped() == [] and scheduler.stuck() == []
+    assert scheduler.skipped() == []
+    assert scheduler.stuck() == []
 
 
 def test_run_all_leaves_a_stuck_job_behind_and_skips_its_lane(clock: Clock) -> None:
@@ -332,8 +334,12 @@ def test_scheduling_rules_are_validated(clock: Clock) -> None:
         scheduler.add("mail.poll", 60, lambda: None)
     with pytest.raises(ValueError, match="lane"):
         scheduler.add("mail.other", 60, lambda: None, lane="")
-    for options in ({"workers": 0}, {"workers": 65}, {"job_timeout_seconds": 0}):
-        with pytest.raises(ValueError):
+    for options, message in (
+        ({"workers": 0}, "workers must be between 1 and 64"),
+        ({"workers": 65}, "workers must be between 1 and 64"),
+        ({"job_timeout_seconds": 0}, "job_timeout_seconds must be positive"),
+    ):
+        with pytest.raises(ValueError, match=message):
             make(clock, **options)
 
 

@@ -79,5 +79,5 @@ def test_json_loads_accepts_or_rejects_cleanly() -> None:
 
 @pytest.mark.parametrize("literal", [b"NaN", b"Infinity", b"-Infinity", b"1e999", b"-1e999", b"[1e400]"])
 def test_json_loads_rejects_non_finite_numbers(literal: bytes) -> None:
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="is not a finite JSON number"):
         json_loads(literal)

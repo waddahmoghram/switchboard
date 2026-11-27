@@ -104,7 +104,8 @@ def test_denying_and_direct_human_calls(app_and_outbox: tuple[App, list[dict[str
     assert pending.approval_id is not None
     assert app.dispatcher.deny(pending.approval_id)
     stored = app.approvals.get(pending.approval_id)
-    assert stored is not None and stored.status == "denied"
+    assert stored is not None
+    assert stored.status == "denied"
     assert not app.dispatcher.deny(pending.approval_id)
 
     direct = app.call("demo_send", {"to": "pat@example.com", "text": "direct"}, Origin.HUMAN)
@@ -177,7 +178,8 @@ def test_approval_summaries_cannot_carry_terminal_escape_sequences(make_app: App
     assert outcome.approval_id is not None
     stored = app.approvals.get(outcome.approval_id)
     assert stored is not None
-    assert "\x1b" not in stored.summary and "\u202e" not in stored.summary
+    assert "\x1b" not in stored.summary
+    assert "\u202e" not in stored.summary
     assert "\\x1b[8m" in stored.summary
 
 
@@ -191,7 +193,8 @@ def test_default_approval_summaries_drop_secret_shaped_text_but_keep_the_exact_a
     assert outcome.approval_id is not None
     stored = app.approvals.get(outcome.approval_id)
     assert stored is not None
-    assert token not in stored.summary and "[redacted:github-token]" in stored.summary
+    assert token not in stored.summary
+    assert "[redacted:github-token]" in stored.summary
     assert stored.args["text"] == f"use {token}"
 
 
@@ -214,7 +217,8 @@ def test_approvals_revalidate_arguments_after_a_schema_change(
     assert "current tool" in outcome.message
     assert outbox == []
     stored = updated.approvals.get(request.approval_id)
-    assert stored is not None and stored.status == "failed"
+    assert stored is not None
+    assert stored.status == "failed"
 
 
 def test_pending_actions_cannot_bypass_the_execution_budget(make_app: AppFactory) -> None:
@@ -223,7 +227,8 @@ def test_pending_actions_cannot_bypass_the_execution_budget(make_app: AppFactory
     app.registry.add(Tool("demo_act", "Act.", Tier.ACT, EMPTY, lambda _args: calls.append(1)))
     first = app.call("demo_act", {}, Origin.ASSISTANT)
     second = app.call("demo_act", {}, Origin.ASSISTANT)
-    assert first.approval_id is not None and second.approval_id is not None
+    assert first.approval_id is not None
+    assert second.approval_id is not None
 
     assert app.dispatcher.approve(first.approval_id).status == "ok"
     assert app.dispatcher.approve(second.approval_id).status == "denied"

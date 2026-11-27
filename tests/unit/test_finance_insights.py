@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from datetime import date
 
 import pytest
@@ -147,7 +148,7 @@ def test_add_months_clamps_to_the_month_length(start: date, months: int, expecte
 def test_month_bounds() -> None:
     assert month_bounds("2026-11") == (date(2026, 11, 1), date(2026, 12, 1))
     assert month_bounds("2026-12") == (date(2026, 12, 1), date(2027, 1, 1))
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match=re.escape("month must be in 1..12")):
         month_bounds("2026-13")
 
 

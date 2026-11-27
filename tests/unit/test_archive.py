@@ -143,12 +143,17 @@ def test_search_uses_literal_text_not_wildcard_expressions(make_app: AppFactory)
 
 def test_event_insertion_can_be_rolled_back_with_its_source_state(make_app: AppFactory) -> None:
     app = make_app()
-    with pytest.raises(RuntimeError), app.ctx.db.session() as conn, transaction(conn):
-        app.ctx.events.emit("example", "example.new", {}, dedupe_key="atomic", connection=conn)
-        conn.execute(
-            "INSERT INTO kv (namespace, key, value, updated_at) VALUES ('example', 'cursor', '1', 'now')"
-        )
-        raise RuntimeError("simulate a failed source update")
+
+    def fail_after_writing() -> None:
+        with app.ctx.db.session() as conn, transaction(conn):
+            app.ctx.events.emit("example", "example.new", {}, dedupe_key="atomic", connection=conn)
+            conn.execute(
+                "INSERT INTO kv (namespace, key, value, updated_at) VALUES ('example', 'cursor', '1', 'now')"
+            )
+            raise RuntimeError("simulate a failed source update")
+
+    with pytest.raises(RuntimeError, match="simulate a failed source update"):
+        fail_after_writing()
     assert app.ctx.events.recent() == []
     assert app.ctx.db.kv_get("example", "cursor") is None
 

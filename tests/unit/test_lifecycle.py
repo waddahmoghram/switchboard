@@ -501,13 +501,17 @@ def test_purge_transactions_roll_back_dry_runs_and_failures(make_app: AppFactory
         with app.ctx.db.session() as reader:
             return int(reader.execute("SELECT COUNT(*) FROM kv WHERE namespace = 't'").fetchone()[0])
 
+    def fail_after_writing(conn: sqlite3.Connection) -> None:
+        with lifecycle.purge_transaction(conn, dry_run=False):
+            conn.execute(insert, ("failed", OLD))
+            raise RuntimeError("abort")
+
     with app.ctx.db.session() as conn:
         with lifecycle.purge_transaction(conn, dry_run=True):
             conn.execute(insert, ("dry", OLD))
         assert rows() == 0
-        with pytest.raises(RuntimeError), lifecycle.purge_transaction(conn, dry_run=False):
-            conn.execute(insert, ("failed", OLD))
-            raise RuntimeError("abort")
+        with pytest.raises(RuntimeError, match="abort"):
+            fail_after_writing(conn)
         assert rows() == 0
         with lifecycle.purge_transaction(conn, dry_run=False):
             conn.execute(insert, ("kept", OLD))

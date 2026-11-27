@@ -57,7 +57,7 @@ target-version = "py311"
 src = ["src", "tests"]
 
 [tool.ruff.lint]
-select = ["E", "F", "W", "I", "B", "UP", "S", "SIM", "RUF"]
+select = ["E", "F", "W", "I", "B", "UP", "S", "SIM", "RUF", "PT"]
 ignore = [
   "S603",  # subprocess without shell is intentional for cmd: secret references
 ]

@@ -190,7 +190,8 @@ def test_a_failing_feed_keeps_cached_events_and_warns(
     assert outcome.status == "ok"
     assert len(outcome.data["events"]) == 4
     [warning] = outcome.data["warnings"]
-    assert "HTTP 500" in warning and "showing cached events" in warning
+    assert "HTTP 500" in warning
+    assert "showing cached events" in warning
     assert "private-0000" not in warning
 
 
@@ -229,12 +230,15 @@ def test_agenda_window_must_be_ordered_and_bounded(make_app: AppFactory) -> None
     backwards = app.call(
         "calendar_agenda", {"start": "2026-11-13", "end": "2026-11-12T00:00"}, Origin.ASSISTANT
     )
-    assert backwards.status == "error" and "after start" in backwards.message
+    assert backwards.status == "error"
+    assert "after start" in backwards.message
     huge = app.call("calendar_agenda", {"start": "2026-01-01", "end": "2028-01-01"}, Origin.ASSISTANT)
-    assert huge.status == "error" and "366 days" in huge.message
+    assert huge.status == "error"
+    assert "366 days" in huge.message
     unbounded = app.call("calendar_agenda", {**DAY, "limit": 500}, Origin.ASSISTANT)
     unknown = app.call("calendar_agenda", {**DAY, "url": "https://example.invalid/"}, Origin.ASSISTANT)
-    assert unbounded.status == "invalid" and unknown.status == "invalid"
+    assert unbounded.status == "invalid"
+    assert unknown.status == "invalid"
 
 
 def test_refresh_job_emits_upcoming_events_once(make_app: AppFactory, tmp_path: Path) -> None:
@@ -303,14 +307,16 @@ def test_invitations_need_owner_email(make_app: AppFactory) -> None:
         {"summary": "Coffee", "start": "2026-11-20", "end": "2026-11-20"},
         Origin.ASSISTANT,
     )
-    assert outcome.status == "error" and "owner_email" in outcome.message
+    assert outcome.status == "error"
+    assert "owner_email" in outcome.message
 
 
 def test_create_event_refuses_read_only_sources(make_app: AppFactory) -> None:
     app = make_app(_config(_file_source(FIXTURES / "basic.ics")))
     args = {"summary": "Gym", "start": "2026-11-20T07:00", "duration_minutes": 60, "source": "local"}
     outcome = app.call("calendar_create_event", args, Origin.HUMAN)
-    assert outcome.status == "error" and "read-only" in outcome.message
+    assert outcome.status == "error"
+    assert "read-only" in outcome.message
 
 
 def test_create_event_from_an_assistant_waits_for_approval(
@@ -343,7 +349,8 @@ def test_send_invite_runs_only_after_approval_through_mail_sender(make_app: AppF
         "attendees": ["sam@example.invalid"],
     }
     pending = app.call("calendar_send_invite", args, Origin.ASSISTANT)
-    assert pending.status == "pending" and pending.approval_id is not None
+    assert pending.status == "pending"
+    assert pending.approval_id is not None
     assert "to sam@example.invalid" in pending.message
     assert mail.sent == []
 
@@ -365,7 +372,8 @@ def test_invite_attendees_are_checked_against_the_policy_allowlist(make_app: App
     outcome = app.call(
         "calendar_send_invite", {**args, "attendees": ["someone@elsewhere.example"]}, Origin.ASSISTANT
     )
-    assert outcome.status == "denied" and "someone@elsewhere.example" in outcome.message
+    assert outcome.status == "denied"
+    assert "someone@elsewhere.example" in outcome.message
 
 
 def test_send_invite_without_the_mail_connector_explains_what_is_missing(make_app: AppFactory) -> None:
@@ -377,7 +385,8 @@ def test_send_invite_without_the_mail_connector_explains_what_is_missing(make_ap
         "attendees": ["a@example.invalid"],
     }
     outcome = app.call("calendar_send_invite", args, Origin.HUMAN)
-    assert outcome.status == "error" and "mail.sender" in outcome.message
+    assert outcome.status == "error"
+    assert "mail.sender" in outcome.message
 
 
 def test_parse_moment_and_webcal_links() -> None:
@@ -406,5 +415,6 @@ def test_a_transient_feed_failure_is_retried_within_one_refresh(
 
     state = _service(app).refresh("google", datetime.now(UTC))
 
-    assert state["error"] is None and state["events"] == 5
+    assert state["error"] is None
+    assert state["events"] == 5
     assert [request.url for request in fake_http.requests] == [FEED, FEED]

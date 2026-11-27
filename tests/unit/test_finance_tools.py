@@ -152,5 +152,6 @@ def test_render_summary_marks_transfers_and_budgets() -> None:
         }
     )
 
-    assert "dining" in text and "-2.50" in text
+    assert "dining" in text
+    assert "-2.50" in text
     assert "transfer (transfer)" in text

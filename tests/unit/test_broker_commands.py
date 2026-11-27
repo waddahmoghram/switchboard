@@ -296,13 +296,16 @@ def test_operator_reconciles_an_uncertain_action_only_when_confirmed(
     assert _run(resolve) == 1
     assert "without a terminal" in capsys.readouterr().err
     record = journal.get(attempt.id)
-    assert record is not None and record.state == "uncertain"
+    assert record is not None
+    assert record.state == "uncertain"
 
     assert _run([*resolve, "--yes"]) == 0
     output = capsys.readouterr().out
-    assert "did NOT happen" in output and "reconciled_not_applied" in output
+    assert "did NOT happen" in output
+    assert "reconciled_not_applied" in output
     record = journal.get(attempt.id)
-    assert record is not None and record.resolution_note == "not in sent mail"
+    assert record is not None
+    assert record.resolution_note == "not in sent mail"
 
     assert _run([*resolve, "--yes"]) == 1
     assert "only uncertain actions are reconciled" in capsys.readouterr().err

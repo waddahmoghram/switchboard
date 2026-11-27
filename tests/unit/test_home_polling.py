@@ -108,7 +108,8 @@ def test_state_and_allowed_attribute_changes_emit_bounded_durable_events(
     outcome = app.call("home_poll", {}, Origin.ASSISTANT)
     assert outcome.data["changed"] == 1
     [event] = app.ctx.events.pending()
-    assert event.source == "home" and event.type == "home.state_changed"
+    assert event.source == "home"
+    assert event.type == "home.state_changed"
     assert event.payload["entity_id"] == "light.lounge"
     assert event.payload["previous"]["state"] == "off"
     assert event.payload["current"]["state"] == "on"
@@ -354,7 +355,8 @@ def test_cached_staleness_uses_local_sample_age_not_last_changed(
 def test_status_before_the_first_sample_is_explicitly_unobserved(home_app: AppFactory) -> None:
     app = home_app(configuration(polling=True))
     status = app.call("home_poll_status", {}, Origin.ASSISTANT).data
-    assert status["succeeded_at"] is None and status["stale"] is True
+    assert status["succeeded_at"] is None
+    assert status["stale"] is True
     assert all(item["availability"] == "not_observed" for item in status["entities"])
 
 

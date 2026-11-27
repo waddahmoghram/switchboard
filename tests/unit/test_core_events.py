@@ -39,7 +39,8 @@ def test_failing_subscribers_are_recorded_not_fatal(make_app: AppFactory) -> Non
     [failure] = app.ctx.events.failures()
     assert failure["id"] == event_id
     assert failure["error"] == "broken: ZeroDivisionError"
-    assert "payload" not in failure and "payload_json" not in failure
+    assert "payload" not in failure
+    assert "payload_json" not in failure
 
 
 def test_derived_events_are_processed_in_later_rounds(make_app: AppFactory) -> None:

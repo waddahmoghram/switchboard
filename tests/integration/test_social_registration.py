@@ -74,5 +74,6 @@ def test_social_connectors_register_and_list_tools_without_account_calls(
         "whatsapp_read",
     } == names
     publisher = app.registry.get("linkedin_publish_post")
-    assert publisher is not None and publisher.tier is Tier.ACT
+    assert publisher is not None
+    assert publisher.tier is Tier.ACT
     assert fake_http.requests == []

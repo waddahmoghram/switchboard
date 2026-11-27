@@ -292,7 +292,8 @@ def test_operator_requests_on_the_client_socket_are_protocol_errors(make_app: Ap
     assert replies[2]["error"]["code"] == -32601
     assert replies[3]["error"]["code"] == -32601
     request = app.approvals.get(approval_id)
-    assert request is not None and request.status == "pending"
+    assert request is not None
+    assert request.status == "pending"
     assert calls == []
     assert not app.policy.kill_switch.exists()
 
@@ -404,7 +405,8 @@ def test_operator_deny_and_unknown_or_malformed_approvals(make_app: AppFactory) 
 
     assert _ok(api, "deny", id=approval_id) == {"id": approval_id, "status": "denied"}
     request = app.approvals.get(approval_id)
-    assert request is not None and request.status == "denied"
+    assert request is not None
+    assert request.status == "denied"
     assert _ok(api, "deny", id=approval_id)["status"] == "error"
     assert _ok(api, "deny", id="ffffffff")["status"] == "error"
     assert _ok(api, "deny", id="XYZ")["status"] == "invalid"
@@ -599,7 +601,8 @@ def test_shared_accounts_and_a_client_service_account_give_no_separation(
         config_from_dict({"broker": _broker_table(socket_dir, client_uids=[1000, 1001])}, tmp_path)
     )
     [problem] = broker.separation_problems(shared, service_uid=999)
-    assert "1000" in problem and "approve its own requests" in problem
+    assert "1000" in problem
+    assert "approve its own requests" in problem
     assert len(broker.separation_problems(separate, service_uid=1001)) == 1
 
 
@@ -763,7 +766,8 @@ def test_the_relay_reports_a_broker_that_closes_first() -> None:
 def test_the_relay_stops_on_an_oversized_request_line() -> None:
     channel = EchoChannel()
     problem = broker.relay(io.BytesIO(b"x" * 9 + b"\n"), io.BytesIO(), channel, limit=8)
-    assert problem is not None and "exceeded" in problem
+    assert problem is not None
+    assert "exceeded" in problem
     assert channel.sent == []
     assert channel.ended.is_set()
 

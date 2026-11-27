@@ -203,7 +203,8 @@ def test_decoding_follows_the_declared_encoding() -> None:
 
     assert "CAF\u00c9" in decode_ofx(utf8)
     assert decode_ofx(bom).startswith("<?xml")
-    assert is_ofx(b"OFXHEADER:100\n") and not is_ofx(b"Date,Amount\n")
+    assert is_ofx(b"OFXHEADER:100\n")
+    assert not is_ofx(b"Date,Amount\n")
 
 
 def test_entities_are_decoded_but_nothing_is_expanded() -> None:

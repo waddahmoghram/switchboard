@@ -21,9 +21,12 @@ def test_read_only_defaults_are_offline_and_do_not_create_controls() -> None:
     settings = load_settings(table(password=True))
     [device] = settings.devices
     assert settings.timeout_seconds == 5
-    assert device.name == "desk_lamp" and device.base_url == BASE
-    assert device.expected_device_id == DEVICE_ID and device.expected_model == MODEL
-    assert device.switch_ids == (0,) and device.controls == ()
+    assert device.name == "desk_lamp"
+    assert device.base_url == BASE
+    assert device.expected_device_id == DEVICE_ID
+    assert device.expected_model == MODEL
+    assert device.switch_ids == (0,)
+    assert device.controls == ()
     assert device.password == REFERENCE
     assert REFERENCE not in repr(device)
 
@@ -31,7 +34,8 @@ def test_read_only_defaults_are_offline_and_do_not_create_controls() -> None:
 def test_controls_require_both_device_and_component_opt_ins() -> None:
     [device] = load_settings(table(controls=True)).devices
     [control] = device.controls
-    assert control.switch_id == 0 and control.max_power_watts == 60
+    assert control.switch_id == 0
+    assert control.max_power_watts == 60
     assert control.safe_load == "nonessential_lighting"
 
 

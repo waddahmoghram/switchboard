@@ -28,12 +28,14 @@ def clock(monkeypatch: pytest.MonkeyPatch) -> FakeMonotonic:
 
 
 def test_a_deadline_is_scoped_to_its_block(clock: FakeMonotonic) -> None:
-    assert execution.current() is None and execution.remaining() is None
+    assert execution.current() is None
+    assert execution.remaining() is None
     with deadline(10, "tool demo") as limit:
         assert execution.current() is limit
         assert (limit.at, limit.seconds, limit.label) == (110.0, 10, "tool demo")
         clock.now += 4
-        assert execution.remaining() == 6.0 and not limit.expired()
+        assert execution.remaining() == 6.0
+        assert not limit.expired()
         clock.now += 6
         assert limit.expired()
     assert execution.current() is None
@@ -44,7 +46,8 @@ def test_nesting_can_shorten_but_never_extend_a_deadline(clock: FakeMonotonic) -
         with deadline(30, "tool inner") as longer:
             assert longer is outer
         with deadline(5, "tool inner") as shorter:
-            assert shorter.label == "tool inner" and shorter.at == 105.0
+            assert shorter.label == "tool inner"
+            assert shorter.at == 105.0
             assert execution.current() is shorter
         assert execution.current() is outer
 
@@ -72,7 +75,8 @@ def test_a_lane_is_reentrant_for_its_holder_and_exclusive_for_others() -> None:
 
     with lanes.hold("mail") as outer:
         with lanes.hold("mail", timeout=0) as inner:
-            assert outer and inner
+            assert outer
+            assert inner
         worker = threading.Thread(target=other_thread)
         worker.start()
         worker.join(5)

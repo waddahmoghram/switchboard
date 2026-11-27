@@ -30,10 +30,12 @@ def test_serve_mcp_never_needs_the_application_handler() -> None:
     parser = cli.build_parser()
     direct = parser.parse_args(["serve-mcp"])
     relayed = parser.parse_args(["serve-mcp", "--broker", "/run/switchboard/client.sock"])
-    assert direct.handler is cli.cmd_serve_mcp and direct.broker is None
+    assert direct.handler is cli.cmd_serve_mcp
+    assert direct.broker is None
     assert relayed.handler is cli.cmd_serve_mcp
     assert relayed.broker == Path("/run/switchboard/client.sock")
-    assert not hasattr(direct, "app_handler") and not hasattr(relayed, "app_handler")
+    assert not hasattr(direct, "app_handler")
+    assert not hasattr(relayed, "app_handler")
 
 
 def test_serve_mcp_with_a_broker_relays_without_loading_configuration(
