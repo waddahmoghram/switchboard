@@ -155,7 +155,7 @@ Old event payloads are pruned on runner ticks; deduplication keys can remain.
 `purge [--dry-run]` applies core-table retention; adapter data has no global deletion policy.
 `backup create DIR` writes a consistent copy with a manifest that `backup verify DIR` checks.
 Audit records are redacted by the [shared rules](../contracts/README.md#audit-redaction), and `audit.hash_only` keeps named fields only as a length and hash.
-The audit chain can detect altered/interior records, not valid-tail deletion without an independent head.
+The audit chain can detect altered/interior records; records cut from its end show only against an `audit_verify` anchor kept where the engine cannot write, as [the audit log guide](./docs/operations.md#audit-log) describes.
 
 An outer successful call means a handler returned a report.
 A pending approval is not execution;

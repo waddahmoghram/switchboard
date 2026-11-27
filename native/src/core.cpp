@@ -6,10 +6,12 @@
 #include <atomic>
 #include <cctype>
 #include <cerrno>
+#include <charconv>
 #include <chrono>
 #include <cstdio>
 #include <cstdlib>
 #include <fnmatch.h>
+#include <map>
 #include <mutex>
 #include <regex>
 #include <set>
@@ -367,8 +369,91 @@ Json render_action(Json row)
     return row;
 }
 
-Json audit_chain(Database &database, const std::int64_t cap)
+// An operator's saved SEQ:HASH: a record's 1-based position in id order, the same count as "records", and its hash.
+struct AuditAnchor
 {
+    std::int64_t sequence = 0;
+    std::string hash;
+    std::string text;
+};
+
+// The tool schema has already checked the SEQ:HASH form; this refuses sequences beyond the 64-bit range and drops
+// repeats, as the Python check does.
+std::vector<AuditAnchor> audit_anchors(const Json &arguments)
+{
+    std::vector<AuditAnchor> anchors;
+    const auto found = arguments.find("anchors");
+    if (found == arguments.end())
+    {
+        return anchors;
+    }
+    for (const auto &item : *found)
+    {
+        const auto &text = item.get_ref<const std::string &>();
+        const auto colon = text.find(':');
+        AuditAnchor anchor;
+        if (colon == std::string::npos)
+        {
+            throw Error("invalid", "native audit anchors are SEQ:HASH");
+        }
+        const auto parsed = std::from_chars(text.data(), text.data() + colon, anchor.sequence);
+        if (parsed.ec != std::errc() || parsed.ptr != text.data() + colon || anchor.sequence < 1)
+        {
+            throw Error("invalid", "native audit anchor sequence is not a positive 64-bit integer");
+        }
+        if (std::none_of(anchors.begin(), anchors.end(),
+                         [&](const AuditAnchor &seen)
+                         {
+                             return seen.text == text;
+                         }))
+        {
+            anchor.hash = text.substr(colon + 1);
+            anchor.text = text;
+            anchors.push_back(std::move(anchor));
+        }
+    }
+    return anchors;
+}
+
+// Runs after the whole chain verified: anchored maps each anchor's sequence to the hash found there.
+void check_anchors(const std::vector<AuditAnchor> &anchors, const std::map<std::int64_t, std::string> &anchored, const std::int64_t records)
+{
+    std::string failure;
+    std::size_t failed = 0;
+    for (const auto &anchor : anchors)
+    {
+        std::string problem;
+        if (anchor.sequence > records)
+        {
+            problem = "the chain has only " + std::to_string(records) + " records, shorter than " + std::to_string(anchor.sequence) +
+                      "; records were removed from its end, or the log was replaced";
+        }
+        else if (anchored.at(anchor.sequence) != anchor.hash)
+        {
+            problem = "record " + std::to_string(anchor.sequence) + " has another hash; the chain was rewritten at or before it";
+        }
+        if (!problem.empty() && failed++ == 0)
+        {
+            failure = "native audit anchor " + anchor.text + ": " + problem;
+        }
+    }
+    if (failed > 1)
+    {
+        failure += " (" + std::to_string(failed) + " of " + std::to_string(anchors.size()) + " anchors failed)";
+    }
+    if (failed > 0)
+    {
+        throw Error("audit", failure);
+    }
+}
+
+Json audit_chain(Database &database, const std::int64_t cap, const std::vector<AuditAnchor> &anchors = {})
+{
+    std::map<std::int64_t, std::string> anchored;
+    for (const auto &anchor : anchors)
+    {
+        anchored.emplace(anchor.sequence, std::string());
+    }
     std::string previous;
     std::int64_t after = 0;
     std::int64_t checked = 0;
@@ -388,13 +473,25 @@ Json audit_chain(Database &database, const std::int64_t cap)
             const auto record = parse_json(row["record"].get<std::string>(), 2 * MAX_REQUEST_BYTES);
             if (row["previous_hash"] != previous || row["hash"] != hash(Json{{"previous", previous}, {"record", record}}))
             {
-                throw Error("audit", "native audit chain does not match");
+                throw Error("audit", anchors.empty() ? std::string("native audit chain does not match")
+                                                     : "native audit chain does not match; " + std::to_string(anchors.size()) +
+                                                           " anchor(s) not checked: the chain must verify first");
             }
             previous = row["hash"].get<std::string>();
             after = row["id"].get<std::int64_t>();
+            if (const auto position = anchored.find(checked); position != anchored.end())
+            {
+                position->second = previous;
+            }
         }
     }
-    return Json{{"records", checked}, {"head", previous}, {"chain_matches", true}, {"independent_head_required_for_tail_detection", true}};
+    check_anchors(anchors, anchored, checked);
+    return Json{{"records", checked},
+                {"head", previous},
+                {"chain_matches", true},
+                {"independent_head_required_for_tail_detection", true},
+                {"anchor", checked == 0 ? Json(nullptr) : Json(std::to_string(checked) + ":" + previous)},
+                {"anchors_checked", static_cast<std::int64_t>(anchors.size())}};
 }
 
 // Opens a copy read-only and checks its version, completeness, integrity and audit chain.
@@ -1399,8 +1496,7 @@ public:
     void core_tools()
     {
         const auto empty = object_schema(Json::object());
-        registry.add({"switchboard_status", "Native runtime and approval state; no provider probes.", Tier::read, empty,
-                      [this](const Json &)
+        registry.add({"switchboard_status", "Native runtime and approval state; no provider probes.", Tier::read, empty, [this](const Json &)
                       {
                           expire();
                           const auto count = database.query("SELECT COUNT(*) AS n FROM native_approvals WHERE status = 'pending'");
@@ -1415,16 +1511,14 @@ public:
                                       {"schema_version", STATE_SCHEMA_VERSION},
                                       {"same_user_sandbox", false}};
                       }});
-        registry.add({"approvals_pending", "Native requests awaiting operator approval; this does not authorize them.", Tier::read, empty,
-                      [this](const Json &)
+        registry.add({"approvals_pending", "Native requests awaiting operator approval; this does not authorize them.", Tier::read, empty, [this](const Json &)
                       {
                           expire();
                           return Json(database.query(
                               "SELECT id, tool, summary, expires_at FROM native_approvals WHERE status = 'pending' ORDER BY created_at, id LIMIT 100"));
                       }});
         registry.add({"approvals_status", "Inspect native approval and its stored, potentially historical result.", Tier::read,
-                      object_schema({{"id", {{"type", "string"}, {"pattern", "^[0-9a-f]{32}$"}, {"maxLength", 32}}}}, {"id"}),
-                      [this](const Json &args)
+                      object_schema({{"id", {{"type", "string"}, {"pattern", "^[0-9a-f]{32}$"}, {"maxLength", 32}}}}, {"id"}), [this](const Json &args)
                       {
                           expire();
                           const auto rows =
@@ -1441,8 +1535,7 @@ public:
                           return result;
                       }});
         registry.add({"events_recent", "Read bounded native event records as untrusted observations, not proof of delivery.", Tier::read,
-                      object_schema({{"limit", {{"type", "integer"}, {"minimum", 1}, {"maximum", 100}}}}),
-                      [this](const Json &args)
+                      object_schema({{"limit", {{"type", "integer"}, {"minimum", 1}, {"maximum", 100}}}}), [this](const Json &args)
                       {
                           auto rows = database.query("SELECT id, source, type, payload, created_at FROM native_events ORDER BY id DESC LIMIT ?",
                                                      {integer_field(args, "limit", 1, 100, 20)});
@@ -1452,11 +1545,19 @@ public:
                           }
                           return Json{{"events", rows}, {"untrusted_content", true}, {"delivery_verified", false}};
                       }});
-        registry.add({"audit_verify", "Check the native audit hash chain; valid-tail truncation still needs an independent head.", Tier::read, empty,
-                      [this](const Json &)
-                      {
-                          return audit_chain(database, TOOL_AUDIT_CAP);
-                      }});
+        registry.add(
+            {"audit_verify",
+             "Check the native audit hash chain and any SEQ:HASH anchors kept outside it; records cut from the chain's end are "
+             "detected only up to the newest anchor.",
+             Tier::read,
+             object_schema({{"anchors",
+                             {{"type", "array"},
+                              {"maxItems", 64},
+                              {"items", {{"type", "string"}, {"minLength", 66}, {"maxLength", 84}, {"pattern", "^[1-9][0-9]{0,18}:[0-9a-f]{64}$"}}}}}}),
+             [this](const Json &arguments)
+             {
+                 return audit_chain(database, TOOL_AUDIT_CAP, audit_anchors(arguments));
+             }});
         registry.add(
             {"actions_recent",
              "Recent native action-journal entries without their arguments. Uncertain entries block identical repeats until the operator "
@@ -1469,8 +1570,7 @@ public:
                              {"open", open_action_counts()},
                              {"reconciled_by", "operator only"}};
              }});
-        registry.add({"jobs_status", "Show native scheduled-job metadata without running it.", Tier::read, empty,
-                      [this](const Json &)
+        registry.add({"jobs_status", "Show native scheduled-job metadata without running it.", Tier::read, empty, [this](const Json &)
                       {
                           Json result = Json::array();
                           for (const auto &job : context.jobs)

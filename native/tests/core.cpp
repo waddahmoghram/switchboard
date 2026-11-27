@@ -172,6 +172,65 @@ void audit_chain()
     expect(runtime.call("audit_verify", Json::object())["status"] == "error", "native audit edit was not detected");
 }
 
+Json verify_with(Runtime &runtime, const Json &anchors)
+{
+    return runtime.call("audit_verify", {{"anchors", anchors}});
+}
+
+void expect_audit_error(const Json &report, const std::string &fragment, const std::string &message)
+{
+    const auto text = report.value("message", std::string());
+    expect(report.value("status", std::string()) == "error" && text.find(fragment) != std::string::npos, message + " (got " + report.dump() + ")");
+}
+
+void audit_anchors()
+{
+    Directory directory;
+    Runtime runtime(test::configuration(directory, {}), std::make_unique<FakeHttp>());
+    expect(runtime.call("switchboard_status", Json::object())["status"] == "ok", "native status failed");
+    // The status request, its result and this verification's own request precede the handler: three records.
+    const auto first = runtime.call("audit_verify", Json::object())["data"];
+    const auto head = first["head"].get<std::string>();
+    const auto anchor = first["anchor"].get<std::string>();
+    expect(first["records"] == 3 && anchor == "3:" + head && first["anchors_checked"] == 0, "native audit anchor is not SEQ:HASH of the last record");
+
+    // A kept anchor still verifies as the chain grows, and repeats count once.
+    const auto later = verify_with(runtime, Json::array({anchor, anchor, "1:" + std::string(64, '0')}));
+    expect_audit_error(later, "anchor 1:" + std::string(64, '0') + ": record 1 has another hash", "native audit anchor hash mismatch was missed");
+    const auto kept = verify_with(runtime, Json::array({anchor, anchor}));
+    expect(kept["status"] == "ok" && kept["data"]["anchors_checked"] == 1 && kept["data"]["records"].get<std::int64_t>() > 3,
+           "native audit anchor did not verify on a longer chain");
+
+    // Malformed anchors are refused before the chain is read.
+    const std::string hash(64, 'a');
+    for (const auto &text : {"01:" + hash, "0:" + hash, "1:" + std::string(64, 'A'), "1:" + hash.substr(1), "1:" + hash + "0", " 1:" + hash, "1" + hash,
+                             "9223372036854775808:" + hash, "99999999999999999999:" + hash})
+    {
+        expect(verify_with(runtime, Json::array({text}))["status"] == "invalid", "native malformed audit anchor was accepted: " + text);
+    }
+    expect(verify_with(runtime, Json::array({1}))["status"] == "invalid", "native non-text audit anchor was accepted");
+    expect(verify_with(runtime, std::vector<std::string>(65, anchor))["status"] == "invalid", "native audit anchor limit was not enforced");
+    expect(verify_with(runtime, std::vector<std::string>(64, anchor))["status"] == "ok", "native audit anchor limit refused 64 anchors");
+    expect_audit_error(verify_with(runtime, Json::array({"9223372036854775807:" + hash})), "shorter than 9223372036854775807",
+                       "native largest audit anchor sequence was not checked");
+
+    // Records cut from the end leave a valid but shorter chain; the next verification's request becomes record 2.
+    Database editor(directory.path / "native-state.sqlite3");
+    editor.execute("DELETE FROM native_audit WHERE id > 1");
+    expect_audit_error(verify_with(runtime, Json::array({anchor})), "anchor " + anchor + ": the chain has only 2 records, shorter than 3",
+                       "native audit tail truncation was missed");
+    const auto two = verify_with(runtime, Json::array({"2:" + hash, "4:" + hash}));
+    expect_audit_error(two, "(2 of 2 anchors failed)", "native audit anchor failures were not counted");
+
+    // Rewritten records at or before the anchor keep a valid chain with another hash there.
+    expect(runtime.call("switchboard_status", Json::object())["status"] == "ok", "native status failed");
+    expect_audit_error(verify_with(runtime, Json::array({anchor})), "record 3 has another hash", "native audit rewrite was missed");
+
+    // A chain that does not verify reports its anchors as not checked.
+    editor.execute("UPDATE native_audit SET record = '{}' WHERE id = 1");
+    expect_audit_error(verify_with(runtime, Json::array({anchor})), "1 anchor(s) not checked", "native audit anchors were checked against a broken chain");
+}
+
 void runtime_settings()
 {
     Directory directory;
@@ -460,6 +519,7 @@ int main()
     approval_revalidation_and_budget();
     protocol_and_exposure();
     audit_chain();
+    audit_anchors();
     runtime_settings();
     audit_redaction();
     journal_tool_and_status();

@@ -1,6 +1,6 @@
 # Native operations: journal, deadlines, runner, state and recovery
 
-This guide covers the operational behavior of the C++ native engine: the durable action journal and reconciliation, deadlines and cancellation, bounded runner ticks, state versions, the audit log, backup and verification, retention, and the kill switch.
+This guide covers the operational behavior of the C++ native engine: the durable action journal and reconciliation, deadlines and cancellation, bounded runner ticks, state versions, the audit log and its anchors, backup and verification, retention, and the kill switch.
 It implements the native side of [contract revision 2](../../contracts/README.md); where this guide and the contract differ, the contract wins.
 Requests, reports and configuration use JavaScript Object Notation (JSON).
 
@@ -180,6 +180,20 @@ Numbers, booleans and null are kept, and a credential key under a named key stil
 The hash is unkeyed, so short or predictable text can be confirmed by guessing.
 The setting applies to new records only; journal arguments are scrubbed without it, and approvals keep exact arguments.
 
+### Verifying the chain and its anchors
+
+The read tool `audit_verify` re-hashes the chain in insertion order, up to 100,000 records, and fails if any record does not match.
+Its report has `records`, the last record's hash as `head`, `chain_matches` and `independent_head_required_for_tail_detection` (both `true`), `anchor` and `anchors_checked`.
+`anchor` names the last record as `SEQ:HASH`, where `SEQ` is a record's 1-based position in insertion order, the same count as `records`.
+The call's own request is recorded before the check runs, so the reported anchor names that request.
+
+A chain whose last records were cut off is still a valid chain.
+To detect that, keep anchors where the engine's account cannot write, and pass them back as `{"anchors": ["SEQ:HASH", …]}`.
+The list holds up to 64 anchors, each with `SEQ` a positive decimal integer without leading zeros and `HASH` 64 lowercase hexadecimal digits; a malformed anchor is `invalid`, and `anchors_checked` counts repeated anchors once.
+The call returns an `error` that names the first failing anchor when the chain has fewer than `SEQ` records, because records were cut from its end or the state was replaced, or when record `SEQ` has another hash, because the chain was rewritten at or before it.
+A chain that does not verify fails without its anchors being checked.
+Records after the newest anchor can still be cut without a trace, and whoever can rewrite both the state and every kept anchor can make them agree.
+
 ## Backup and verification
 
 `backup create DIR` (`Runtime::backup`) writes a consistent online copy:
@@ -297,7 +311,7 @@ The header [native.hpp](../include/switchboard/native.hpp) also provides `STATE_
 
 ## Validation status
 
-The cases are in [core.cpp](../tests/core.cpp) (settings, journal tool, bounded ticks, tick cancellation, redacted audit records), [audit.cpp](../tests/audit.cpp) (scanning time on adversarial text, the redaction nesting limit), [recovery.cpp](../tests/recovery.cpp) (classification, duplicate guard, sweeps, late results, approval review and linking, cancellation and deadline clamping, extension gate) and [lifecycle.cpp](../tests/lifecycle.cpp) (migration, refusal of newer or incomplete state, backup and tampering, retention, kill switch).
+The cases are in [core.cpp](../tests/core.cpp) (settings, journal tool, bounded ticks, tick cancellation, audit anchors and redacted audit records), [audit.cpp](../tests/audit.cpp) (scanning time on adversarial text, the redaction nesting limit), [recovery.cpp](../tests/recovery.cpp) (classification, duplicate guard, sweeps, late results, approval review and linking, cancellation and deadline clamping, extension gate) and [lifecycle.cpp](../tests/lifecycle.cpp) (migration, refusal of newer or incomplete state, backup and tampering, retention, kill switch).
 They use synthetic extension tools and fake transports.
 One recovery case constructs the real web transport only to check that it refuses to start once cancelled or past its deadline; it targets the documentation-only address `192.0.2.1` and is designed to stop before any transfer.
 The shared [audit-redaction.json](../../contracts/cases/audit-redaction.json) fixture checks the redaction rules against both engines.
