@@ -1,5 +1,7 @@
 #include "switchboard/native.hpp"
 
+#include "audit_internal.hpp"
+
 #include <algorithm>
 #include <atomic>
 #include <cctype>
@@ -123,12 +125,12 @@ Json checked_configuration(Json input)
 {
     validate(input, Json::object());
     input = parse_json(input.dump());
-    check_object(input, {"switchboard", "connectors", "policy", "mcp", "rules", "retention", "broker"});
+    check_object(input, {"switchboard", "connectors", "policy", "mcp", "rules", "retention", "broker", "audit"});
     if (input.contains("rules") && (!input["rules"].is_array() || !input["rules"].empty()))
     {
         throw Error("unsupported", "native event rules are not implemented; use explicit clients or the Python runner");
     }
-    for (const auto *name : {"switchboard", "connectors", "policy", "mcp", "retention", "broker"})
+    for (const auto *name : {"switchboard", "connectors", "policy", "mcp", "retention", "broker", "audit"})
     {
         if (!input.contains(name))
         {
@@ -187,6 +189,8 @@ Json checked_configuration(Json input)
     (void)integer_field(retention, "approvals_days", 1, 3650, 90);
     (void)integer_field(retention, "actions_days", 1, 3650, 180);
     check_broker(input["broker"]);
+    check_object(input["audit"], {"hash_only"});
+    (void)audit::hash_only_names(input["audit"]);
     auto &policy = input["policy"];
     check_object(policy, {"tools", "approval_ttl_minutes"});
     (void)integer_field(policy, "approval_ttl_minutes", 1, 1440, 60);
@@ -245,38 +249,6 @@ std::filesystem::path state_file(const std::filesystem::path &directory)
 {
     ensure_private_directory(directory);
     return directory / "native-state.sqlite3";
-}
-
-Json redacted(Json value, const std::size_t depth = 0)
-{
-    if (depth > 64)
-    {
-        throw Error("limit", "native audit value exceeds its nesting limit");
-    }
-    if (value.is_object())
-    {
-        for (auto item = value.begin(); item != value.end(); ++item)
-        {
-            const auto key = lower(item.key());
-            if (key.find("password") != std::string::npos || key.find("secret") != std::string::npos || key.find("token") != std::string::npos ||
-                key.find("authorization") != std::string::npos || key.find("cookie") != std::string::npos)
-            {
-                item.value() = "[REDACTED]";
-            }
-            else
-            {
-                item.value() = redacted(item.value(), depth + 1);
-            }
-        }
-    }
-    else if (value.is_array())
-    {
-        for (auto &item : value)
-        {
-            item = redacted(item, depth + 1);
-        }
-    }
-    return value;
 }
 
 std::string identifier()
@@ -655,13 +627,16 @@ public:
     std::int64_t tool_timeout;
     std::int64_t job_timeout;
     std::int64_t tick_budget;
+    // audit.hash_only, lower case.
+    std::vector<std::string> hash_only;
 
     Impl(Json input, std::unique_ptr<HttpTransport> provided, Clock clock, const Extension &extension)
         : configuration(checked_configuration(std::move(input))), directory(data_directory(configuration)), database(state_file(directory)),
           transport(provided ? std::move(provided) : make_http_transport()), context(configuration, directory, database, *transport, std::move(clock)),
           owner(std::to_string(getpid()) + ":" + identifier()), tool_timeout(integer_field(configuration["switchboard"], "tool_timeout_seconds", 5, 3600, 120)),
           job_timeout(integer_field(configuration["switchboard"], "job_timeout_seconds", 5, 3600, 300)),
-          tick_budget(integer_field(configuration["switchboard"], "tick_budget_seconds", 30, 3600, 600))
+          tick_budget(integer_field(configuration["switchboard"], "tick_budget_seconds", 30, 3600, 600)),
+          hash_only(audit::hash_only_names(configuration["audit"]))
     {
         core_tools();
         register_home(context, registry);
@@ -752,7 +727,15 @@ public:
 
     void audit(const Json &record)
     {
-        const auto safe = redacted(record);
+        auto safe = audit::redact(record, hash_only);
+        // Like Python's ts and kind, the event name and time are written as they are; hash_only names other fields.
+        for (const auto *field : {"event", "at"})
+        {
+            if (record.contains(field))
+            {
+                safe[field] = record.at(field);
+            }
+        }
         Transaction transaction(database);
         const auto rows = database.query("SELECT hash FROM native_audit ORDER BY id DESC LIMIT 1");
         const std::string previous = rows.empty() ? "" : rows.front()["hash"].get<std::string>();
@@ -870,7 +853,7 @@ public:
                     const auto started = context.now();
                     database.execute("INSERT INTO native_actions(id, tool, args_digest, args, origin, approval_id, state, owner, started_at, deadline_at) "
                                      "VALUES (?, ?, ?, ?, ?, ?, 'in_flight', ?, ?, ?)",
-                                     {action_id, name, digest, redacted(arguments).dump(-1, ' ', true), origin_name(origin), approval_id, owner, started,
+                                     {action_id, name, digest, audit::redact(arguments).dump(-1, ' ', true), origin_name(origin), approval_id, owner, started,
                                       started + tool_timeout});
                 }
             }

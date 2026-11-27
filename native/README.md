@@ -154,6 +154,7 @@ Native events have no automatic notification/rule delivery.
 Old event payloads are pruned on runner ticks; deduplication keys can remain.
 `purge [--dry-run]` applies core-table retention; adapter data has no global deletion policy.
 `backup create DIR` writes a consistent copy with a manifest that `backup verify DIR` checks.
+Audit records are redacted by the [shared rules](../contracts/README.md#audit-redaction), and `audit.hash_only` keeps named fields only as a length and hash.
 The audit chain can detect altered/interior records, not valid-tail deletion without an independent head.
 
 An outer successful call means a handler returned a report.

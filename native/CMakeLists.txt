@@ -74,6 +74,7 @@ find_package(Threads REQUIRED)
 
 add_library(switchboard_native SHARED
     src/foundation.cpp
+    src/audit.cpp
     src/core.cpp
     src/transport.cpp
     src/digest.cpp
@@ -86,8 +87,9 @@ add_library(switchboard_native SHARED
 )
 add_library(switchboard::native ALIAS switchboard_native)
 # Symbols keep the default visibility on purpose: the installed C++ interface (native.hpp) has no export
-# macros, and native/tests/broker.cpp links internal broker functions declared in src/broker_internal.hpp
-# from this shared library. Hiding symbols would require building such tests from an object library instead.
+# macros, and native/tests/broker.cpp, audit.cpp and contracts.cpp link internal functions declared in
+# src/broker_internal.hpp and src/audit_internal.hpp from this shared library. Hiding symbols would require
+# building such tests from an object library instead.
 target_include_directories(switchboard_native PUBLIC
     "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>"
     "$<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>"
@@ -127,6 +129,7 @@ if(SWITCHBOARD_BUILD_TESTS)
     enable_testing()
     set(SWITCHBOARD_TEST_SUITES
         core
+        audit
         home
         devices
         personal

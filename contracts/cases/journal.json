@@ -1,7 +1,7 @@
 {
   "format": "switchboard-contract-cases",
   "version": 1,
-  "contract_revision": 1,
+  "contract_revision": 2,
   "area": "journal",
   "summary": "The action journal: result classification, the duplicate guard, operator reconciliation, sweeps of abandoned attempts, and the assistant's read-only view. Uses the synthetic contract_* tools; stale attempts are inserted directly into each engine's journal table.",
   "cases": [

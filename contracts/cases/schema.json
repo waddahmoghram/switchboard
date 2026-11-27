@@ -1,7 +1,7 @@
 {
   "format": "switchboard-contract-cases",
   "version": 1,
-  "contract_revision": 1,
+  "contract_revision": 2,
   "area": "schema",
   "summary": "The supported JSON Schema subset for tool arguments: which definitions register and which values validate. Checked through each engine's public check_schema, validate and tool-registration functions; no engine instance is started.",
   "cases": [

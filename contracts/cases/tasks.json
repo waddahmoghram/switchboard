@@ -1,7 +1,7 @@
 {
   "format": "switchboard-contract-cases",
   "version": 1,
-  "contract_revision": 1,
+  "contract_revision": 2,
   "area": "tasks",
   "summary": "The shared subset of the local tasks connector: tasks_add, tasks_read, tasks_update, tasks_list, tasks_delete and tasks_status semantics, exact-revision updates, and timestamps compared as instants rather than text.",
   "cases": [

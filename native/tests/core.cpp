@@ -219,6 +219,13 @@ void runtime_settings()
     rejected("broker", "client_socket", "   ", "invalid");
     rejected("broker", "operator_socket", 5, "invalid");
     rejected("broker", "listen_address", "0.0.0.0", "invalid");
+    rejected("audit", "hash_only", "message", "invalid");
+    rejected("audit", "hash_only", Json::array({""}), "invalid");
+    rejected("audit", "hash_only", Json::array({" message"}), "invalid");
+    rejected("audit", "hash_only", Json::array({"message\xC2\xA0"}), "invalid");
+    rejected("audit", "hash_only", Json::array({5}), "invalid");
+    rejected("audit", "hash_only", Json(std::vector<std::string>(65, "message")), "invalid");
+    rejected("audit", "keep", true, "invalid");
     bool explained = false;
     try
     {
@@ -239,6 +246,57 @@ void runtime_settings()
             Runtime runtime(array_broker, std::make_unique<FakeHttp>());
         },
         "invalid", "native broker section must be an object");
+    auto array_audit = configuration;
+    array_audit["audit"] = Json::array();
+    expect_error_code(
+        [&]
+        {
+            Runtime runtime(array_audit, std::make_unique<FakeHttp>());
+        },
+        "invalid", "native audit section must be an object");
+    auto hashed = configuration;
+    hashed["audit"] = {{"hash_only", Json(std::vector<std::string>(64, "message"))}};
+    Runtime most(hashed, std::make_unique<FakeHttp>());
+    expect(most.call("switchboard_status", Json::object())["status"] == "ok", "native audit.hash_only refused 64 names");
+}
+
+// Audit records and journal arguments are redacted by the shared rules; only audit records apply audit.hash_only.
+void audit_redaction()
+{
+    Directory directory;
+    auto configuration = test::configuration(directory, {});
+    configuration["audit"] = {{"hash_only", Json::array({"NOTE", "at"})}};
+    const Extension tools = [](Context &, Registry &registry)
+    {
+        registry.add({"test_send", "Synthetic draft-tier write for audit tests.", Tier::draft,
+                      object_schema({{"note", {{"type", "string"}}}, {"password", {{"type", "string"}}}, {"tag", {{"type", "string"}}}}), [](const Json &)
+                      {
+                          return Json{{"sent", true}};
+                      }});
+    };
+    Runtime runtime(configuration, std::make_unique<FakeHttp>(), {}, tools);
+    const auto result = runtime.call("test_send", {{"note", "call me, password: hunter2"}, {"password", "hunter2"}, {"tag", "Bearer abcdefghijklmnop1"}});
+    expect(result["status"] == "ok" && result["action"]["id"].is_string(), "native audit test tool failed");
+    const auto action = result["action"]["id"].get<std::string>();
+    Database editor(directory.path / "native-state.sqlite3");
+    Json request;
+    for (const auto &row : editor.query("SELECT record FROM native_audit ORDER BY id"))
+    {
+        auto record = Json::parse(row.at("record").get<std::string>());
+        if (record["event"] == "tool.request")
+        {
+            request = std::move(record);
+        }
+    }
+    expect(request["arguments"] == Json{{"note", "[29 chars, sha256:b388afd740d0981b]"}, {"password", "[redacted]"}, {"tag", "Bearer [redacted]"}},
+           "native audit record arguments were not redacted like Python's: " + request.dump());
+    expect(request["action"] == action, "native audit record lost the action identifier under an identifier key");
+    expect(request["at"].is_string() && request["at"].get<std::string>().find("chars, sha256:") == std::string::npos,
+           "native audit record hashed its own time");
+    const auto journal = runtime.actions({{"id", action}});
+    expect(journal["action"]["args"] == Json{{"note", "call me, password: [redacted]"}, {"password", "[redacted]"}, {"tag", "Bearer [redacted]"}},
+           "native journal arguments must be scrubbed without audit.hash_only: " + journal.dump());
+    expect(runtime.call("audit_verify", Json::object())["data"]["chain_matches"] == true, "native redacted audit chain failed");
 }
 
 void journal_tool_and_status()
@@ -403,6 +461,7 @@ int main()
     protocol_and_exposure();
     audit_chain();
     runtime_settings();
+    audit_redaction();
     journal_tool_and_status();
     bounded_tick_and_backoff();
     tick_cancellation();
