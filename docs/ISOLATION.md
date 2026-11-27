@@ -231,7 +231,7 @@ Approve, deny, reconcile, and kill-switch changes write audit records with the p
 ## macOS status
 
 Peer credentials are read through `LOCAL_PEERCRED` and decoded as `struct xucred` from Apple's published headers; macOS reports no process identifier there.
-This path is untested.
+A unit test checks the request and its decoding against a fake socket, but nothing has tested this path on macOS.
 No launchd job definition is provided: create the account and groups yourself, create a socket directory owned by the service account with mode 711 before each start, and keep the configuration and secrets private to that account.
 Other systems, including Windows and the Berkeley Software Distribution (BSD) family, are refused at startup rather than trusted.
 
