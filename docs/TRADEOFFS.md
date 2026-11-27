@@ -217,8 +217,8 @@ Protocol references (checked 2026-11-11):
    and recover missed notifications before calling push integration complete.
 4. **Exercise the isolation.**
    Install the broker units on a test host, confirm the peer checks and socket permissions, and only then design a phone approval path that keeps the account separation.
-5. **Publication.**
-   The [MIT License](../LICENSE) now covers the project; confirm ownership before publishing, and add restore drills against real backups to the routine.
+5. **Restore drills.**
+   Add restore drills against real backups to the routine.
 
 ## Testing status
 

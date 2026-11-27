@@ -303,13 +303,14 @@ Hosted CI: the first GitHub Actions run of `ci.yml`, on the repository's initial
 - Python on macOS: mypy reported `attr-defined` for the Linux-only `socket.SO_PEERCRED`.
 - Contracts: the job stopped after its Python half failed.
 
+Dependabot then ran without the configuration in `.github/dependabot.yml`: it submitted the dependency graph and opened one pull request, which updates pytest to 9.0.3, and the CI run on that pull request failed all 16 jobs as well.
 Later commits fix these causes; hosted CI has not yet run the fixes.
 
 What has not run:
 
 - The macOS legs, Python and native, including Apple Clang, have run only in that failed first hosted run, never on the current code.
 - Nothing has run on Windows.
-- No run of CodeQL, Dependabot or the `cargo audit` step has been observed.
+- No run of CodeQL or of the `cargo audit` step has been observed, and Dependabot has not yet run with `.github/dependabot.yml`.
 - Nothing has been run against a real account, device or outside network service.
 - No systemd or launchd service has been installed, and the audit-anchor cron and launchd recipes have not been run.
 
