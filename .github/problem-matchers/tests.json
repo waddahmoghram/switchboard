@@ -1,0 +1,35 @@
+{
+  "problemMatcher": [
+    {
+      "owner": "switchboard-pytest",
+      "severity": "error",
+      "pattern": [
+        {
+          "regexp": "^((?:FAILED|ERROR) (\\S+?\\.py)(?:::|\\s).*)$",
+          "message": 1,
+          "file": 2
+        }
+      ]
+    },
+    {
+      "owner": "switchboard-ctest",
+      "severity": "error",
+      "pattern": [
+        {
+          "regexp": "^\\s*(\\d+/\\d+ Test\\s+#\\d+: \\S+ .*\\*\\*\\*.*)$",
+          "message": 1
+        }
+      ]
+    },
+    {
+      "owner": "switchboard-native-test",
+      "severity": "error",
+      "pattern": [
+        {
+          "regexp": "^\\s*((?:native [a-z ]+ test failure: |FAIL |what\\(\\): ).+)$",
+          "message": 1
+        }
+      ]
+    }
+  ]
+}

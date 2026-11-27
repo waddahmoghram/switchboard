@@ -247,6 +247,8 @@ Not pinned: the runner images behind `ubuntu-24.04` and `macos-15`, Ubuntu and H
 - Checkout does not persist credentials, every action is pinned to a full commit SHA, and the uv cache is off,
   so one run cannot seed another run's tools.
 - The only uploaded artifact is the fuzzing crash inputs of a failed run, kept for 14 days.
+- Problem matchers in `.github/problem-matchers/tests.json` turn the failure lines that pytest and CTest print into error annotations, so the checks page names a failed test without its log.
+  On a public repository anyone can read annotations, while job logs need a GitHub sign-in; the matched lines come from tests that use only synthetic data.
 - `sudo` is used only on disposable runners, for distribution packages and the sanitizer `sysctl` setting.
 - Concurrency groups cancel superseded pull request runs; a running push build is never cancelled.
 - Pinned actions do not update themselves.

@@ -47,6 +47,9 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      # Annotations name failed pytest and CTest tests on the run; unlike job logs, they need no sign-in.
+      - name: Show failed tests as annotations
+        run: echo "::add-matcher::$GITHUB_WORKSPACE/.github/problem-matchers/tests.json"
       - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
         with:
           version: ${{ env.UV_VERSION }}
@@ -78,6 +81,8 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      - name: Show failed tests as annotations
+        run: echo "::add-matcher::$GITHUB_WORKSPACE/.github/problem-matchers/tests.json"
       - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
         with:
           version: ${{ env.UV_VERSION }}
@@ -129,6 +134,8 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      - name: Show failed tests as annotations
+        run: echo "::add-matcher::$GITHUB_WORKSPACE/.github/problem-matchers/tests.json"
       - name: Install native dependencies (Ubuntu)
         if: runner.os == 'Linux'
         run: |
@@ -182,6 +189,8 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      - name: Show failed tests as annotations
+        run: echo "::add-matcher::$GITHUB_WORKSPACE/.github/problem-matchers/tests.json"
       - name: Install native dependencies
         run: |
           sudo apt-get update
@@ -250,6 +259,8 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      - name: Show failed tests as annotations
+        run: echo "::add-matcher::$GITHUB_WORKSPACE/.github/problem-matchers/tests.json"
       - name: Install native dependencies and the LLVM fuzzing runtime
         run: |
           sudo apt-get update
