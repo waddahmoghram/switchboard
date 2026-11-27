@@ -266,10 +266,9 @@ immutable drafts, approval argument binding, disabled publication, concurrent/du
 Integration cases use `make_app` and `FakeHttp`, never a real account.
 They require the main application to register the `linkedin` connector.
 
-Only source inspection and permitted static checks were performed on the development host.
-No project imports,
-test collection, tests, application commands, authorization flow, or live provider calls were executed there.
-Runtime compatibility, current application entitlements, and actual account publication remain unverified.
+[Validation](../VALIDATION.md#current-status) records where these cases have run.
+The setup commands above have not been run as written, and no authorization flow or live provider call has been made.
+Provider compatibility, current application entitlements, and actual account publication remain unverified.
 
 [account-download]: https://www.linkedin.com/help/linkedin/answer/a1339364/downloading-your-account-data
 [developer-portal]: https://www.linkedin.com/developers/

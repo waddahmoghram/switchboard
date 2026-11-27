@@ -6,11 +6,10 @@ Registration checks `context.enabled("wled")` and `context.enabled("shelly")` in
 An unselected family's settings are ignored.
 Registration, catalogs and inventory do not contact devices or resolve credentials.
 
-**Verification boundary:** 69 synthetic cases are authored in [devices.cpp](../tests/devices.cpp), all **UNRUN**.
-The permitted compiler syntax check completed without diagnostics.
-No project import, application/example execution, test collection, test execution, configure/build, account access or device probe was performed.
+**Verification boundary:** [devices.cpp](../tests/devices.cpp) holds 69 synthetic cases; [Validation](../../docs/VALIDATION.md#current-status) records where they have run.
+No example, account or device has been used.
 Public provider documentation was retrieved on 2026-11-11.
-Syntax checking does not establish linkage, running behavior, production transport authentication or firmware compatibility.
+Passing synthetic tests do not establish production transport authentication or firmware compatibility.
 
 ## Setup and configuration
 
@@ -285,17 +284,16 @@ Neither implementation is used as a fallback for the other. Discovery, arbitrary
 toggle, dynamic effects, segment geometry, playlists, scripts, cover/motor profiles, factory reset,
 firmware changes, cloud control, counter resets and generic electrical-load control are not exposed.
 
-## Authored checks and sources
+## Checks and sources
 
 The 69 named cases use `FakeHttp`, direct registry handlers and the shared Digest validator.
 They specify independent/offline selection,
 strict settings/schemas, exact methods/paths/payloads, per-device consent, optional native Digest setup, lazy credentials with required pinned realms, shared-parser nonce rotation/realm-change/downgrade checks, secret/error minimization, scope-bound required fingerprints, changed configuration, safe-load/capability/cap checks, preset validation, response limits, provider errors, readback mismatch and uncertainty without automatic replay.
 Matrix loops are additional scenarios, not additional named case counts.
-Future test artifacts use private project-local directories, never a temporary-directory helper.
-The tests have not been collected or executed.
+Test artifacts use private project-local directories, never a temporary-directory helper.
 
 They do **not** exercise the real dispatcher approval queue, approval restart/replay protection, kill switch, policy overrides or rate accounting; those belong to native core coverage.
-They also do not verify real curl headers/Digest negotiation, linking, endpoint resolution, actual credentials, firmware versions, concurrent controllers, metering age or physical safety.
+They also do not verify real curl headers/Digest negotiation, endpoint resolution, actual credentials, firmware versions, concurrent controllers, metering age or physical safety.
 
 Provider references inspected for this implementation:
 

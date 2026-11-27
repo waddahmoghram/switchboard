@@ -4,9 +4,8 @@ This C++20 adapter uses Home Assistant's Representational State Transfer (REST) 
 It has no Python subprocess, interpreter embedding, fallback, or dependency on Python home state.
 The Python baseline `6989a4b` is a read-only behavior reference, not evidence that native behavior has run.
 
-**Validation boundary:** source and authored tests have received syntax/type and formatting checks only.
-Every test below is **authored but UNRUN**.
-No project program, test collection, test, example, build, Home Assistant server, account, or device was executed or contacted.
+**Validation boundary:** [Validation](../../docs/VALIDATION.md#current-status) records where the tests below have run.
+No Home Assistant server, account, or device has been contacted.
 Public provider and SQLite documentation was read on 2026-11-11.
 
 **Not a safety controller.**
@@ -411,19 +410,17 @@ The native adapter is stricter about reported groups and known light modes.
 It checks the effective climate mode on temperature readback and does not return the action reply's changed-state list.
 There is no physical delivery verification in either implementation.
 
-## Coverage and UNRUN tests
+## Test coverage
 
 [`native/tests/home.cpp`](../tests/home.cpp) includes `support.hpp`, its deterministic `FakeHttp`, and a wrapper that can throw on a fake submission.
 No test creates a real transport.
-Fixtures, if explicitly run later, create owner-private directories relative to the test's working directory, not the shared support helper's system temporary directory.
+Fixtures create owner-private directories relative to the test's working directory, not the shared support helper's system temporary directory.
 They restore fake environment credentials and remove their own fixtures.
 The fixture clock is adjustable for staleness tests; the atomicity test adds and drops temporary SQLite triggers in its own fixture database; one preset test installs `ScopedExecutionLimits` around a direct handler call.
 
-All 40 test functions below are **authored, UNRUN**.
-The described assertions are intended coverage,
-not passed results:
+The 40 test functions below cover:
 
-| Test function(s)                                               | Authored assertions                                                                                                                                                                                                                            |
+| Test function(s)                                               | Assertions                                                                                                                                                                                                                                     |
 | -------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `test_disabled_and_offline_registration`                       | Disabled early return without tables; eleven tools and tiers; two empty home tables; no token resolution, requests, jobs, snapshots or events; offline disabled-poll status and refused `home_poll`; empty allowlists and presets fail closed. |
 | `test_settings_reject_unsupported_and_unsafe_scope`            | Unsupported speech, quiet-hours, time-zone and retry settings even when disabled; malformed/nested values, endpoints, secrets, duplicates, globs, unsafe domains and limits.                                                                   |
@@ -466,9 +463,7 @@ not passed results:
 | `test_sensor_summary_cached_staleness_and_scope`               | Offline not-observed entries; cached readings from snapshots; recorded poll error makes readings unusable; age staleness; polling allowlist.                                                                                                   |
 | `test_runtime_unknown_submission_is_journaled_uncertain`       | Through the runtime, an unknown submission is journaled `uncertain` and blocks an identical request; an observed one is `succeeded`. Depends on the shared journal.                                                                            |
 
-No runtime coverage, physical effects, credentials/file permissions against a real installation,
-Home Assistant version compatibility, network/certificate reachability, build/link success, concurrency/races, device quantization, SQLite trigger behavior, or hidden provider integration behavior has been verified.
-Approval and journal tests exercise the shared runtime by authored calls, not by running it during development.
+Physical effects, credentials and file permissions in a real installation, Home Assistant version compatibility, network/certificate reachability, concurrency/races, device quantization, and hidden provider integration behavior have not been verified.
 
 ## Syntax-only verification
 
@@ -487,10 +482,7 @@ clang-format-14 --dry-run --Werror native/src/home.cpp native/tests/home.cpp
 These check only the two translation units; they neither link the native engine nor execute any test.
 Execution-limit declarations used here are defined in shared runtime sources outside this adapter.
 Do not interpret the checks as provider compatibility or runtime coverage.
-CMake configuration/build and test collection/execution were not performed.
-
-Authoring result on 2026-11-11: the system `c++` 11.4 compiler exited 0 with no diagnostics for either translation unit, and the clang-format dry run reported no changes.
-The example JSON was parsed as data only (ASCII, no duplicate keys, preset and polling references consistent), without importing or executing project code.
+[Validation](../../docs/VALIDATION.md#current-status) records the full builds and test runs.
 
 ## Public references
 
@@ -505,7 +497,7 @@ The example JSON was parsed as data only (ASCII, no duplicate keys, preset and p
 - Provider bit constants inspected at commit `0dc24540ce48f65f616230857e2cf21ceec92b80`: [climate][climate-flags], [fan][fan-flags], [media player][media-flags].
   The adapter uses climate target bits 1/2, fan speed bit 1, and media pause/play/stop/volume/mute bits 1/16384/4096/4/8 respectively.
   No feature is inferred from entity names.
-- SQLite [trigger `RAISE` semantics][sqlite-trigger] and the [upsert clause][sqlite-upsert], as used by the authored atomicity test.
+- SQLite [trigger `RAISE` semantics][sqlite-trigger] and the [upsert clause][sqlite-upsert], as used by the atomicity test.
 
 [rest]: https://contributors.home-assistant.io/core/internals/rest-api/
 [light]: https://contributors.home-assistant.io/core/entities/light/

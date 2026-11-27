@@ -6,7 +6,8 @@ The broker moves the configuration, credentials, database, and audit log to a de
 The assistant and the operator each get their own local socket, so approval separation rests on operating-system accounts instead of on the assistant's good behavior.
 
 **Status.**
-The broker, the operator client, the assistant shim, the systemd units, and their tests are authored but have not been run, installed, or started on any host.
+The tests exercise the broker, the operator client, and the assistant shim under a single account; see [Validation](./VALIDATION.md#current-status).
+None of them has been installed under separate accounts, and the systemd units have not been installed or started on any host.
 Treat the commands and units below as a reviewed starting point, not a verified deployment.
 
 **Same-account caveat.**
@@ -236,7 +237,7 @@ Other systems, including Windows and the Berkeley Software Distribution (BSD) fa
 
 ## Limits
 
-* Nothing here has been executed; the tests are authored for the reader's own machine.
+* The tests run under one account with fakes and temporary directories; they do not exercise an installed deployment.
 * One operation at a time means one slow provider call delays every other call until its deadline.
 * The broker does not poll, process events, or run rules; the runner unit does, under the same account.
 * Separate accounts protect the credentials and the decision, not the data that allowed tools return.

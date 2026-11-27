@@ -81,7 +81,7 @@ Now `Tool.__post_init__` calls `check_schema` and refuses the definition before 
 A nested typo identifies the property path in the error.
 This catches a definition error; it does not prove that the handler correctly uses a valid message.
 
-Follow `check_schema`, `validate`, and `_check_string` in [the validator](../src/switchboard/jsonschema.py), then inspect the authored cases in [the schema tests](../tests/unit/test_core_jsonschema.py).
+Follow `check_schema`, `validate`, and `_check_string` in [the validator](../src/switchboard/jsonschema.py), then inspect the cases in [the schema tests](../tests/unit/test_core_jsonschema.py).
 A separate trap remains intentional:
 `"format": "email"` is metadata, not address validation.
 Use the existing mail address helpers or implement and test an actual assertion before depending on it.
@@ -125,7 +125,7 @@ Matching an imported alert is not proof that a bank has settled the charge.
 
 Read [the pending-action case](./ARCHITECTURE.md#worked-case-a-pending-action-is-not-a-completed-workflow) before adding a second action.
 The list is not an automatically awaited workflow: a later notification must not claim an earlier action completed merely because it was submitted.
-The corresponding cases in [the rule tests](../tests/unit/test_core_rules.py) are authored regression tests, not runtime evidence from this host.
+The corresponding regression cases are in [the rule tests](../tests/unit/test_core_rules.py).
 
 ## Events
 

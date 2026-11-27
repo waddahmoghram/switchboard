@@ -190,7 +190,7 @@ A case carries `known_violation` instead when an engine does not yet meet a norm
 That runner reports an expected failure and fails once the case passes, so the marker is removed when the engine is fixed.
 No case carries one at present.
 
-Run both runners on your own machine; these are unexecuted instructions:
+Run both runners on your own machine; these commands have not been run as written:
 
 ```bash
 uv run pytest -m contracts tests/contracts
@@ -201,4 +201,4 @@ ctest --test-dir build/native -L contracts --output-on-failure
 
 The Python runner is [tests/contracts/test_contracts.py](../tests/contracts/test_contracts.py).
 The native runner, [native/tests/contracts.cpp](../native/tests/contracts.cpp), reads the directory compiled in as `SWITCHBOARD_CONTRACTS_DIR` and lists every failed case.
-No runner, engine, test or build was executed when the fixtures and runners were written; only formatters, linters, type checks, a compile-only syntax check, and JSON and Markdown checks ran.
+[Validation](../docs/VALIDATION.md#current-status) records where both runners have run.

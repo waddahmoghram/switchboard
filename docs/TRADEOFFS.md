@@ -119,7 +119,7 @@ Details: [shopping](./connectors/shopping.md#why-there-is-no-buy-tool).
 
 Details and primary sources: [Telegram](./connectors/telegram.md),
 [LinkedIn](./connectors/linkedin.md), and [WhatsApp exports](./connectors/whatsapp.md).
-The code and synthetic tests are authored, not live-provider verification.
+The synthetic tests are not live-provider verification.
 
 ## Local devices, documents, tasks, and monitoring
 
@@ -162,7 +162,7 @@ The [binding contract](../native/docs/bindings.md) defines ownership and error s
 The existing Python package remains the fuller, standard-library reference.
 Native transport, database, Structured-data and cryptographic libraries add build/deployment dependencies.
 Native account/social hooks and full automation-rule parity are not claimed.
-Neither compiler checks nor shared interfaces prove runtime or hardware compatibility; see [native coverage and build limits](../native/README.md).
+Neither passing synthetic tests nor shared interfaces prove hardware compatibility or behavior on untested platforms; see [native coverage and build limits](../native/README.md).
 
 | Choice                         | Benefit                                                            | Cost                                                                                                  |
 | ------------------------------ | ------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------- |
@@ -177,7 +177,7 @@ Neither compiler checks nor shared interfaces prove runtime or hardware compatib
 | Unknown outcomes stay unknown  | A possibly delivered write is never repeated blindly               | A dropped connection or 5xx reply blocks an identical request until you check and reconcile it        |
 | Deadlines in the web client    | Calls and job runs stop waiting on a slow provider                 | Other handler code cannot be interrupted; a stuck job holds its connector's lane until it returns     |
 | Worker lanes per connector     | One slow connector no longer delays every other job                | Services shared between connectors must be thread-safe; separate processes are not serialized         |
-| Optional broker                | An assistant's shell cannot read credentials or approve itself     | A service account, groups, sockets, and units to maintain; one operation at a time; untested          |
+| Optional broker                | An assistant's shell cannot read credentials or approve itself     | A service account, groups, sockets, and units to maintain; one operation at a time; not yet deployed  |
 | Online backups with a manifest | Consistent copies while the runner keeps working                   | Audit appends, and so tool calls, pause during the copy; copies are clear text until you encrypt them |
 
 ## What this version cannot do
@@ -189,7 +189,7 @@ Neither compiler checks nor shared interfaces prove runtime or hardware compatib
 * Read prices that appear only after JavaScript runs.
 * Claim events across several runner processes, or approve actions from a phone.
 * Sandbox an assistant that has the same user's shell and file access.
-  The optional broker separates accounts instead, but it has not been run on any host.
+  The optional broker separates accounts instead, but it has not yet been deployed under separate accounts.
 * Guarantee exactly-once delivery of external effects across crashes, or automatically replay failed events safely.
   The action journal refuses blind repeats and records your reconciliation; it does not deduplicate at the provider.
 * Create and renew Microsoft Graph subscriptions or Google Calendar watch channels.
@@ -206,8 +206,8 @@ Protocol references (checked 2026-11-11):
 ## Highest-value next work
 
 1. **Run before connecting accounts.**
-   Exercise the written unit, integration, contract, fault, and fuzz suites on a personal machine with [the validation pipeline](./VALIDATION.md).
-   Fake responses and type checks cannot prove protocol behavior against an actual provider.
+   Exercise the unit, integration, contract, fault, and fuzz suites on a personal machine with [the validation pipeline](./VALIDATION.md).
+   Tests against fake responses cannot prove protocol behavior against an actual provider.
 2. **Provider idempotency.**
    The action journal now stops blind repeats and records reconciliation.
    Next, send provider-supported idempotency keys where they exist, so a deliberate retry after an unknown outcome cannot duplicate.
@@ -222,6 +222,6 @@ Protocol references (checked 2026-11-11):
 
 ## Testing status
 
-All tests were written alongside the code and checked statically (Ruff linting and formatting, mypy type checking of the package and the tests), but none were executed on the authoring machine.
-Runtime behavior, platform compatibility, and real provider flows remain unverified.
+[Validation](./VALIDATION.md#current-status) records which suites have run, where, and with what result.
+Platforms other than Linux, and real provider flows, remain unverified.
 Run the offline suite on your own machine before enabling accounts; then validate one provider at a time with the smallest permitted scope.

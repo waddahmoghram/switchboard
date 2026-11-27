@@ -9,9 +9,9 @@ Application readiness additionally requires an explicit JavaScript Object Notati
 A successful response alone never certifies a backup or restore.
 A fresh completion report is a producer's assertion, not independent evidence that its data can be restored.
 
-**Validation status: UNRUN.**
-Tests and the own-machine procedures below are authored instructions, not executed observations.
-No application, test collection, test run, endpoint connection, report inspection, or capacity measurement was performed while authoring this connector.
+**Validation status:** [Validation](../VALIDATION.md#current-status) records where these tests have run.
+The own-machine procedures below have not been run.
+No real endpoint, completion report, or disk has been checked with this connector.
 
 ## Configure named checks
 
@@ -328,12 +328,9 @@ Publish a deliberate failed test completion, let its valid completion age past i
 Verify changed/alert/recovery revisions and repeated-state suppression.
 Never interrupt a real backup, fill a real disk, scan hosts, restore production data, or substitute fake success reports merely to test monitoring.
 
-## Authored test coverage and limits
+## Test coverage and limits
 
-The [configuration tests](../../tests/unit/test_monitoring_settings.py),
-[measurement tests](../../tests/unit/test_monitoring_checks.py),
-[private-file tests](../../tests/unit/test_monitoring_files.py), and [application flows](../../tests/integration/test_monitoring_flow.py) are **authored and UNRUN**.
-They use fake HTTP, synthetic report fixtures, substituted file descriptors and capacity calls, and an injected clock.
+The [configuration tests](../../tests/unit/test_monitoring_settings.py), [measurement tests](../../tests/unit/test_monitoring_checks.py), [private-file tests](../../tests/unit/test_monitoring_files.py), and [application flows](../../tests/integration/test_monitoring_flow.py) use fake HTTP, synthetic report fixtures, substituted file descriptors and capacity calls, and an injected clock.
 They cover healthy/failing/stale transitions, schema/time bounds, private read-only file policy, offline registration, policy-gated tools, atomic rollback, durable deduplication, and opt-in self-channel rules.
 They do not certify a real host, network, backup product, mount identity, delivered notification, or restore.
 

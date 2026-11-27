@@ -5,8 +5,8 @@ The native broker runs one C++ engine under a dedicated account that owns the co
 It serves two local Unix domain sockets: the assistant's account reaches only the client socket, and the operator's account reaches only the operator socket.
 The [contract](../../contracts/README.md#isolation) states the rule both engines follow.
 
-Everything here is authored but unrun: no broker, shim, socket, service unit or test was started on the authoring host.
-Compiler syntax checks are not evidence that any of it works.
+[Validation](../../docs/VALIDATION.md#current-status) records where the broker tests have run.
+No broker or shim has been installed under separate accounts, and no service unit has been started.
 
 ## Principals
 
@@ -183,4 +183,4 @@ Neither engine claims a sandbox in that configuration.
 ## Tests
 
 [Broker cases](../tests/broker.cpp) cover line framing, response bounds, authorization with injected user identifiers, the peer-credential facility on an anonymous socket pair, operator-only enforcement through injected roles, and the shared operator protocol, including approval review, status contents and journal bounds.
-They are authored but unrun, need no second account and open no listening socket.
+They need no second account and open no listening socket.

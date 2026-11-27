@@ -38,7 +38,7 @@ A program built against revision 2 cannot use a revision 1 library: the new symb
   Do not build clients with incompatible packing or nonstandard calling conventions.
 
 The complete [C client](../clients/c/main.c) demonstrates bounded configuration input, all return-code checks, result cleanup and runtime destruction.
-[C interface cases](../tests/c_api.cpp) and [pure C cases](../tests/c_client.c) are authored, not executed.
+The C interface is covered by [C interface cases](../tests/c_api.cpp) and [pure C cases](../tests/c_client.c).
 
 ## Requests, status and errors
 
@@ -192,14 +192,11 @@ A Rust `Ok` means a native report was returned, not that the contained applicati
 Rust does not have a second JSON/policy/parser dependency stack.
 Application callers may choose their own JSON library to inspect returned reports, but must not ignore pending, denied, error or unconfirmed states.
 The [Rust client](../clients/rust/src/main.rs), [lifecycle cases](../clients/rust/tests/lifecycle.rs) and [outcome cases](../clients/rust/tests/outcomes.rs) show the public wrapper.
-Tests are authored, not collected or run on the authoring host.
 
 ## Validation boundary and limitations
 
-Compiler syntax/type checks of C/C++ and metadata-only checks of the Rust library/client/tests do not execute the application, tests or examples.
-They do not prove successful linking, correct allocation under failure,
-runtime behavior, migrations, protocol conformance or provider compatibility.
-Every test named here is authored but unrun.
+[Validation](../../docs/VALIDATION.md#current-status) records where the C, C++ and Rust tests named here have run.
+Passing tests do not prove migration of real data, conformance with real protocol clients, or compatibility with providers.
 
 The existing Python implementation remains independent and fuller in scope.
 Native configuration, state,

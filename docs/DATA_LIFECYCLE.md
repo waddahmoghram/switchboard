@@ -4,7 +4,7 @@ The data directory (`~/.local/share/switchboard` by default, `/var/lib/switchboa
 The commands below back it up, check and restore those backups, export it, apply retention, and rotate and anchor the audit log, while the runner and assistants keep working.
 
 **Status.**
-These commands, the connector retention hooks, and their tests are authored but have not been run on any host.
+[Validation](./VALIDATION.md#current-status) records where the tests of these commands and of the connector retention hooks have run; the commands have not been used on a real data directory.
 Nothing in this guide is a measured result.
 
 | Command                                                    | Loads the configuration       | Effect                                                                        |
@@ -365,7 +365,7 @@ Anchors have limits:
 
 ## Limits
 
-* Nothing here has been executed; the tests are authored for the reader's own machine.
+* The tests use temporary directories and synthetic data, not a real data directory.
 * Backups and exports are clear text; encrypting and storing them elsewhere is up to you.
 * Audit redaction recognizes secrets by key name and shape only; a secret without a recognized shape stays in the record, as [What audit records keep](#what-audit-records-keep) lists.
 * The finance hook relies on file-system times.

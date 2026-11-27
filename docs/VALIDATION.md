@@ -1,10 +1,10 @@
 # Validation and packaging
 
-This page describes how Switchboard is checked away from the authoring host: a continuous integration (CI) workflow, CodeQL code scanning, a local script that runs the same stages on your own machine, CMake presets, sanitizer, fault and fuzz targets, and pinned dependencies.
+This page describes how Switchboard is checked: a continuous integration (CI) workflow, CodeQL code scanning, a local script that runs the same stages on your own machine, CMake presets, sanitizer, fault and fuzz targets, and pinned dependencies.
 
-**Status: authored and unexecuted.**
-No workflow run, configure, build, link, test, fuzzing session, install or Rust build of anything described here has been observed.
-The only checks performed while writing it were static: see [Current status](#current-status).
+**Status:** every stage has passed in local Linux runs that mirror the CI steps.
+Hosted CI has not yet run the current code, and the macOS and Apple Clang legs have not passed anywhere.
+[Current status](#current-status) is the one dated record of what has run, where, and with what result; other pages link to it.
 A stage that passes on your machine proves only what its row in [Stages at a glance](#stages-at-a-glance) claims.
 
 ## Stages at a glance
@@ -260,7 +260,7 @@ Not pinned: the runner images behind `ubuntu-24.04` and `macos-15`, Ubuntu and H
 ## Review notes from authoring
 
 Static reading while writing these tests found the following.
-Each has since been fixed in the source and is covered by an authored test; none of the fixes has been run.
+Each has since been fixed in the source and is covered by a test.
 
 - `hash()` and `identifier()` in the native engine built text with `std::ostringstream`, and timestamps were rendered the same way.
   The standard libraries catch an allocation failure during formatted output and only set the stream's error state, so a shortened digest, identifier, or timestamp could have been returned silently.
@@ -276,13 +276,44 @@ Each has since been fixed in the source and is covered by an authored test; none
 
 ## Current status
 
-Authored, unexecuted.
-Static checks on the authoring host, all passing:
+As of 2026-11-26.
+Method: local Linux runs that mirror the CI steps, not hosted CI.
+The Python stage ran on Linux x86-64 with CPython 3.11, 3.12 and 3.13, installed by uv 0.13.7 from `uv.lock`.
+The other stages ran in a local container built from `ubuntu:24.04` with the packages the CI jobs install: GCC 13.3.0, Clang 18.1.3, CMake 3.28.3, nlohmann-json 3.11.3 and stable Rust 1.100.0.
 
-- Ruff 0.15.0 lint and format check on `src` and `tests`; mypy 1.18.2 on `src` and `tests` (Python 3.12).
-- `-fsyntax-only` with GCC 11 and `-Wall -Wextra -Wpedantic -Werror` on the fuzz targets and fault tests;
-  `clang-format` 14 with `native/.clang-format`.
-- The workflow parsed as YAML Ain't Markup Language (YAML) data, the presets and manifests as JSON, and `Cargo.lock` and `pyproject.toml` as Tom's Obvious, Minimal Language (TOML); actionlint 1.7.12 on the workflow; `bash -n` and ShellCheck 0.11.0 on the script; cmake-lint on `CMakeLists.txt` and the package configuration template.
+| Stage                   | Configuration                      | Result                                                                                                           |
+| ----------------------- | ---------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| `python` lint and types | CPython 3.11, 3.12 and 3.13        | Ruff 0.15.0 lint and format check, and mypy 1.18.2 for Linux and `--platform darwin`: no findings on any version |
+| `python` tests          | CPython 3.11, 3.12 and 3.13        | pytest 9.0.3: 3,114 passed without the `integration` marker and 296 with it, on each version                     |
+| `python` coverage       | CPython 3.12                       | 94.4% line coverage, against the `fail_under` gate of 92%                                                        |
+| `contracts`             | Python and native runners          | The Python runner passed in the first pytest pass; the native runner passed 73 of 73 cases                       |
+| `native`                | `dev`, GCC 13.3.0 and Clang 18.1.3 | 13 of 13 tests passed with each compiler; 0 compiler warnings                                                    |
+| `sanitizers`            | `asan-ubsan`, GCC and Clang        | 13 of 13 passed with each compiler; no sanitizer reports                                                         |
+| `sanitizers`            | `tsan`, Clang                      | 3 of 3 passed; no reports                                                                                        |
+| `fuzz`                  | `fuzz`, Clang                      | 6 targets: seed-corpus replay plus 60 seconds of fuzzing each; no crashes                                        |
+| `rust`                  | Stable Rust 1.100.0                | The wrapper built with 0 warnings and its 15 tests passed                                                        |
+| `package`               | `release`                          | The install and the consumer build passed                                                                        |
 
-Unknowns that only a run can settle: Clang, Apple Clang and GCC 13 or newer diagnostics under `-Werror`; whether every sanitizer, fuzz target and fault test passes; runtimes of `alloc_faults` and the sanitizer jobs; and runner-image changes.
+The `tsan` run turned address-space layout randomization off with `setarch -R`, standing in for the runner's `vm.mmap_rnd_bits=28` step.
+
+Hosted CI: the first GitHub Actions run of `ci.yml`, on the repository's initial push, failed all 16 of its jobs.
+
+- Native jobs: `std::string == json` comparisons did not compile with nlohmann-json 3.11.3 under C++20, and GCC 13 raised `-Werror=dangling-reference` false positives.
+- Python on Ubuntu: a journal-sweep bug, and a file-descriptor leak in the documents connector.
+- Python on macOS: mypy reported `attr-defined` for the Linux-only `socket.SO_PEERCRED`.
+- Contracts: the job stopped after its Python half failed.
+
+Later commits fix these causes; hosted CI has not yet run the fixes.
+
+What has not run:
+
+- The macOS legs, Python and native, including Apple Clang, have run only in that failed first hosted run, never on the current code.
+- Nothing has run on Windows.
+- No run of CodeQL, Dependabot or the `cargo audit` step has been observed.
+- Nothing has been run against a real account, device or outside network service.
+- No systemd or launchd service has been installed, and the audit-anchor cron and launchd recipes have not been run.
+
+Before these runs, the only checks were static: Ruff, mypy, syntax-only compiler builds, clang-format, actionlint, ShellCheck and cmake-lint.
+
+Unknowns that only a hosted run can settle: Apple Clang diagnostics under `-Werror` and the rest of the macOS legs, differences between the hosted runners and the local mirror, and the runtime of `alloc_faults` on hosted runners.
 Every source and test file the CMake lists name exists; none is optional, so a missing file fails configuration instead of silently shrinking the suite.

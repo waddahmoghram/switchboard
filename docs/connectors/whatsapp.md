@@ -210,8 +210,7 @@ Do not assume a universal free 24-hour reply window.
 general-purpose assistants with jurisdiction-specific exceptions. None of that live messaging is implemented here.
 
 Synthetic unit and integration cases cover these parsing and import contracts without real accounts or outside network.
-They are authored tests, not runtime evidence from this host. Application and test execution are intentionally excluded
-here; run them only in an approved environment.
+[Validation](../VALIDATION.md#current-status) records where they have run.
 
 [export]: https://faq.whatsapp.com/1180414079177245
 [pricing]: https://developers.facebook.com/documentation/business-messaging/whatsapp/pricing

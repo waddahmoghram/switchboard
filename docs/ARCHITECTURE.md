@@ -200,9 +200,9 @@ It does not: these are ordered dispatches, not a workflow with dependencies.
 Use "send requested" when that is all the observed status establishes, or check the approval's final result after the user acts.
 Approval executes the stored tool request; it does not automatically resume a dependent workflow.
 
-Inspect `RuleEngine.__call__` in [rules.py](../src/switchboard/rules.py), `CallOutcome.is_error` and `Dispatcher.approve` in [tools.py](../src/switchboard/tools.py), and the authored pending-action case in [test_core_rules.py](../tests/unit/test_core_rules.py).
+Inspect `RuleEngine.__call__` in [rules.py](../src/switchboard/rules.py), `CallOutcome.is_error` and `Dispatcher.approve` in [tools.py](../src/switchboard/tools.py), and the pending-action case in [test_core_rules.py](../tests/unit/test_core_rules.py).
 This is a source-derived explanation.
-The tests have not been executed on the authoring host, and no mail was sent to establish this example.
+No mail was sent to establish this example.
 
 ## Messaging and historical exports
 

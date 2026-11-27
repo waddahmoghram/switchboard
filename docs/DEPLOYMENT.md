@@ -11,7 +11,7 @@ An assistant with unrestricted shell or file access under the same account can a
 
 Use the gate only with clients you trust to respect this boundary.
 Stronger separation requires separate operating-system accounts: the optional broker keeps the configuration, credentials, and data under a dedicated service account and gives the assistant and the operator separate local sockets.
-It is authored but not yet exercised; see [Isolation](./ISOLATION.md) for its setup and limits.
+It has not yet been installed under a service account on any host; see [Isolation](./ISOLATION.md) for its setup and limits.
 The tool exposure list is also not a multi-user data-permission system: the approval queue is shared by processes using the same data directory.
 
 Self-hosting removes the aggregator, not the model provider.
@@ -26,14 +26,14 @@ For the C++-first native engine and C/Rust clients,
 use [the separate native build and coverage guide](../native/README.md).
 Do not point native configuration,
 databases or approval commands at Python state, or assume all account connectors are available natively.
-No native program or test has been executed on the authoring host.
+[Validation](./VALIDATION.md#current-status) records which native builds and tests have run.
 
 Requirements: Python 3.11 or newer (for `tomllib`) on Linux or macOS.
 Windows is unsupported in this prototype:
 the audit log and runner lock depend on `fcntl`,
 and without it Switchboard refuses to start before it writes anything,
 rather than write the audit log unlocked.
-Runtime and platform compatibility remain untested.
+The tests have not yet passed on macOS; see [Validation](./VALIDATION.md#current-status) for the platforms that have run them.
 
 ```bash
 git clone "$SWITCHBOARD_REPO_URL" switchboard   # your private copy of this repository
@@ -71,10 +71,10 @@ Connector-specific settings still follow each connector's own validation.
 
 ## Run the tests
 
-The authored tests target fakes and local servers bound to `127.0.0.1`, not real accounts.
-None have been run on the authoring host.
+The tests target fakes and local servers bound to `127.0.0.1`, not real accounts.
+[Validation](./VALIDATION.md#current-status) records where they have run.
 Run them on your own machine before enabling connectors, ideally with outbound network access blocked except for loopback.
-Static checks do not prove provider compatibility.
+Passing tests do not prove provider compatibility.
 
 ```bash
 uv run pytest -m "not integration"   # unit tests
@@ -83,8 +83,8 @@ uv run ruff check src tests
 uv run mypy
 ```
 
-There is no automated multi-platform test pipeline or live-provider certification yet.
-A clean static check is not a passing unit test, an integration run, or a successful sign-in to a real account.
+The continuous integration workflow described in [Validation](./VALIDATION.md) is set up to run these checks on Linux and macOS; there is no live-provider certification.
+A passing test run is not a successful sign-in to a real account.
 
 ## Connect an assistant
 

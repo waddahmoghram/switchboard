@@ -6,15 +6,8 @@ readiness. A producer's successful completion report is **not independent restor
 There is no backup execution, restore execution, host administration, remote shell, subprocess,
 discovery, port scan, or arbitrary address supplied by a tool caller.
 
-**Runtime validation: UNRUN.** The 44 named tests in [monitoring.cpp](../tests/monitoring.cpp) are
-authored, not executed or collected. No project program, example, live endpoint, account, backup,
-report fixture, or host/disk measurement was executed while authoring. Syntax-only compiler
-validation does not establish operational correctness, successful linking, or test results.
-
-**Static validation:** the permitted C++20 `-Wall -Wextra -Wpedantic -fsyntax-only` command over
-the implementation and authored test source completed successfully without diagnostics.
-The example JSON, synthetic report example, Markdown links/fences, and text whitespace were
-checked as data only.
+**Validation:** [monitoring.cpp](../tests/monitoring.cpp) holds 44 named tests; [Validation](../../docs/VALIDATION.md#current-status) records where they have run.
+No live endpoint, account, backup, real completion report, or host disk has been used with this connector.
 
 ## Configuration and offline registration
 
@@ -191,7 +184,7 @@ Both configured minima are included in measurements. Below **either** minimum is
 Missing/inaccessible paths are `disk_unavailable`; zero/invalid capacity, inconsistent available
 space, or values beyond the native exact-integer range are `disk_data_invalid`. Failure produces
 no made-up capacity measurement. The pure `monitoring_detail::disk_capacity` classifier allows
-deterministic authored threshold tests without measuring a filesystem.
+deterministic threshold tests without measuring a filesystem.
 
 Paths are interpreted in the native process's machine and mount namespace. Containers may see
 different capacity. A disappeared intended mount can expose its underlying filesystem; this
@@ -258,7 +251,7 @@ native database connection**. An event failure rolls back the snapshot and every
 event. Older observations cannot overwrite newer observations of the same configuration.
 This is local atomic recording, not exactly-once external notification delivery.
 
-## Native/Python limits and authored evidence
+## Native/Python limits and test coverage
 
 The Python implementation and its documentation remain unchanged. Supported named check
 settings intentionally resemble Python tables, but the native implementation is not drop-in
@@ -279,11 +272,7 @@ state or operational parity:
   arbitrary headers/methods, other authentication, command secrets, remote capacity, backup/
   restore execution, restore claims, automatic notifications, and administration are outside scope.
 
-The 44 UNRUN test functions author coverage for fake transport behavior, lazy synthetic secrets,
-private synthetic reports, exact configuration fingerprints, invalidated cache, typed readiness,
-timestamp offsets/fractions/future/chronology, stale boundaries, failed/recovery/unchanged
-transitions, deterministic capacity thresholds, unsafe/missing paths, and transaction rollback.
-Capacity classification tests inject numbers; the missing-path integration test uses a future
-private fixture directory under the executing project, not a real configured disk. Tests create
-their fixtures only if explicitly run in the future and clean up their own directories.
-No runtime, test collection, live/network, or host-capacity validation is claimed.
+The 44 test functions cover fake transport behavior, lazy synthetic secrets, private synthetic reports, exact configuration fingerprints, invalidated cache, typed readiness, timestamp offsets/fractions/future/chronology, stale boundaries, failed/recovery/unchanged transitions, deterministic capacity thresholds, unsafe/missing paths, and transaction rollback.
+Capacity classification tests inject numbers; the missing-path integration test uses an uncreated path inside its private fixture directory, not a real configured disk.
+Tests create their fixtures under the working directory and clean up their own directories.
+No live/network or host-capacity validation is claimed.

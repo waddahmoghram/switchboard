@@ -4,7 +4,7 @@ This opt-in connector controls operator-owned WLED lights directly, without a cl
 Its JavaScript Object Notation (JSON) application programming interface (API) surface is deliberately smaller than WLED's.
 It cannot discover devices, toggle, choose random effects, change segment geometry, execute macros, manage firmware, reset configuration, or send arbitrary commands.
 
-**Verification boundary:** implementation and synthetic tests were authored without importing or running Switchboard, collecting or executing tests, starting servers, or contacting a light.
+**Verification boundary:** [Validation](../VALIDATION.md#current-status) records where the synthetic tests have run; no light has been contacted.
 Official documentation was inspected on 2026-11-11; firmware compatibility and physical behavior remain unverified.
 
 ## Trust and setup
@@ -245,12 +245,10 @@ already be superseded, a matching value can predate the request, and the device 
 The conservative static subset sacrifices effect, playlist, preset-indicator and older-firmware
 compatibility in exchange for auditable, limited commands.
 
-## Authored checks and sources
+## Checks and sources
 
-The synthetic [settings tests](../../tests/unit/test_wled_settings.py),
-[tool tests](../../tests/unit/test_wled_tools.py), and [approval integration tests](../../tests/integration/test_wled_approval.py) cover offline registration, strict settings and arguments, exact payloads and endpoint confinement, redirects and errors, scoped capabilities, acknowledgements versus readback, static preset pinning, and stale-configuration approval rejection after rebuilding the application.
-They are **UNRUN**; no test collection or execution is implied.
-Static syntax, lint, formatting, type, and documentation-data checks are not device or runtime validation.
+The synthetic [settings tests](../../tests/unit/test_wled_settings.py), [tool tests](../../tests/unit/test_wled_tools.py), and [approval integration tests](../../tests/integration/test_wled_approval.py) cover offline registration, strict settings and arguments, exact payloads and endpoint confinement, redirects and errors, scoped capabilities, acknowledgements versus readback, static preset pinning, and stale-configuration approval rejection after rebuilding the application.
+Passing synthetic tests are not device validation.
 
 Official references inspected for this implementation:
 

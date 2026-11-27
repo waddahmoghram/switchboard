@@ -9,8 +9,8 @@ The existing Python package remains the fuller reference implementation.
 The native backend targets the local-first connector families; it is **not a full port of the account and social connectors**.
 Unsupported configuration and operations are rejected rather than forwarded to Python.
 
-All programs and tests are authored but unrun.
-Compiler syntax/type or metadata checks are not a successful link, passing test, provider sign-in, device compatibility check, or verified physical effect.
+[Validation](../docs/VALIDATION.md#current-status) records which programs and tests have run, where, and with what result.
+Passing tests are not a provider sign-in, device compatibility check, or verified physical effect.
 
 ## Architecture
 
@@ -28,7 +28,7 @@ The [Rust library](./clients/rust/src/lib.rs) owns those handles and buffers saf
 
 The Model Context Protocol (MCP) host uses standard input/output, with no listening port.
 Modern requests use `2026-07-28`; the native legacy handshake selects `2025-11-25`.
-This is authored protocol support, not client certification.
+This is protocol support, not client certification.
 
 ## Coverage
 
@@ -36,7 +36,7 @@ This is authored protocol support, not client certification.
 | ----------------------------------------------------- | ------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
 | Policy and approvals                                  | C++ engine, shared by C/Rust                | Current schemas/policy rechecked; same-user callers are not sandboxed                                |
 | Action journal, deadlines and cancellation            | [Operations](./docs/operations.md)          | Contract states and reconciliation; serial runner with a tick budget; handlers are not interrupted   |
-| Approval separation                                   | [Native broker](./docs/isolation.md)        | Separate assistant and operator sockets under a service account; authored, not exercised             |
+| Approval separation                                   | [Native broker](./docs/isolation.md)        | Separate assistant and operator sockets under a service account; never installed as a service        |
 | Backups and retention                                 | [Operations](./docs/operations.md)          | Online backup with a manifest and read-only verification; core tables only                           |
 | Home Assistant                                        | [Home adapter](./docs/home.md)              | Profiles, reviewed lighting presets, sensor summary, opt-in polling/events; no speech or quiet hours |
 | WLED and Shelly                                       | [Direct device adapters](./docs/devices.md) | Fixed endpoints, reviewed scope and explicit observation limits                                      |
@@ -58,15 +58,15 @@ The Python package still has no third-party Python runtime dependencies.
 
 Native code uses ordinary C++20 standard-library types, four-space Allman formatting, and [its local formatter configuration](./.clang-format).
 This is a standalone personal project, not firmware: no private firmware wrappers, panic macros, build functions or company ownership banner is imported.
-No project license has been chosen; dependency licenses remain their respective owners'.
+The project is under the [MIT License](../LICENSE); dependency licenses remain their respective owners'.
 
 Linux and macOS are the target operating systems.
 Descriptor-relative private-file access is not a Windows implementation.
-Compiler, library and operating-system combinations remain untested.
+Compiler, library and operating-system combinations other than those in [Validation](../docs/VALIDATION.md#current-status), including macOS and Apple Clang, remain untested.
 
 ## Build on your own machine
 
-These are **unexecuted instructions**, not commands run on the authoring host.
+These instructions have not been run as written.
 Install a C++20 compiler, C99 compiler, CMake 3.20+, and development packages for the four libraries above.
 On a suitable Ubuntu personal machine, for example:
 
@@ -85,8 +85,8 @@ Tests use synthetic data and fake transports, but inspect the suite before runni
 The build option defaults to off; creating test targets is not running them.
 No automatic dependency download or provider connection is part of the CMake configuration.
 
-With CMake 3.25 or newer, the presets in [CMakePresets.json](./CMakePresets.json) (`dev`, `release`, `asan-ubsan`, `tsan`, `fuzz`, `coverage`) and `scripts/ci/validate.sh` run the same stages as the authored continuous integration workflow, including the contract, fault, sanitizer and fuzz suites.
-See [Validation](../docs/VALIDATION.md); like everything here, it has not been run.
+With CMake 3.25 or newer, the presets in [CMakePresets.json](./CMakePresets.json) (`dev`, `release`, `asan-ubsan`, `tsan`, `fuzz`, `coverage`) and `scripts/ci/validate.sh` run the same stages as the continuous integration workflow, including the contract, fault, sanitizer and fuzz suites.
+[Validation](../docs/VALIDATION.md#current-status) records which of these stages have run.
 
 For Rust, build the native library first, then make that library discoverable to the Rust compiler and operating-system loader.
 A Linux example, from the repository root:

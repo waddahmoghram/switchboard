@@ -4,9 +4,8 @@ This guide covers the operational behavior of the C++ native engine: the durable
 It implements the native side of [contract revision 1](../../contracts/README.md); where this guide and the contract differ, the contract wins.
 Requests, reports and configuration use JavaScript Object Notation (JSON).
 
-All of this is **authored but unrun**.
-The code was checked only with compiler syntax checks; it has not been built, linked or executed, and the tests listed in [Validation status](#validation-status) have not been run.
-Nothing here is evidence of runtime behavior, migration of real data, device compatibility or a physical effect.
+[Validation](../../docs/VALIDATION.md#current-status) records where the tests listed in [Validation status](#validation-status) have run.
+Passing tests are not evidence of migration of real data, device compatibility or a physical effect.
 
 ## Action journal
 
@@ -279,9 +278,9 @@ The header [native.hpp](../include/switchboard/native.hpp) also provides `STATE_
 
 ## Validation status
 
-The cases are authored in [core.cpp](../tests/core.cpp) (settings, journal tool, bounded ticks, tick cancellation), [recovery.cpp](../tests/recovery.cpp) (classification, duplicate guard, sweeps, late results, approval review and linking, cancellation and deadline clamping, extension gate) and [lifecycle.cpp](../tests/lifecycle.cpp) (migration, refusal of newer or incomplete state, backup and tampering, retention, kill switch).
+The cases are in [core.cpp](../tests/core.cpp) (settings, journal tool, bounded ticks, tick cancellation), [recovery.cpp](../tests/recovery.cpp) (classification, duplicate guard, sweeps, late results, approval review and linking, cancellation and deadline clamping, extension gate) and [lifecycle.cpp](../tests/lifecycle.cpp) (migration, refusal of newer or incomplete state, backup and tampering, retention, kill switch).
 They use synthetic extension tools and fake transports.
 One recovery case constructs the real web transport only to check that it refuses to start once cancelled or past its deadline; it targets the documentation-only address `192.0.2.1` and is designed to stop before any transfer.
 
-None of these tests has been built or run.
-Compiler syntax checks do not show that the code links, that the tests pass, that migrations work on real data, or that any provider or device behaves as described.
+[Validation](../../docs/VALIDATION.md#current-status) records where they have run.
+Passing tests do not show that migrations work on real data, or that any provider or device behaves as described.

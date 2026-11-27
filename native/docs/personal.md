@@ -5,14 +5,14 @@
 This is the C++20 implementation in [personal.cpp](../src/personal.cpp), registered by `register_personal(Context&, Registry&)`.
 It independently checks `context.enabled("documents")` and `context.enabled("tasks")`; enabling one does not enable the other.
 
-**Tests are authored, UNRUN, and uncollected.**
-No project code, test, example, scheduler, server, personal folder, account, or device was executed or accessed during authoring.
-The permitted compiler syntax check is static evidence only: it does not prove linking, database compatibility, filesystem race resistance, concurrency, scheduler timing, policy execution, or notification delivery.
+**Validation:** [Validation](../../docs/VALIDATION.md#current-status) records where these tests have run.
+No personal folder, account, or device has been used.
+Passing synthetic tests do not prove database compatibility, filesystem race resistance, concurrency across processes, scheduler timing, or notification delivery.
 
 Merge [personal.example.json](../config/personal.example.json) into the native configuration, keeping unrelated connector, policy, and exposure settings.
 The example deliberately exposes all ten tools; reduce that list before use if an assistant should see fewer capabilities.
 Replace its placeholder collection path with a small, deliberately selected local folder.
-Configuration examples are UNRUN.
+The configuration example has not been used with a real folder.
 No credentials, accounts, secret lookup, network requests, or source-folder creation are required.
 
 The native engine has its own private data directory and SQLite database.
@@ -262,18 +262,17 @@ There is no automatic task-retention or secure-erasure promise.
 This connector persists no document bodies, document index, scan inventory, or source snapshot; other engine logging and already returned copies have their own retention.
 Source reads may update filesystem access times.
 
-## Native versus Python, and authored coverage
+## Native versus Python, and test coverage
 
 The Python [documents guide](../../docs/connectors/documents.md) and [tasks guide](../../docs/connectors/tasks.md) are reference material, not native commands or proof that features were ported.
 Python command examples, service/doctor hooks, database migrations, Python notification-rule integration, case-folded task search, and Python's character-based task-field limits are not native features of this module.
 Native documents use conservative two-pass search budget accounting and different coverage field names; do not assume Python response compatibility.
 Neither implementation promises document conversion, embeddings, provider sync, or phone delivery.
 
-Authored cases live in [personal.cpp tests](../tests/personal.cpp).
+Cases live in [personal.cpp tests](../tests/personal.cpp).
 They use scoped, private, workspace-relative synthetic fixtures and a rejecting fake transport, not personal folders, a system scratch directory, or live accounts.
-**Every function below remains UNRUN and uncollected.**
 
-| Authored function                                    | Intended behavioral coverage, not observed results                                   |
+| Function                                             | Coverage                                                                             |
 | ---------------------------------------------------- | ------------------------------------------------------------------------------------ |
 | `test_independent_registration_and_no_scan`          | Independent enablement, tool tiers, no source scan or transport                      |
 | `test_configuration_rejection`                       | Unknown settings, invalid bounds, unsafe roots, duplicate roots, unsupported formats |
@@ -289,11 +288,11 @@ They use scoped, private, workspace-relative synthetic fixtures and a rejecting 
 | `test_reminder_and_mutation_rollback`                | Injected second-event failure, markers/check state, creation/edit/delete rollback    |
 | `test_runtime_exact_revision_deletion_approval`      | Pending deletion, persisted exact arguments, stale/current approval, replay          |
 
-Static compilation cannot establish these behavioral assertions, scheduling or locking under multiple processes, actual policy replay, filesystem races, durability after a crash, or external delivery.
+Passing tests cannot establish scheduling or locking under multiple processes, filesystem races, durability after a crash, or external delivery.
 
-### Static checks performed during authoring
+### Syntax-only check
 
-The C++20 syntax-only check of both sources was executed from the repository root and exited successfully with no compiler diagnostics; it did not link or execute anything.
+A C++20 syntax-only check of both sources, run from the repository root, neither links nor executes anything.
 The command shape below uses a portable placeholder for the external dependency headers:
 
 ```bash
@@ -303,7 +302,4 @@ c++ -std=c++20 -Wall -Wextra -Wpedantic -fsyntax-only \
     native/src/personal.cpp native/tests/personal.cpp
 ```
 
-The example configuration was parsed as data.
-The four scoped files were checked for trailing whitespace, tab indentation, and final newlines; C++ sources were checked for character values below 128.
-Markdown fence balance and local file links were checked.
-These are limited static checks, not a Markdown linter run, application configuration validation, test collection, a build, or runtime proof.
+[Validation](../../docs/VALIDATION.md#current-status) records the full builds and test runs.

@@ -10,10 +10,9 @@ The Python package has **no third-party Python runtime dependencies**; the nativ
 Python uses standard mail, calendar, and contact protocols, bank export files, and direct service interfaces.
 Both backends expose tools through the Model Context Protocol (MCP) with a **policy gate**: read and draft tools normally run immediately, act tools normally ask for approval, and no payment or checkout tool is implemented.
 
-> Status: v0.1 prototype, written but **not yet run**. Tests are authored, not executed. Source and test files
-> pass static formatting, lint, and type checks; those checks do not prove runtime behavior or provider
-> compatibility. No application, test, or connector was executed on the authoring machine. Run the tests
-> on your own computer first; see [Deployment](./docs/DEPLOYMENT.md).
+> Status: v0.1 prototype.
+> [Validation](./docs/VALIDATION.md#current-status) records what has been run, where, and with what result; nothing has been run against a real account or device.
+> Run the tests on your own computer first; see [Deployment](./docs/DEPLOYMENT.md).
 
 **This is a prototype, not a sandbox or a verified bank integration.**
 An assistant with shell access as your user can run approval commands, read your secrets, or edit the data directly.
@@ -52,7 +51,7 @@ See [the operating boundary](./docs/DEPLOYMENT.md#the-operating-boundary).
 These are opt-in.
 Home Assistant is a separate self-hosted device gateway; direct WLED and Shelly hooks do not require it.
 Device compatibility, authentication, and exact capabilities depend on the selected model and firmware.
-No device was contacted during authoring.
+No real device has been contacted.
 
 There is no "buy" or "pay" tool.
 Price watches tell you when an item hits your target, and you buy it yourself.
@@ -103,7 +102,7 @@ uv run switchboard call switchboard_status
 With an unchanged starter configuration and a fresh data directory, the last command should report `status: "ok"` and data containing `connectors: []`, `tools: 4`, and `kill_switch: false`.
 Its audit hash changes between calls; do not compare it with a fixed example.
 This checks local assembly and the dispatcher, not mail delivery or provider sign-in.
-These are expected results from source inspection, not commands executed on the authoring host.
+These expected results come from reading the source, not from running these commands.
 `scripts/ci/validate.sh` runs every check stage, including the native builds, contract fixtures, fault tests, sanitizers and fuzzing; see [Validation](./docs/VALIDATION.md).
 
 Stop here until that local path works.
